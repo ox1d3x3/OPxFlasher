@@ -6,7 +6,7 @@
 </h1>
 
 <p align="center">
-  <b>Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.</b><br>
+  <b>Backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.</b><br>
   Windows and Linux, GUI and command line.
 </p>
 
