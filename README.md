@@ -3,7 +3,7 @@
 **Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.**
 Windows and Linux, GUI and command line.
 
-> Status: **Phase 1 (backup), Phase 2 (ROM check), Phase 3 (guarded flashing) and Phase 4 (region conversion / signal restore).**
+> Status: **all five phases** – backup, ROM check, guarded flashing, region conversion / signal restore, root assistant.
 > Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.
 
 OPxFlasher was born after a OnePlus 13 (CN) got stuck on a ColorOS 17 release
@@ -119,6 +119,24 @@ Rules that always apply:
   on firmware known to break it).
 - A file can't come from both the ROM and your backup in the same run.
 
+## Phase 5: Root assistant
+
+Patching is done by your root app on the phone (Magisk, KernelSU or APatch), as
+those projects recommend. OPxFlasher handles the error-prone parts around it:
+
+1. **Stock image that matches the running build.** It's taken from a full OTA
+   whose build fingerprint must equal the phone's, or from a Full backup made on
+   the same build. A mismatched `init_boot` is the classic bootloop, so anything
+   else is refused. Magisk and KernelSU use `init_boot`; APatch uses `boot`.
+2. **Sent to the phone** as `Download/opx_stock_<partition>.img` for you to patch.
+3. **Found, pulled and checked**: a valid boot image, same header version as stock,
+   and actually different from stock.
+4. **Flashed to the current slot only**, behind the usual gates (verified backup,
+   known-bad firmware block, typed `ROOT`). The image is re-hashed right before writing.
+5. **Unroot** writes the stock image back the same way (typed `UNROOT`).
+
+After an OTA, run the same steps with the new build's full OTA.
+
 ## Install
 
 Requires Python 3.10+.
@@ -167,6 +185,13 @@ opx region show --backup backups/<folder>                       # region files i
 opx region restore --backup backups/<folder> --allow-fastbootd  # restore signal files (asks you to type RESTORE)
 ```
 
+```sh
+opx root prepare --manager magisk --rom FULL_OTA_OF_CURRENT_BUILD.zip    # check + send stock init_boot to the phone
+opx root pull --work opx-root-<model>-<time>                             # after patching in the app
+opx root flash --work opx-root-<model>-<time> --backup backups/<folder>  # asks you to type ROOT
+opx root unroot --work opx-root-<model>-<time> --backup backups/<folder> # asks you to type UNROOT
+```
+
 On a region change, `opx flash` restores your own region files automatically
 (`--no-restore-region` turns that off) and refuses to run without `--wipe`.
 
@@ -178,7 +203,7 @@ Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]
 2. ✅ ROM detection, anti-rollback checks, dry-run flash plans (Qualcomm ARB pending validation)
 3. ✅ Guarded flashing: known-bad firmware blocks, `super.img` from the bootloader, journal and resume
 4. ✅ Region conversion and signal restore using **your own** backed-up region files
-5. Root assistant (patch `init_boot`, re-root after OTA)
+5. ✅ Root assistant: matching stock image, patch in the app, checked flash to the current slot, unroot
 
 Partitions that hold device identity (`persist`, `modemst*`, `fsg`, `ocdt`,
 `devinfo`, `oplusreserve*`, `userdata`) are on a permanent **never-flash** list.

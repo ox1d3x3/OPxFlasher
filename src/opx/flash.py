@@ -139,10 +139,14 @@ class Step:
     partition: str = ""
     status: str = "pending"  # pending, done, failed
     detail: str = ""
-    source: str = "rom"  # "rom" or "backup"
+    source: str = "rom"  # "rom", "backup", or "patched"/"stock" for a single checked image file
+    image: str = ""  # explicit image file (root assistant)
+    sha256: str = ""  # expected hash of `image`, checked again right before writing
 
     @property
     def label(self) -> str:
+        if self.kind == "flash-current":
+            return f"Flash {self.source} {self.partition} to the current slot"
         if self.source == "backup":
             where = "both slots" if self.kind == "flash" else "logical, in fastbootd"
             return f"Restore {self.partition} from your backup ({where})"
@@ -162,7 +166,7 @@ class Step:
     @property
     def mode(self) -> str | None:
         """The mode the phone must be in before this step runs."""
-        if self.kind in ("preflight", "flash", "flash-super", "to-fastbootd", "wipe", "reboot"):
+        if self.kind in ("preflight", "flash", "flash-super", "flash-current", "to-fastbootd", "wipe", "reboot"):
             return "bootloader"
         if self.kind in ("snapshot", "flash-logical", "back-to-bootloader"):
             return "fastbootd"
@@ -346,6 +350,15 @@ def _image_names(plan: FlashPlan) -> list[str]:
     return [s.partition for s in plan.steps if s.kind in ("flash", "flash-logical", "flash-super") and s.source == "rom"]
 
 
+def verified_step_images(plan: FlashPlan) -> None:
+    """Explicit image files (root assistant) must still match the hash recorded when they were checked."""
+    for step in plan.steps:
+        if step.image and step.status != "done":
+            path = Path(step.image)
+            if not path.is_file() or sha256_file(path) != step.sha256:
+                raise FlashError(f"{path.name} changed since it was checked (hash mismatch). Nothing was written.")
+
+
 def verified_backup_files(plan: FlashPlan, emit: EventFn) -> dict[str, Path]:
     """Check every backup image we'll write against the hash recorded when it was made."""
     files: dict[str, Path] = {}
@@ -523,6 +536,19 @@ class Runner:
             if step.source == "backup":
                 return "restored " + self._flash_physical(fb, step.partition, lambda t: self._backup_image(step.partition, t))
             return "wrote " + self._flash_physical(fb, step.partition, lambda t: files[step.partition])
+        if step.kind == "flash-current":
+            image = Path(step.image)
+            if sha256_file(image) != step.sha256:
+                raise FlashError(f"{image.name} changed since it was checked; not writing it")
+            slot = fb.getvar("current-slot")
+            target = f"{step.partition}_{slot}" if slot in ("a", "b") and fb.has_slot(step.partition) else step.partition
+            part_size = fb.partition_size(target)
+            if part_size is None:
+                raise FlashError(f"{target} does not exist on this phone")
+            if image.stat().st_size > part_size:
+                raise FlashError(f"{image.name} is larger than {target}")
+            fb.flash(target, image)
+            return f"wrote {target}"
         if step.kind == "flash-super":
             size = files["super"].stat().st_size
             super_size = fb.partition_size("super")
@@ -559,6 +585,7 @@ class Runner:
             raise FlashError("This plan needs the ROM, but none was given.")
         files = extract_images(self.rom, rom_names, self.workdir, self.emit, self.cancel) if rom_names else {}
         self.backup_files = verified_backup_files(plan, self.emit)
+        verified_step_images(plan)
         save_journal(plan, self.journal)
         pending = [s for s in plan.steps if s.status != "done"]
         total = len(plan.steps)

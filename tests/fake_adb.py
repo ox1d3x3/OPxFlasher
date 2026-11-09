@@ -41,8 +41,16 @@ def local(path: str) -> Path | None:
     return None
 
 
+DOWNLOAD = ROOT / "sdcard" / "Download"
+
+
 def run(cmd: str, root: bool) -> int:
     out = sys.stdout.buffer
+    if cmd == "ls -t /sdcard/Download":  # shared storage needs no root
+        DOWNLOAD.mkdir(parents=True, exist_ok=True)
+        files = sorted(DOWNLOAD.iterdir(), key=lambda f: f.stat().st_mtime_ns, reverse=True)
+        out.write("".join(f.name + "\n" for f in files).encode())
+        return 0
     if cmd == "id -u":
         out.write(b"0\n" if root else b"2000\n")
         return 0
@@ -108,6 +116,21 @@ def main(argv: list[str]) -> int:
     if boot_mode() != "android":
         sys.stderr.write("adb: no devices/emulators found\n")
         return 1
+    if args[:1] == ["push"]:
+        src, dst = Path(args[1]), args[2]
+        assert dst.startswith("/sdcard/Download/"), dst
+        DOWNLOAD.mkdir(parents=True, exist_ok=True)
+        (DOWNLOAD / dst.rsplit("/", 1)[1]).write_bytes(src.read_bytes())
+        log(f"push {dst}")
+        return 0
+    if args[:1] == ["pull"]:
+        src, dst = args[1], Path(args[2])
+        f = DOWNLOAD / src.rsplit("/", 1)[1]
+        if not f.exists():
+            sys.stderr.write(f"adb: error: remote object '{src}' does not exist\n")
+            return 1
+        dst.write_bytes(f.read_bytes())
+        return 0
     if args[:1] == ["reboot"]:
         state_file = ROOT / "fastboot.json"
         state = json.loads(state_file.read_text())

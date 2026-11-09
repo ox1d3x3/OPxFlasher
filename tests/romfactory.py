@@ -183,3 +183,13 @@ def build_qcom_elf(arb: int, mbn_version: int = 6, software_id: int = 0x1C) -> b
     ph_hash = struct.pack("<IIQQQQQQ", 0, 2 << 24, seg_off, 0, 0, len(seg), len(seg), 0)
     ph_load = struct.pack("<IIQQQQQQ", 1, 5, load_off, 0, 0, len(load), len(load), 0)
     return ehdr + ph_hash + ph_load + seg + load
+
+
+# --- boot images ----------------------------------------------------------------
+
+
+def build_boot_image(ramdisk: bytes = b"ramdisk", header_version: int = 4, size: int = 8192) -> bytes:
+    """A minimal Android boot/init_boot image (v3/v4 header layout)."""
+    header = b"ANDROID!" + struct.pack("<IIII4II", 0, len(ramdisk), 0, 4096, 0, 0, 0, 0, header_version)
+    body = header + b"\0" * (4096 - len(header)) + ramdisk
+    return body + b"\0" * (size - len(body))

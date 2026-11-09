@@ -447,6 +447,106 @@ def cmd_region_restore(args) -> int:
     return 0
 
 
+PATCH_HINT = {
+    "magisk": "Open Magisk -> Install -> 'Select and Patch a File' -> choose Download/{name} -> Let's Go.",
+    "kernelsu": "Open KernelSU -> Install -> 'Select a file' -> choose Download/{name} (LKM mode) -> Next.",
+    "apatch": "Open APatch -> Patch -> 'Select a boot image' -> choose Download/{name}, set your superkey -> Start.",
+}
+
+
+def _root_session_tools(session):
+    serial = session.device.get("serial") or _pick_adb_serial(None)
+    return Tool("adb").bind(serial)
+
+
+def cmd_root_prepare(args) -> int:
+    from opx import root as rt
+
+    session_live = open_session(_pick_adb_serial(args.serial))
+    device = pn.device_from_session(session_live)
+    if not session_live.access.usable:
+        print("Note: root isn't needed for this step.")
+    partition = rt.MANAGERS[args.manager][1]
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    work = Path(args.work or f"opx-root-{device.facts.get('model') or 'phone'}-{stamp}")
+    if args.rom:
+        stock = rt.stock_from_rom(open_rom(args.rom), partition, device.facts, work)
+        source = f"ROM {Path(args.rom).name}"
+    else:
+        stock = rt.stock_from_backup(Path(args.backup), partition, device.facts, work)
+        source = f"backup {Path(args.backup).name}"
+    session = rt.new_session(args.manager, device, stock, source)
+    remote = rt.push_stock(session_live.adb, session)
+    session.save(work)
+    name = Path(remote).name
+    print(f"Stock {partition} for build {device.facts.get('build')} (from {source}) verified and sent to the phone:")
+    print(f"  {remote}\n")
+    print("Now patch it on the phone:")
+    print("  " + PATCH_HINT[args.manager].format(name=name))
+    print(f"\nThen run:  opx root pull --work \"{work}\"")
+    return 0
+
+
+def cmd_root_pull(args) -> int:
+    from opx import root as rt
+
+    work = Path(args.work)
+    session = rt.RootSession.load(work)
+    problems = rt.pull_patched(_root_session_tools(session), session, work)
+    session.save(work)
+    print(f"Pulled {session.patched_remote} -> {session.patched_path}")
+    if problems:
+        print("\nThe patched image doesn't look right:")
+        for prob in problems:
+            print(f"  - {prob}")
+        return 3
+    print("Checks passed (valid boot image, same header version as stock, actually patched).")
+    print(f"\nNext:  opx root flash --work \"{work}\" --backup <your backup>")
+    return 0
+
+
+def _root_flash(args, purpose: str, word: str) -> int:
+    from opx import flash as fl
+    from opx import root as rt
+
+    work = Path(args.work)
+    session = rt.RootSession.load(work)
+    live = open_session(_pick_adb_serial(args.serial or session.device.get("serial")))
+    device = pn.device_from_session(live)
+    plan = rt.prepare_flash(device, Path(args.backup) if args.backup else None, session, purpose, not args.no_reboot)
+    print(f"{'Root' if purpose == 'root' else 'Unroot'} {device.label} ({rt.MANAGERS[session.manager][0]}, {session.partition}):")
+    for i, st in enumerate(plan.steps, 1):
+        print(f"  {i:>2}. {st.label}")
+    if not plan.ok:
+        print("\nBLOCKED:")
+        for prob in plan.problems:
+            print(f"  - {prob}")
+        return 3
+    if args.dry_run:
+        print("\nDry run: nothing was written.")
+        return 0
+    if not _confirm(word, "\nOnly the current slot is written; the other slot keeps its image."):
+        print("Cancelled. Nothing was written.")
+        return 1
+    journal = work / f"{purpose}-journal.json"
+    runner = fl.Runner(plan, None, live.profile, Tool("adb"), Tool("fastboot"), journal, work / "images",
+                       on_event=_print_flash_event)
+    try:
+        runner.run()
+    except fl.FlashError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 4
+    return 0
+
+
+def cmd_root_flash(args) -> int:
+    return _root_flash(args, "root", "ROOT")
+
+
+def cmd_root_unroot(args) -> int:
+    return _root_flash(args, "unroot", "UNROOT")
+
+
 def cmd_gui(args) -> int:
     from opx.gui.app import main as gui_main
 
@@ -543,6 +643,29 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--work", help="folder for the journal (default: current folder)")
     rr.set_defaults(fn=cmd_region_restore)
 
+    ro = sub.add_parser("root", help="root assistant: patch init_boot/boot with Magisk, KernelSU or APatch")
+    rosub = ro.add_subparsers(dest="root_command", required=True)
+    rp = rosub.add_parser("prepare", help="extract the matching stock image and send it to the phone for patching")
+    rp.add_argument("--manager", choices=("magisk", "kernelsu", "apatch"), required=True)
+    src = rp.add_mutually_exclusive_group(required=True)
+    src.add_argument("--rom", help="full OTA of the build the phone is running now")
+    src.add_argument("--backup", help="a Full backup made on the current build")
+    rp.add_argument("-s", "--serial")
+    rp.add_argument("--work", help="folder for this root session (default: ./opx-root-<model>-<time>)")
+    rp.set_defaults(fn=cmd_root_prepare)
+    rpl = rosub.add_parser("pull", help="find the patched image on the phone, pull and check it")
+    rpl.add_argument("--work", required=True)
+    rpl.set_defaults(fn=cmd_root_pull)
+    for name, fn, text in (("flash", cmd_root_flash, "flash the patched image (current slot)"),
+                           ("unroot", cmd_root_unroot, "flash the stock image back (current slot)")):
+        rf_ = rosub.add_parser(name, help=text)
+        rf_.add_argument("--work", required=True)
+        rf_.add_argument("--backup", help="your Critical or Full backup of this phone (required)")
+        rf_.add_argument("-s", "--serial")
+        rf_.add_argument("--no-reboot", action="store_true")
+        rf_.add_argument("--dry-run", action="store_true")
+        rf_.set_defaults(fn=fn)
+
     sub.add_parser("gui", help="open the graphical app").set_defaults(fn=cmd_gui)
     return p
 
@@ -551,7 +674,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)
-    except (bk.BackupError, ToolNotFound, RomError, pl.PayloadError, avb.AvbError, qcom.QcomError, OSError) as e:
+    except (bk.BackupError, ToolNotFound, RomError, pl.PayloadError, avb.AvbError, qcom.QcomError, OSError,
+            RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
