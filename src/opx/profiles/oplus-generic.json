@@ -18,7 +18,7 @@
       { "name": "devinfo", "logical": false },
       { "name": "oplusreserve*", "logical": false }
     ],
-    "full_exclude": ["userdata"]
+    "full_exclude": ["userdata", "metadata", "frp"]
   },
   "conditional": ["oplusstanvbk", "my_region", "odm"],
   "avb_images": ["vbmeta", "vbmeta_system", "vbmeta_vendor"],
@@ -33,6 +33,8 @@
     "ocdt",
     "devinfo",
     "oplusreserve*",
-    "userdata"
+    "userdata",
+    "metadata",
+    "frp"
   ]
 }

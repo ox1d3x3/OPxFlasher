@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import json
 import threading
@@ -6,6 +7,7 @@ import pytest
 
 from opx import backup as bk
 from opx import profile as profiles
+from opx.profile import PartitionRule
 from opx.remote import RemoteShell, UnsafeCommand, _assert_read_only, check_name, check_path
 from opx.session import open_session
 
@@ -59,9 +61,26 @@ def test_full_plan_excludes_userdata(adb):
     s = session(adb)
     plan = bk.build_plan(s.shell, s.profile, "full", s.props)
     got = names(plan)
-    assert "userdata" not in got
+    assert not {"userdata", "metadata", "frp"} & set(got)
     assert "super" in got and "boot_a" in got
     assert all(i.source == "by-name" for i in plan.items)
+    assert any("personal data is not included" in w for w in plan.warnings)
+
+
+def test_full_plan_skips_personal_data_even_if_the_profile_forgets(adb):
+    # The exclusion is hard-coded, not left to device profiles.
+    s = session(adb)
+    careless = dataclasses.replace(s.profile, full_exclude=[])
+    got = set(names(bk.build_plan(s.shell, careless, "full", s.props)))
+    assert not {"userdata", "metadata", "frp"} & got
+    assert "super" in got
+
+
+def test_a_profile_rule_can_never_back_up_personal_data(adb):
+    s = session(adb)
+    bad = dataclasses.replace(s.profile, network=[PartitionRule("userdata", False)])
+    with pytest.raises(bk.BackupError, match="personal data"):
+        bk.build_plan(s.shell, bad, "network", s.props)
 
 
 def test_backup_writes_verified_images_and_manifest(adb, fake_device, tmp_path):

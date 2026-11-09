@@ -50,6 +50,8 @@ PHYSICAL = {
     "boot_b": 65536,
     "super": 131072,
     "userdata": 262144,
+    "metadata": 4096,
+    "frp": 512,
 }
 
 LOGICAL = {"my_region_a": 16384, "system_a": 32768}
