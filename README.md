@@ -1,7 +1,14 @@
-# OPxFlasher
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/wordmark-on-dark.svg">
+    <img src="assets/brand/wordmark-on-light.svg" alt="OPxFlasher" width="420">
+  </picture>
+</h1>
 
-**Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.**
-Windows and Linux, GUI and command line.
+<p align="center">
+  <b>Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.</b><br>
+  Windows and Linux, GUI and command line.
+</p>
 
 > Status: **all five phases** – backup, ROM check, guarded flashing, region conversion / signal restore, root assistant.
 > Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.

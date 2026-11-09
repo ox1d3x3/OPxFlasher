@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="t">
+  <title id="t">OPxFlasher (small sizes)</title>
+  <!-- Drawn for 16-32 px: two pins per side instead of three, heavier strokes. -->
+  <rect width="120" height="120" rx="28" fill="#1C1F26"/>
+  <g stroke="#F5F6F8" stroke-width="9" stroke-linecap="round">
+    <path d="M50 18 V28 M70 18 V28 M50 92 V102 M70 92 V102 M18 50 H28 M18 70 H28 M92 50 H102 M92 70 H102"/>
+  </g>
+  <rect x="30" y="30" width="60" height="60" rx="12" fill="none" stroke="#F5F6F8" stroke-width="9"/>
+  <path d="M45 61 L56 72 L76 50" fill="none" stroke="#D6322C" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
