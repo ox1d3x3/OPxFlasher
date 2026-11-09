@@ -1,0 +1,512 @@
+"""OPxFlasher desktop app (PySide6). Phase 1: read-only backup."""
+
+from __future__ import annotations
+
+import sys
+import threading
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from opx import __version__
+from opx import backup as bk
+from opx import device as dev
+from opx.profile import MODE_TEXT, MODES
+from opx.session import Session, open_session
+
+STYLE = """
+QMainWindow { background: #15171c; }
+QWidget { color: #e6e8ee; font-size: 10pt; }
+QGroupBox { border: 1px solid #2c3039; border-radius: 8px; margin-top: 14px; padding: 10px; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #9aa3b5; }
+QPushButton { background: #262a33; border: 1px solid #353a45; border-radius: 6px; padding: 6px 14px; }
+QPushButton:hover { background: #2f3440; }
+QPushButton:disabled { color: #6b7280; }
+QPushButton#primary { background: #d6322c; border-color: #d6322c; color: white; font-weight: 600; }
+QPushButton#primary:hover { background: #e2453f; }
+QPushButton#primary:disabled { background: #4a2a29; border-color: #4a2a29; }
+QLineEdit, QComboBox, QPlainTextEdit, QTableWidget {
+    background: #1c1f26; border: 1px solid #2c3039; border-radius: 6px; padding: 4px;
+}
+QHeaderView::section { background: #20232b; border: none; padding: 4px; color: #9aa3b5; }
+QProgressBar { background: #1c1f26; border: 1px solid #2c3039; border-radius: 6px; text-align: center; }
+QProgressBar::chunk { background: #d6322c; border-radius: 6px; }
+QLabel#banner { border-radius: 6px; padding: 8px; }
+QLabel#title { font-size: 20pt; font-weight: 700; }
+QScrollBar:vertical, QScrollBar:horizontal { background: #1c1f26; border: none; width: 10px; height: 10px; }
+QScrollBar::handle { background: #3a3f4b; border-radius: 4px; min-height: 24px; min-width: 24px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+"""
+
+
+def human(n: int | None) -> str:
+    if n is None:
+        return "?"
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return str(n)
+
+
+class JobSignals(QObject):
+    done = Signal(object)
+    failed = Signal(object)
+    event = Signal(object)
+
+
+class Job(QRunnable):
+    """Runs a blocking function off the UI thread."""
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self.fn, self.args, self.kwargs = fn, args, kwargs
+        self.signals = JobSignals()
+        self.setAutoDelete(False)
+
+    def run(self) -> None:
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except BaseException as exc:  # report everything to the UI
+            self.signals.failed.emit(exc)
+        else:
+            self.signals.done.emit(result)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle(f"OPxFlasher {__version__}")
+        self.resize(1180, 860)
+        self.pool = QThreadPool.globalInstance()
+        self.jobs: list[Job] = []
+        self.devices: list[dev.Device] = []
+        self.session: Session | None = None
+        self.plan: bk.Plan | None = None
+        self.cancel_flag = threading.Event()
+        self.last_folder: Path | None = None
+        self.busy = False
+        self._build_ui()
+        self._update_buttons()
+
+    # --- layout -----------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        layout = QVBoxLayout(root)
+        layout.setSpacing(10)
+
+        title = QLabel("OPxFlasher")
+        title.setObjectName("title")
+        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones. Phase 1: read-only backup.")
+        subtitle.setStyleSheet("color:#9aa3b5")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        # device
+        dev_box = QGroupBox("Phone")
+        dev_layout = QVBoxLayout(dev_box)
+        row = QHBoxLayout()
+        self.device_combo = QComboBox()
+        self.device_combo.setMinimumWidth(420)
+        self.device_combo.currentIndexChanged.connect(self._device_selected)
+        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.clicked.connect(self.refresh_devices)
+        row.addWidget(self.device_combo, 1)
+        row.addWidget(self.refresh_btn)
+        dev_layout.addLayout(row)
+
+        self.info_labels: dict[str, QLabel] = {}
+        form = QFormLayout()
+        for key, text in (
+            ("model", "Model"),
+            ("build", "Build"),
+            ("android", "Android"),
+            ("security_patch", "Security patch"),
+            ("slot_suffix", "Active slot"),
+            ("access", "Root access"),
+            ("profile", "Profile"),
+        ):
+            lbl = QLabel("-")
+            lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self.info_labels[key] = lbl
+            form.addRow(text + ":", lbl)
+        dev_layout.addLayout(form)
+        self.banner = QLabel()
+        self.banner.setObjectName("banner")
+        self.banner.setWordWrap(True)
+        self.banner.hide()
+        dev_layout.addWidget(self.banner)
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        top.addWidget(dev_box, 1)
+
+        # backup options
+        opt_box = QGroupBox("Backup")
+        opt_layout = QVBoxLayout(opt_box)
+        self.mode_group = QButtonGroup(self)
+        for i, mode in enumerate(MODES):
+            rb = QRadioButton(MODE_TEXT[mode])
+            rb.setProperty("mode", mode)
+            if mode == "critical":
+                rb.setChecked(True)
+            self.mode_group.addButton(rb, i)
+            opt_layout.addWidget(rb)
+        self.mode_group.buttonToggled.connect(lambda *_: self._invalidate_plan())
+
+        out_row = QHBoxLayout()
+        self.out_edit = QLineEdit(str(Path.home() / "OPxFlasher-backups"))
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self._browse)
+        out_row.addWidget(QLabel("Save to:"))
+        out_row.addWidget(self.out_edit, 1)
+        out_row.addWidget(browse)
+        opt_layout.addLayout(out_row)
+        self.verify_box = QCheckBox("Verify every image on the phone with sha256sum (recommended)")
+        self.verify_box.setChecked(True)
+        opt_layout.addWidget(self.verify_box)
+
+        btn_row = QHBoxLayout()
+        self.preview_btn = QPushButton("Preview")
+        self.preview_btn.clicked.connect(self.preview)
+        self.start_btn = QPushButton("Start backup")
+        self.start_btn.setObjectName("primary")
+        self.start_btn.clicked.connect(self.start_backup)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.cancel)
+        self.open_btn = QPushButton("Open folder")
+        self.open_btn.clicked.connect(self._open_folder)
+        self.verify_btn = QPushButton("Verify a backup...")
+        self.verify_btn.clicked.connect(self.verify_existing)
+        for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
+            btn_row.addWidget(b)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.verify_btn)
+        opt_layout.addLayout(btn_row)
+        top.addWidget(opt_box, 1)
+        layout.addLayout(top)
+
+        # progress
+        self.item_label = QLabel("Idle")
+        self.item_bar = QProgressBar()
+        self.item_bar.setFormat("Current partition  %p%")
+        self.overall_bar = QProgressBar()
+        self.overall_bar.setFormat("Overall  %p%")
+        layout.addWidget(self.item_label)
+        layout.addWidget(self.item_bar)
+        layout.addWidget(self.overall_bar)
+
+        # table + log
+        splitter = QSplitter(Qt.Vertical)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Partition", "Size", "Path", "Status"])
+        header = self.table.horizontalHeader()
+        for col in (0, 1, 3):
+            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        splitter.addWidget(self.table)
+        splitter.addWidget(self.log)
+        splitter.setSizes([340, 140])
+        layout.addWidget(splitter, 1)
+
+        self.setCentralWidget(root)
+
+    # --- helpers ----------------------------------------------------------
+
+    def say(self, text: str) -> None:
+        self.log.appendPlainText(text)
+
+    def mode(self) -> str:
+        return self.mode_group.checkedButton().property("mode")
+
+    def run_job(self, job: Job, done, failed=None, event=None) -> None:
+        # Slots are bound methods of this window, so Qt queues them onto the UI thread.
+        self.jobs = self.jobs[-20:] + [job]  # keep references alive while running
+        job.signals.done.connect(done)
+        job.signals.failed.connect(failed or self._job_failed)
+        if event:
+            job.signals.event.connect(event)
+        self.pool.start(job)
+
+    def _job_failed(self, exc: BaseException) -> None:
+        self._set_busy(False)
+        self.say(f"Error: {exc}")
+        QMessageBox.warning(self, "OPxFlasher", str(exc))
+
+    def _set_busy(self, busy: bool) -> None:
+        self.busy = busy
+        self._update_buttons()
+
+    def _update_buttons(self) -> None:
+        ready = self.session is not None and self.session.access.usable
+        self.refresh_btn.setEnabled(not self.busy)
+        self.device_combo.setEnabled(not self.busy)
+        self.preview_btn.setEnabled(ready and not self.busy)
+        self.start_btn.setEnabled(ready and not self.busy)
+        self.cancel_btn.setEnabled(self.busy)
+        self.open_btn.setEnabled(self.last_folder is not None)
+        for b in self.mode_group.buttons():
+            b.setEnabled(not self.busy)
+
+    def _show_banner(self, text: str, level: str) -> None:
+        colours = {"danger": "#5c1d1b", "warning": "#4d3b12", "info": "#1d3550"}
+        self.banner.setStyleSheet(f"background:{colours.get(level, '#1d3550')}")
+        self.banner.setText(text)
+        self.banner.setVisible(bool(text))
+
+    def _invalidate_plan(self) -> None:
+        self.plan = None
+        self.table.setRowCount(0)
+
+    # --- devices ----------------------------------------------------------
+
+    def refresh_devices(self) -> None:
+        self._set_busy(True)
+        self.say("Looking for phones...")
+        self.run_job(Job(dev.scan), self._devices_found)
+
+    def _devices_found(self, scan: dev.Scan) -> None:
+        self._set_busy(False)
+        for err in scan.errors:
+            self.say(err)
+        self.devices = scan.devices
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        for d in self.devices:
+            self.device_combo.addItem(d.label)
+        self.device_combo.blockSignals(False)
+        if not self.devices:
+            self.session = None
+            self._clear_info()
+            self._show_banner(
+                "No phone found. Enable USB debugging and accept the prompt, or boot a custom recovery.",
+                "info",
+            )
+            self._update_buttons()
+            return
+        self._device_selected(0)
+
+    def _clear_info(self) -> None:
+        for lbl in self.info_labels.values():
+            lbl.setText("-")
+
+    def _device_selected(self, index: int) -> None:
+        self.session = None
+        self._invalidate_plan()
+        self._clear_info()
+        self._update_buttons()
+        if index < 0 or index >= len(self.devices):
+            return
+        d = self.devices[index]
+        if not d.can_backup:
+            msg = {
+                "unauthorized": "Unlock the phone and accept the USB debugging prompt, then press Refresh.",
+                "bootloader": "The phone is in the bootloader. Backups need Android (rooted) or a custom recovery.",
+                "fastbootd": "The phone is in fastbootd. Backups need Android (rooted) or a custom recovery.",
+            }.get(d.state, f"Backups are not possible in '{d.mode_text}' mode.")
+            self._show_banner(msg, "warning")
+            return
+        self._set_busy(True)
+        self.say(f"Connecting to {d.serial}...")
+        self.run_job(Job(open_session, d.serial), self._session_ready)
+
+    def _session_ready(self, session: Session) -> None:
+        self._set_busy(False)
+        self.session = session
+        facts = bk.device_facts(session.props)
+        for key in ("model", "build", "android", "security_patch", "slot_suffix"):
+            self.info_labels[key].setText(facts.get(key) or "-")
+        access_text = {
+            "su": "Yes (su: Magisk / KernelSU / APatch)",
+            "root-shell": "Yes (recovery / adb root)",
+            "none": "No",
+        }[session.access.kind]
+        self.info_labels["access"].setText(access_text)
+        self.info_labels["profile"].setText(session.profile.name)
+
+        issues = session.profile.issues_for(session.props)
+        if issues:
+            self._show_banner("\n\n".join(i.message for i in issues), issues[0].severity)
+        elif not session.access.usable:
+            self._show_banner(
+                "No root access. Grant root to 'Shell' in Magisk/KernelSU/APatch, or boot a custom recovery, "
+                "then press Refresh.",
+                "warning",
+            )
+        else:
+            self._show_banner("", "info")
+        self.say(f"Connected: {facts.get('model')} {facts.get('build')} (root: {session.access.kind})")
+        self._update_buttons()
+
+    # --- backup -----------------------------------------------------------
+
+    def preview(self, then=None) -> None:
+        if not self.session:
+            return
+        self._set_busy(True)
+        self._after_plan = then if callable(then) else None
+        s = self.session
+        self.run_job(Job(bk.build_plan, s.shell, s.profile, self.mode(), s.props), self._plan_ready)
+
+    def _plan_ready(self, plan: bk.Plan) -> None:
+        then, self._after_plan = getattr(self, "_after_plan", None), None
+        self._set_busy(False)
+        self.plan = plan
+        self.table.setRowCount(len(plan.items))
+        for row, item in enumerate(plan.items):
+            for col, text in enumerate((item.name, human(item.size), item.path, "waiting")):
+                self.table.setItem(row, col, QTableWidgetItem(text))
+        self.say(f"{MODE_TEXT[plan.mode]}: {len(plan.items)} partition(s), {human(plan.total_bytes)} total")
+        if plan.missing:
+            self.say("Not found on this phone: " + ", ".join(plan.missing))
+        for w in plan.warnings:
+            self.say("Note: " + w)
+        if then:
+            then()
+
+    def start_backup(self) -> None:
+        if not self.session:
+            return
+        if not self.plan or self.plan.mode != self.mode():
+            self.preview(then=self.start_backup)
+            return
+        out = Path(self.out_edit.text()).expanduser()
+        self.cancel_flag = threading.Event()
+        self._set_busy(True)
+        self.overall_bar.setValue(0)
+        self.item_bar.setValue(0)
+        job = Job(
+            bk.run_backup,
+            self.session.shell,
+            self.plan,
+            out,
+            verify_on_device=self.verify_box.isChecked(),
+            cancel=self.cancel_flag,
+        )
+        job.kwargs["on_event"] = job.signals.event.emit
+        self.run_job(job, self._backup_done, self._backup_failed, self._backup_event)
+
+    def cancel(self) -> None:
+        self.cancel_flag.set()
+        self.say("Cancelling...")
+
+    def _row_of(self, name: str) -> int:
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 0).text() == name:
+                return row
+        return -1
+
+    def _backup_event(self, e: dict) -> None:
+        t = e["type"]
+        if t == "item_start":
+            self.item_label.setText(f"[{e['index']}/{e['total']}] Reading {e['name']} ({human(e['size'])})")
+            self.item_bar.setValue(0)
+            row = self._row_of(e["name"])
+            if row >= 0:
+                self.table.item(row, 3).setText("reading...")
+        elif t == "progress":
+            if e.get("size"):
+                self.item_bar.setValue(int(100 * e["done"] / e["size"]))
+            if e.get("overall_total"):
+                self.overall_bar.setValue(int(100 * e["overall_done"] / e["overall_total"]))
+        elif t == "item_done":
+            self.item_bar.setValue(100)
+            row = self._row_of(e["name"])
+            if row >= 0:
+                label = {"ok": "verified", "unverified": "saved (not verified)", "failed": "FAILED"}[e["status"]]
+                self.table.item(row, 3).setText(label + (f" - {e['error']}" if e["error"] else ""))
+            self.say(f"{e['name']}: {e['status']} {e['error']}".strip())
+        elif t == "log":
+            self.say(e["message"])
+        elif t == "finished":
+            self.overall_bar.setValue(100)
+            self.last_folder = Path(e["folder"])
+
+    def _backup_done(self, folder: Path) -> None:
+        self._set_busy(False)
+        self.last_folder = Path(folder)
+        self.item_label.setText("Backup finished")
+        self.say(f"Saved to {folder}")
+        self._update_buttons()
+
+    def _backup_failed(self, exc: BaseException) -> None:
+        if isinstance(exc, bk.Cancelled):
+            self._set_busy(False)
+            self.item_label.setText("Cancelled")
+            self.say("Backup cancelled. Finished images and the manifest were kept.")
+            return
+        self._job_failed(exc)
+
+    def _browse(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose backup folder", self.out_edit.text())
+        if folder:
+            self.out_edit.setText(folder)
+
+    def _open_folder(self) -> None:
+        if self.last_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_folder)))
+
+    def verify_existing(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose a backup folder (with manifest.json)")
+        if not folder:
+            return
+        self._set_busy(True)
+        self.run_job(Job(bk.verify_folder, Path(folder)), self._verify_done)
+
+    def _verify_done(self, report) -> None:
+        self._set_busy(False)
+        bad = [f"{f}: {msg}" for f, ok, msg in report if not ok]
+        self.say(f"Verified {len(report)} image(s): {len(report) - len(bad)} OK, {len(bad)} problem(s)")
+        for line in bad:
+            self.say("  " + line)
+        if bad:
+            QMessageBox.warning(self, "Verify backup", "Problems found:\n\n" + "\n".join(bad))
+        else:
+            QMessageBox.information(self, "Verify backup", f"All {len(report)} image(s) match the manifest.")
+
+
+def main() -> int:
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("OPxFlasher")
+    app.setStyle("Fusion")
+    app.setStyleSheet(STYLE)
+    win = MainWindow()
+    win.show()
+    win.refresh_devices()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

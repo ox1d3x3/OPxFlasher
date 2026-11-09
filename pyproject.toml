@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opxflasher"
+version = "0.1.0"
+description = "Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Mahabub Subhany (Ox1d3x3)" }]
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.6"]
+dev = ["pytest>=7", "PySide6-Essentials>=6.6"]
+
+[project.scripts]
+opx = "opx.cli:main"
+
+[project.gui-scripts]
+opxflasher = "opx.gui.app:main"
+
+[project.urls]
+Homepage = "https://github.com/ox1d3x3/OPxFlasher"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+opx = ["profiles/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

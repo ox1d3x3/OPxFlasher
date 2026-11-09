@@ -1,0 +1,34 @@
+{
+  "id": "oplus-generic",
+  "name": "OPPO / OnePlus (generic OPlus)",
+  "match": {},
+  "notes": "Fallback used when no device-specific profile matches. Partition names follow the common OPlus layout; check the preview before backing up.",
+  "backup": {
+    "network": [
+      { "name": "oplusstanvbk", "logical": false },
+      { "name": "my_region", "logical": true }
+    ],
+    "critical": [
+      { "name": "persist*", "logical": false },
+      { "name": "modemst1", "logical": false },
+      { "name": "modemst2", "logical": false },
+      { "name": "fsg", "logical": false },
+      { "name": "fsc", "logical": false },
+      { "name": "ocdt", "logical": false },
+      { "name": "devinfo", "logical": false },
+      { "name": "oplusreserve*", "logical": false }
+    ],
+    "full_exclude": ["userdata"]
+  },
+  "never_flash": [
+    "persist*",
+    "modemst1",
+    "modemst2",
+    "fsg",
+    "fsc",
+    "ocdt",
+    "devinfo",
+    "oplusreserve*",
+    "userdata"
+  ]
+}
