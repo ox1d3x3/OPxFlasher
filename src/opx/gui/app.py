@@ -44,6 +44,7 @@ from opx.profile import MODE_TEXT, MODES
 from opx import flash as fl
 from opx import plan as pn
 from opx.gui.flash_dialog import FlashDialog
+from opx.gui.root_tab import RootTab
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
 from opx.tools import Tool
@@ -154,7 +155,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("OPxFlasher")
         title.setObjectName("title")
-        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones: backup, ROM check and guarded flashing.")
+        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones: backup, ROM check, guarded flashing, signal restore and root.")
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -349,6 +350,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(backup_tab, "Backup")
         self.tabs.addTab(rom_tab, "ROM check")
         self.tabs.addTab(self._build_signal_tab(), "Signal / region")
+        self.root_tab = RootTab(self)
+        self.tabs.addTab(self.root_tab, "Root")
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -402,6 +405,8 @@ class MainWindow(QMainWindow):
         self.check_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
+        if hasattr(self, "root_tab"):
+            self.root_tab.refresh_buttons()
         if hasattr(self, "restore_btn"):
             ready = bool(self.sig_plan and self.sig_plan.ok) and self.sig_confirm.text().strip() == "RESTORE"
             self.restore_btn.setEnabled(not self.busy and ready)
@@ -753,7 +758,7 @@ class MainWindow(QMainWindow):
 
     def _stop_flash(self) -> None:
         self.flash_cancel.set()
-        for btn in (self.stop_flash_btn, self.stop_restore_btn):
+        for btn in (self.stop_flash_btn, self.stop_restore_btn, self.root_tab.stop_btn):
             btn.setEnabled(False)
         self.say("Will stop after the current step (a running write is never interrupted).")
 

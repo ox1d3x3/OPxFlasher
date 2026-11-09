@@ -212,3 +212,46 @@ def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
     d.keep_region_box.setChecked(False)
     assert d.optional_boxes["oplusstanvbk"].isEnabled()
     assert d.options().restore_from_backup == []
+
+
+def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
+    from opx.gui import app as gui_app
+    from test_root import STOCK, magisk_patch, rom_with_init_boot
+    from test_root_cli import make_rootable
+
+    _gui_phone(adb_env, monkeypatch)
+    make_rootable(adb_env)
+    app = QApplication.instance() or QApplication([])
+    win = gui_app.MainWindow()
+    win.refresh_devices()
+    settle(app)
+    win.out_edit.setText(str(tmp_path / "out"))
+    win.start_backup()
+    settle(app)
+    tab = win.root_tab
+    assert tab.backup_edit.text() == str(win.last_folder)
+    assert not tab.pull_btn.isEnabled() and not tab.root_btn.isEnabled()
+
+    tab.rom_edit.setText(str(rom_with_init_boot(tmp_path).path))
+    tab.prepare()
+    settle(app)
+    assert tab.session is not None and "matches build" in tab.prepare_status.text()
+    assert "Select and Patch a File" in tab.hint.text()
+
+    tab.pull()  # not patched yet
+    settle(app)
+    assert "No new patched image" in tab.pull_status.text()
+
+    patched = magisk_patch(adb_env)
+    tab.pull()
+    settle(app)
+    assert tab.pull_problems == []
+    tab.confirm.setText("UNROOT")
+    assert not tab.root_btn.isEnabled() and tab.unroot_btn.isEnabled()
+    tab.confirm.setText("ROOT")
+    assert tab.root_btn.isEnabled()
+    tab.flash("root")
+    settle(app, cycles=600)
+    assert tab.label.text() == "Root complete"
+    assert (adb_env / "by-name" / "init_boot_a").read_bytes().startswith(patched)
+    assert (adb_env / "by-name" / "init_boot_b").read_bytes().startswith(STOCK)
