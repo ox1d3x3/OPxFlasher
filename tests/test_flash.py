@@ -229,3 +229,19 @@ def test_never_flash_refused_at_write_time(fastboot, fb_state, tmp_path):
         with pytest.raises(RefusedPartition):
             fb.flash(name, img)
     assert fb_state.read()["log"] == []
+
+
+def test_personal_data_partitions_never_flashed_whatever_the_profile(fastboot, fb_state, tmp_path):
+    import dataclasses
+
+    from opx.profile import load
+
+    fb_state(mode="bootloader")
+    img = tmp_path / "x.img"
+    img.write_bytes(b"x" * 512)
+    careless = dataclasses.replace(load("oneplus-13"), never_flash=[])
+    fb = Fastboot(fastboot.bind("FAKE0001"), careless)
+    for name in ("userdata", "metadata", "frp"):
+        with pytest.raises(RefusedPartition):
+            fb.flash(name, img)
+    assert fb_state.read()["log"] == []
