@@ -152,6 +152,7 @@ class PlanItem:
     target: str
     device_size: int | None = None
     note: str = ""
+    logical: bool = False
 
 
 @dataclass
@@ -309,21 +310,26 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         if prof.is_never_flash(img.name):
             items.append(PlanItem(img.name, img.size, "skip", "-", note="never flashed (device identity / data)"))
             continue
+        conditional_note = "off unless you choose it: keeps the phone's own region / signal file"
         if is_logical:
-            items.append(PlanItem(img.name, img.size, "super", "super (logical)"))
+            if prof.is_conditional(img.name):
+                items.append(PlanItem(img.name, img.size, "conditional", "super (logical)", note=conditional_note, logical=True))
+            else:
+                items.append(PlanItem(img.name, img.size, "super", "super (logical)", logical=True))
             continue
         device_size = dev.size_of(img.name) if dev.source != "none" else None
         action = "conditional" if prof.is_conditional(img.name) else "flash"
-        note = "off unless you choose it (region / signal files)" if action == "conditional" else ""
+        note = conditional_note if action == "conditional" else ""
         if device_size is not None and img.size > device_size:
             too_big.append(img.name)
             note = "image is larger than the partition"
-        items.append(PlanItem(img.name, img.size, action, f"{img.name}_a + {img.name}_b", device_size, note))
+        target = "super (whole image)" if img.name == "super" else f"{img.name}_a + {img.name}_b"
+        items.append(PlanItem(img.name, img.size, action, target, device_size, note))
 
     if too_big:
         add("Partition sizes", BLOCK, "Larger than the phone's partition: " + ", ".join(too_big))
     elif dev.source != "none":
-        unknown = [i.partition for i in items if i.action in ("flash", "conditional") and i.device_size is None]
+        unknown = [i.partition for i in items if i.action in ("flash", "conditional") and not i.logical and i.device_size is None]
         if unknown:
             add("Partition sizes", WARN, "Sizes not known for: " + ", ".join(unknown))
         else:

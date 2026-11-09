@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -39,12 +41,15 @@ from opx import __version__
 from opx import backup as bk
 from opx import device as dev
 from opx.profile import MODE_TEXT, MODES
+from opx import flash as fl
 from opx import plan as pn
+from opx.gui.flash_dialog import FlashDialog
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
+from opx.tools import Tool
 
 STYLE = """
-QMainWindow { background: #15171c; }
+QMainWindow, QDialog, QMessageBox { background: #15171c; }
 QWidget { color: #e6e8ee; font-size: 10pt; }
 QGroupBox { border: 1px solid #2c3039; border-radius: 8px; margin-top: 14px; padding: 10px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #9aa3b5; }
@@ -146,7 +151,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("OPxFlasher")
         title.setObjectName("title")
-        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones. Backup and ROM check: nothing is ever flashed yet.")
+        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones: backup, ROM check and guarded flashing.")
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -292,6 +297,15 @@ class MainWindow(QMainWindow):
         self.save_report_btn.setEnabled(False)
         act_row.addWidget(self.check_btn)
         act_row.addWidget(self.save_report_btn)
+        self.flash_btn = QPushButton("Flash...")
+        self.flash_btn.setEnabled(False)
+        self.flash_btn.setToolTip("Writes to the phone. Needs a passing ROM check on the connected phone and a backup.")
+        self.flash_btn.clicked.connect(self.start_flash)
+        self.stop_flash_btn = QPushButton("Stop after this step")
+        self.stop_flash_btn.setEnabled(False)
+        self.stop_flash_btn.clicked.connect(self._stop_flash)
+        act_row.addWidget(self.flash_btn)
+        act_row.addWidget(self.stop_flash_btn)
         act_row.addStretch(1)
         rom_form.addLayout(act_row)
         rom_layout.addWidget(rom_box)
@@ -314,7 +328,17 @@ class MainWindow(QMainWindow):
         self.plan_table = make_table(["Partition", "Size", "Action", "Target", "Note"], stretch=4)
         rom_split.addWidget(self.checks_table)
         rom_split.addWidget(self.plan_table)
+        self.flash_label = QLabel("")
+        self.flash_label.hide()
+        self.flash_bar = QProgressBar()
+        self.flash_bar.setFormat("Flashing  %p%")
+        self.flash_bar.hide()
+        rom_layout.addWidget(self.flash_label)
+        rom_layout.addWidget(self.flash_bar)
         rom_layout.addWidget(rom_split, 1)
+        self.check_rom_obj = None
+        self.check_device = None
+        self.flash_cancel = threading.Event()
         self.report: pn.Report | None = None
 
         # --- assemble -----------------------------------------------------
@@ -372,6 +396,8 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(self.busy)
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
+        if hasattr(self, "flash_btn"):
+            self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
         for b in self.mode_group.buttons():
             b.setEnabled(not self.busy)
 
@@ -622,7 +648,9 @@ class MainWindow(QMainWindow):
         self.say(f"Checking {rom_path} ...")
         self.run_job(Job(run_rom_check, rom_path, backup, self.session), self._rom_report_ready)
 
-    def _rom_report_ready(self, report: pn.Report) -> None:
+    def _rom_report_ready(self, result) -> None:
+        rom, device, report = result
+        self.check_rom_obj, self.check_device = rom, device
         self._set_busy(False)
         self.report = report
         self.save_report_btn.setEnabled(True)
@@ -659,6 +687,7 @@ class MainWindow(QMainWindow):
             for col, v in enumerate(values):
                 self.plan_table.setItem(row, col, QTableWidgetItem(v))
         self.say(f"ROM check: {report.verdict}")
+        self._update_buttons()
 
     def _save_report(self) -> None:
         if not self.report:
@@ -669,7 +698,81 @@ class MainWindow(QMainWindow):
             self.say(f"Report saved to {path}")
 
 
-def run_rom_check(rom_path: str, backup: str, session: Session | None) -> pn.Report:
+    # --- flashing -----------------------------------------------------------
+
+    def _can_offer_flash(self) -> bool:
+        if not self.report or not self.check_device or self.check_device.source != "live":
+            return False
+        return not fl.hard_blocks(self.report, [fl.OVERRIDE_QCOM_UNVALIDATED])
+
+    def start_flash(self) -> None:
+        if not self._can_offer_flash() or self.session is None:
+            return
+        hint = str(self.last_folder) if self.last_folder else self.cmp_backup_edit.text().strip()
+        dialog = FlashDialog(self, self.check_rom_obj, self.check_device, self.report, hint)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.plan or not dialog.plan.ok:
+            self.say("Flash cancelled. Nothing was written.")
+            return
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        work = Path(self.out_edit.text()).expanduser() / f"flash-{stamp}"
+        work.mkdir(parents=True, exist_ok=True)
+        self.flash_cancel = threading.Event()
+        runner = fl.Runner(
+            dialog.plan, self.check_rom_obj, self.session.profile, Tool("adb"), Tool("fastboot"),
+            work / "journal.json", work / "images", cancel=self.flash_cancel,
+        )
+        self.flash_journal = work / "journal.json"
+        self._set_busy(True)
+        self.stop_flash_btn.setEnabled(True)
+        self.flash_bar.setValue(0)
+        self.flash_bar.show()
+        self.flash_label.show()
+        self.flash_label.setText("Preparing images...")
+        self.say(f"Flashing started. Journal: {self.flash_journal}")
+        job = Job(runner.run)
+        runner.emit = job.signals.event.emit
+        self.run_job(job, self._flash_done, self._flash_failed, self._flash_event)
+
+    def _stop_flash(self) -> None:
+        self.flash_cancel.set()
+        self.stop_flash_btn.setEnabled(False)
+        self.say("Will stop after the current step (a running write is never interrupted).")
+
+    def _flash_event(self, e: dict) -> None:
+        t = e["type"]
+        if t == "extract":
+            self.flash_label.setText(f"Preparing image {e['index']}/{e['total']}: {e['name']}")
+        elif t == "step_start":
+            self.flash_label.setText(f"Step {e['index']}/{e['total']}: {e['label']}")
+            self.flash_bar.setValue(int(100 * (e["index"] - 1) / e["total"]))
+            self.say(f"[{e['index']}/{e['total']}] {e['label']}")
+        elif t == "step_done":
+            self.say(f"    {e['status']}: {e['detail']}")
+        elif t == "log":
+            self.say(e["message"])
+        elif t == "finished":
+            self.flash_bar.setValue(100)
+
+    def _flash_done(self, plan) -> None:
+        self._set_busy(False)
+        self.stop_flash_btn.setEnabled(False)
+        self.flash_label.setText("Flash complete")
+        self.say("Flash complete.")
+        QMessageBox.information(self, "Flash", "Flash complete. The phone is rebooting." if plan.options.reboot_after
+                                else "Flash complete. The phone is still in the bootloader.")
+
+    def _flash_failed(self, exc: BaseException) -> None:
+        self._set_busy(False)
+        self.stop_flash_btn.setEnabled(False)
+        self.flash_label.setText("Flash stopped")
+        self.say(str(exc))
+        QMessageBox.warning(
+            self, "Flash stopped",
+            f"{exc}\n\nResume later with:\nopx flash --resume \"{getattr(self, 'flash_journal', '')}\"",
+        )
+
+
+def run_rom_check(rom_path: str, backup: str, session: Session | None):
     rom = open_rom(rom_path)
     if backup:
         device = pn.device_from_backup(Path(backup))
@@ -677,7 +780,7 @@ def run_rom_check(rom_path: str, backup: str, session: Session | None) -> pn.Rep
         device = pn.device_from_session(session)
     else:
         device = pn.no_device()
-    return pn.build_report(rom, device)
+    return rom, device, pn.build_report(rom, device)
 
 
 def main() -> int:

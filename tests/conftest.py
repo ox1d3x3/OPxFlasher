@@ -22,6 +22,7 @@ PROPS = {
     "ro.build.version.release": "16",
     "ro.boot.slot_suffix": "_a",
     "ro.boot.verifiedbootstate": "orange",
+    "ro.serialno": "FAKE0001",
 }
 
 PHYSICAL = {
@@ -75,3 +76,32 @@ def adb_env(fake_device, monkeypatch):
     monkeypatch.setenv("OPX_ADB", f'"{sys.executable}" "{FAKE}"' if os.name == "nt" else f"{sys.executable} {FAKE}")
     monkeypatch.setenv("OPX_FASTBOOT", f"{sys.executable} -c pass")
     return fake_device
+
+
+FAKE_FASTBOOT = Path(__file__).with_name("fake_fastboot.py")
+
+
+@pytest.fixture
+def fb_state(fake_device, monkeypatch):
+    """Shared bootloader state for fake_adb / fake_fastboot (phone starts in Android)."""
+    monkeypatch.setenv("OPX_POLL_SECONDS", "0.01")
+    path = fake_device / "fastboot.json"
+
+    def update(**changes):
+        state = json.loads(path.read_text())
+        state.update(changes)
+        path.write_text(json.dumps(state))
+        return state
+
+    path.write_text(json.dumps({
+        "mode": "android", "serial": "FAKE0001", "slot": "a", "unlocked": True,
+        "super_size": 1 << 20, "fastbootd_broken": False, "fail_flash": None, "log": [],
+    }))
+    update.path = path
+    update.read = lambda: json.loads(path.read_text())
+    return update
+
+
+@pytest.fixture
+def fastboot(fb_state):
+    return Tool("fastboot", prefix=[sys.executable, str(FAKE_FASTBOOT)])

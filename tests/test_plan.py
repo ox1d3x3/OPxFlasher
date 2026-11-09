@@ -61,7 +61,7 @@ def test_matching_rom_is_blocked_only_by_unvalidated_qcom_arb(adb, phone, tmp_pa
     assert status(r, "Partition sizes") == "pass"
     assert r.verdict == "BLOCKED"
     actions = {i.partition: i.action for i in r.items}
-    assert actions["system"] == "super" and actions["my_region"] == "super"
+    assert actions["system"] == "super" and actions["my_region"] == "conditional"
     assert actions["oplusstanvbk"] == "conditional" and actions["dtbo"] == "flash"
 
 
