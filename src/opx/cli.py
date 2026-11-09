@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from opx import __version__
@@ -246,7 +247,14 @@ def cmd_plan(args) -> int:
     if args.json:
         print(report.to_json())
         return 0 if report.verdict != "BLOCKED" else 3
-    print(f"ROM:   {rom.path}  ({report.rom['product'] or '?'} / {report.rom['codename'] or '?'}, Android {report.rom['android'] or '?'}, patch {report.rom['security_patch'] or '?'})")
+    _print_report(rom, report, dev_state)
+    print(f"\nVerdict: {report.verdict}")
+    return 0 if report.verdict != "BLOCKED" else 3
+
+
+def _print_report(rom, report, dev_state) -> None:
+    r = report.rom
+    print(f"ROM:   {rom.path}  ({r['product'] or '?'} / {r['codename'] or '?'}, Android {r['android'] or '?'}, patch {r['security_patch'] or '?'})")
     print(f"Phone: {dev_state.label}\n")
     for c in report.checks:
         print(f"  [{SYMBOL[c.status]}] {c.name:<26} {c.detail}")
@@ -255,8 +263,113 @@ def cmd_plan(args) -> int:
         target = i.target if i.action != "skip" else "skipped"
         extra = f"  ({i.note})" if i.note else ""
         print(f"  {i.partition:<26} {_human(i.size):>10}  {i.action:<12} {target}{extra}")
-    print(f"\nVerdict: {report.verdict}")
-    return 0 if report.verdict != "BLOCKED" else 3
+
+
+def _confirm(word: str, prompt: str) -> bool:
+    try:
+        answer = input(f"{prompt}\nType {word} to continue (anything else cancels): ")
+    except EOFError:
+        return False
+    return answer.strip() == word
+
+
+def _print_flash_event(e: dict) -> None:
+    t = e["type"]
+    if t == "extract":
+        print(f"  preparing image {e['index']}/{e['total']}: {e['name']}")
+    elif t == "step_start":
+        print(f"[{e['index']}/{e['total']}] {e['label']} ...", flush=True)
+    elif t == "step_done":
+        print(f"    {e['status'].upper()}: {e['detail']}")
+    elif t == "log":
+        print(f"    {e['message']}")
+    elif t == "finished":
+        print(f"\nFlash complete. Journal: {e['journal']}")
+
+
+def cmd_flash(args) -> int:
+    from opx import flash as fl
+    from opx import profile as profiles
+
+    if args.resume:
+        plan = fl.load_journal(Path(args.resume))
+        print(f"Resuming flash of {plan.rom_path} on {plan.device.get('model')} ({plan.device.get('serial')})")
+        for i, st in enumerate(plan.steps, 1):
+            print(f"  {i:>2}. [{st.status:<7}] {st.label}")
+        if not _confirm("RESUME", "Finished steps are skipped; the rest run in order."):
+            print("Cancelled. Nothing was written.")
+            return 1
+        profile = profiles.detect({"ro.product.model": plan.device.get("model", "")})
+        runner = fl.resume_runner(Path(args.resume), profile, Tool("adb"), Tool("fastboot"), on_event=_print_flash_event)
+        try:
+            runner.run()
+        except fl.FlashError as e:
+            print(f"\n{e}", file=sys.stderr)
+            return 4
+        return 0
+
+    if not args.rom:
+        raise SystemExit("Give a ROM to flash, or --resume JOURNAL.")
+    rom = open_rom(args.rom)
+    session = open_session(_pick_adb_serial(args.serial))
+    dev_state = pn.device_from_session(session)
+    report = pn.build_report(rom, dev_state)
+    _print_report(rom, report, dev_state)
+
+    overrides = []
+    if args.accept_unvalidated_arb and fl.overridable_blocks(report):
+        overrides.append(fl.OVERRIDE_QCOM_UNVALIDATED)
+    options = fl.FlashOptions(
+        include_optional=[p for p in (args.include or "").split(",") if p],
+        wipe_data=args.wipe,
+        reboot_after=not args.no_reboot,
+        allow_fastbootd=args.allow_fastbootd,
+        overrides=overrides,
+    )
+    backup = Path(args.backup) if args.backup else None
+    plan = fl.prepare(rom, report, dev_state, options, backup)
+
+    print("\nFlash steps:")
+    for i, st in enumerate(plan.steps, 1):
+        print(f"  {i:>2}. {st.label}")
+    if not plan.ok:
+        print("\nFlashing is BLOCKED:")
+        for p in plan.problems:
+            print(f"  - {p}")
+        if fl.overridable_blocks(report) and not args.accept_unvalidated_arb:
+            print("  (The Qualcomm ARB block can be overridden with --accept-unvalidated-arb once you have checked the numbers yourself.)")
+        return 3
+    if args.dry_run:
+        print("\nDry run: nothing was written.")
+        return 0
+
+    if overrides and not _confirm(
+        "ARB CHECKED",
+        "\nWARNING: the Qualcomm anti-rollback reader is not validated for this phone.\n"
+        "Flashing firmware with a lower ARB than the phone's hard-bricks it permanently.\n"
+        "Only continue if you have confirmed the ROM's ARB is equal to or higher than the phone's.",
+    ):
+        print("Cancelled. Nothing was written.")
+        return 1
+    wipe_note = " ALL DATA ON THE PHONE WILL BE ERASED." if args.wipe else ""
+    if not _confirm("FLASH", f"\nReady to flash {rom.path.name} to {dev_state.label}.{wipe_note}"):
+        print("Cancelled. Nothing was written.")
+        return 1
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    work = Path(args.work or ".") / f"opx-flash-{stamp}"
+    work.mkdir(parents=True)
+    runner = fl.Runner(plan, rom, session.profile, Tool("adb"), Tool("fastboot"), work / "journal.json", work / "images",
+                       on_event=_print_flash_event)
+    try:
+        runner.run()
+    except fl.Cancelled as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 130
+    except fl.FlashError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 4
+    return 0
 
 
 def cmd_gui(args) -> int:
@@ -322,6 +435,21 @@ def build_parser() -> argparse.ArgumentParser:
     pl_.add_argument("-s", "--serial")
     pl_.add_argument("--json", action="store_true", help="machine-readable report")
     pl_.set_defaults(fn=cmd_plan)
+
+    f = sub.add_parser("flash", help="flash a ROM after every safety check passes (writes to the phone)")
+    f.add_argument("rom", nargs="?", help="OTA zip, payload.bin or image folder")
+    f.add_argument("--backup", help="your Critical or Full backup of this phone (required)")
+    f.add_argument("-s", "--serial")
+    f.add_argument("--include", help="optional partitions to flash too, comma separated (e.g. oplusstanvbk,my_region)")
+    f.add_argument("--wipe", action="store_true", help="factory reset (needed when changing region or OS)")
+    f.add_argument("--no-reboot", action="store_true", help="stay in the bootloader when done")
+    f.add_argument("--allow-fastbootd", action="store_true", help="allow fastbootd for logical partitions")
+    f.add_argument("--accept-unvalidated-arb", action="store_true",
+                   help="override ONLY the 'Qualcomm ARB reader not validated' block (asks for confirmation)")
+    f.add_argument("--dry-run", action="store_true", help="show the steps and stop")
+    f.add_argument("--work", help="folder for the journal and extracted images (default: current folder)")
+    f.add_argument("--resume", metavar="JOURNAL", help="continue an interrupted flash from its journal.json")
+    f.set_defaults(fn=cmd_flash)
 
     sub.add_parser("gui", help="open the graphical app").set_defaults(fn=cmd_gui)
     return p

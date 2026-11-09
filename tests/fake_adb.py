@@ -88,14 +88,33 @@ def run(cmd: str, root: bool) -> int:
     return 99
 
 
+def boot_mode() -> str:
+    """Mode shared with fake_fastboot.py (android when no state file)."""
+    state = ROOT / "fastboot.json"
+    return json.loads(state.read_text())["mode"] if state.exists() else "android"
+
+
 def main(argv: list[str]) -> int:
     args = list(argv)
     if args[:1] == ["-s"]:
         args = args[2:]
-    if args[:2] == ["devices", "-l"]:
+    if args[:1] == ["devices"]:
         state = os.environ.get("FAKE_STATE", "device")
         print("List of devices attached")
-        print(f"FAKE0001       {state} product:PJZ110 model:PJZ110 device:testdevice transport_id:1")
+        if boot_mode() == "android":
+            extra = " product:PJZ110 model:PJZ110 device:testdevice transport_id:1" if args[1:2] == ["-l"] else ""
+            print(f"FAKE0001       {state}{extra}")
+        return 0
+    if boot_mode() != "android":
+        sys.stderr.write("adb: no devices/emulators found\n")
+        return 1
+    if args[:1] == ["reboot"]:
+        state_file = ROOT / "fastboot.json"
+        state = json.loads(state_file.read_text())
+        target = args[1] if len(args) > 1 else ""
+        state["mode"] = {"bootloader": "bootloader", "fastboot": "fastbootd", "": "android"}[target]
+        state.setdefault("log", []).append(f"adb reboot {target}".strip())
+        state_file.write_text(json.dumps(state, indent=1))
         return 0
     if args and args[0] in ("shell", "exec-out"):
         cmd = " ".join(args[1:])

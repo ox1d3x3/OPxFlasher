@@ -34,6 +34,7 @@ PROP_KEYS = {
     "android": "ro.build.version.release",
     "slot_suffix": "ro.boot.slot_suffix",
     "verified_boot": "ro.boot.verifiedbootstate",
+    "serial": "ro.serialno",
 }
 
 Event = dict

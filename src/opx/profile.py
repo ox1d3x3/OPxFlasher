@@ -37,6 +37,7 @@ class KnownIssue:
     match: dict[str, str]
     severity: str
     message: str
+    blocks: list[str] = field(default_factory=list)  # e.g. ["fastbootd", "bootloader"]
 
     def applies(self, props: dict[str, str]) -> bool:
         return all(fnmatch.fnmatchcase(props.get(k, ""), v) for k, v in self.match.items())
@@ -73,6 +74,9 @@ class Profile:
 
     def issues_for(self, props: dict[str, str]) -> list[KnownIssue]:
         return [i for i in self.known_issues if i.applies(props)]
+
+    def blocked_actions(self, props: dict[str, str]) -> set[str]:
+        return {b for i in self.issues_for(props) for b in i.blocks}
 
 
 def _load_raw(profile_id: str) -> dict:

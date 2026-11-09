@@ -3,7 +3,8 @@
 **Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.**
 Windows and Linux, GUI and command line.
 
-> Status: **Phase 1 (read-only backup) and Phase 2 (ROM check, dry run).** Flashing is not implemented yet.
+> Status: **Phase 1 (backup), Phase 2 (ROM check) and Phase 3 (guarded flashing).**
+> Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.
 
 OPxFlasher was born after a OnePlus 13 (CN) got stuck on a ColorOS 17 release
 candidate and needed an EDL reflash. The goal is a flasher that refuses to do
@@ -64,6 +65,32 @@ signal files), to be restored from your own backup.
 > Use `opx rom arb <image>` to compare them with values the community already knows;
 > once confirmed, the profile is switched on.
 
+## Phase 3: Guarded flashing
+
+Flashing only starts when **every** gate passes:
+
+1. The ROM check has no blocking result. The single exception is the *unvalidated*
+   Qualcomm ARB reader, which you can override only by typing `ARB CHECKED` after
+   checking the numbers yourself. A lower ARB, a lower AVB index, a different
+   device or an incremental OTA can never be overridden.
+2. A verified **Critical or Full backup of this phone** is selected (same serial and model).
+3. The phone's current firmware is not known to break the reboot that is needed.
+   On ColorOS 17 CN, OPxFlasher refuses to reboot to the bootloader or fastbootd at all.
+4. You type `FLASH`.
+
+How it flashes:
+
+- Images are extracted and hash-checked **before** the phone is rebooted.
+- Physical partitions go to **both slots** from the bootloader; `vbmeta` is written last.
+- Logical partitions come from a `super.img` (flashed from the bootloader, no fastbootd),
+  or through fastbootd only if you allow it and the firmware isn't flagged.
+- Never-flash partitions are refused again at the moment of writing.
+- Every step is saved to `journal.json`. The run stops at the first error, and
+  `opx flash --resume journal.json` continues without repeating finished steps.
+  **Stop** waits for the current step; a running write is never interrupted.
+- Optional: factory reset (`--wipe`), stay in bootloader (`--no-reboot`),
+  flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
+
 ## Install
 
 Requires Python 3.10+.
@@ -103,6 +130,10 @@ opx rom arb xbl_config.img                   # EXPERIMENTAL Qualcomm anti-rollba
 opx plan ROM.zip                             # check against the connected phone
 opx plan ROM.zip --backup backups/<folder>   # ...or against a backup
 opx plan ROM.zip --json                      # machine-readable report
+
+opx flash ROM.zip --backup backups/<folder> --allow-fastbootd --dry-run   # show the steps
+opx flash ROM.zip --backup backups/<folder> --allow-fastbootd             # flash (asks you to type FLASH)
+opx flash --resume opx-flash-<time>/journal.json                          # continue an interrupted flash
 ```
 
 Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]"`.
@@ -111,7 +142,7 @@ Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]
 
 1. ✅ Backup + verify (read-only)
 2. ✅ ROM detection, anti-rollback checks, dry-run flash plans (Qualcomm ARB pending validation)
-3. Known-bad firmware warnings, flashing `super` from the bootloader to avoid broken fastbootd
+3. ✅ Guarded flashing: known-bad firmware blocks, `super.img` from the bootloader, journal and resume
 4. Region conversion using **your own** backed-up signal files
 5. Root assistant (patch `init_boot`, re-root after OTA)
 
@@ -128,6 +159,9 @@ python -m pytest
 The tests use a fake `adb` (`tests/fake_adb.py`) that serves partitions from a
 folder, and `tests/romfactory.py` builds synthetic OTAs, vbmeta images and signed
 ELFs, so backup, ROM checks and the GUI all run without a phone or real firmware.
+`tests/fake_fastboot.py` simulates the bootloader and fastbootd (including a
+firmware where rebooting to fastbootd bricks the phone), so every flash path,
+failure and resume is tested end to end.
 
 ## Credits and licence
 
