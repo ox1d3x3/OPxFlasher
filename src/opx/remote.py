@@ -135,3 +135,15 @@ class RemoteShell:
     def dd_stream(self, path: str) -> subprocess.Popen:
         check_path(path)
         return self.stream(f"dd if={path} bs={DD_BLOCK} 2>/dev/null")
+
+    def read_small(self, path: str, limit: int = 64 * 1024 * 1024) -> bytes | None:
+        """Read a whole small partition (vbmeta, xbl_config ...) into memory."""
+        proc = self.dd_stream(path)
+        assert proc.stdout is not None
+        data = proc.stdout.read(limit + 1)
+        if len(data) > limit:
+            proc.kill()
+            proc.wait(timeout=10)
+            return None
+        proc.wait(timeout=60)
+        return data if proc.returncode == 0 and data else None

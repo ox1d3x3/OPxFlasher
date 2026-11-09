@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -10,6 +11,10 @@ from opx import __version__
 from opx import backup as bk
 from opx import device as dev
 from opx.profile import MODE_TEXT, MODES
+from opx import plan as pn
+from opx.rom import avb, qcom
+from opx.rom import payload as pl
+from opx.rom.ota import RomError, open_rom
 from opx.session import open_session
 from opx.tools import Tool, ToolNotFound, fetch_platform_tools, find_tool
 
@@ -161,6 +166,99 @@ def cmd_tools(args) -> int:
     return 0
 
 
+def cmd_rom_inspect(args) -> int:
+    rom = open_rom(args.path)
+    summary = pn.rom_summary(rom)
+    for k, v in summary.items():
+        print(f"{k:<18}{v}")
+    if rom.payload:
+        print(f"{'payload':<18}v{rom.payload.version}, block {rom.payload.block_size}, minor {rom.payload.minor_version}")
+        for g in rom.payload.groups:
+            print(f"{'group':<18}{g.name} ({_human(g.size)}): {', '.join(g.partitions)}")
+    print()
+    for img in rom.images:
+        kind = {True: "logical", False: "physical", None: "?"}[img.logical]
+        print(f"  {img.name:<28} {_human(img.size):>10}  {kind}")
+    for note in rom.notes:
+        print(f"! {note}")
+    return 0
+
+
+def cmd_rom_extract(args) -> int:
+    rom = open_rom(args.path)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    for name in args.names:
+        img = rom.image(name)
+        if img is None:
+            print(f"! {name} is not in this ROM")
+            return 1
+        target = out / f"{name}.img"
+        if img.file is not None:
+            shutil.copyfile(img.file, target)
+        else:
+            pl.extract(rom.payload, name, target)
+        print(f"{name:<24} {_human(img.size):>10}  -> {target}  (hash verified)")
+    return 0
+
+
+def cmd_rom_avb(args) -> int:
+    vb = avb.parse(Path(args.image).read_bytes())
+    print(f"rollback index     {vb.rollback_index}")
+    print(f"rollback location  {vb.rollback_index_location}")
+    print(f"flags              {vb.flags}" + ("  (verification disabled)" if vb.verification_disabled else ""))
+    print(f"release            {vb.release}")
+    for name, loc in vb.chains:
+        print(f"chain              {name} (location {loc})")
+    if vb.hash_partitions:
+        print(f"hash partitions    {', '.join(vb.hash_partitions)}")
+    if vb.hashtree_partitions:
+        print(f"hashtree           {', '.join(vb.hashtree_partitions)}")
+    for k, v in vb.properties.items():
+        print(f"property           {k} = {v}")
+    return 0
+
+
+def cmd_rom_arb(args) -> int:
+    arb = qcom.read_arb(Path(args.image).read_bytes())
+    print("EXPERIMENTAL - compare with known values before trusting.")
+    print(f"MBN header version  {arb.mbn_version}")
+    print(f"software id         {arb.software_id if arb.software_id is not None else '?'}")
+    print(f"OEM ARB             {arb.oem_arb if arb.oem_arb is not None else '?'}")
+    print(f"QTI ARB             {arb.qti_arb if arb.qti_arb is not None else '?'}")
+    if arb.note:
+        print(arb.note)
+    return 0
+
+
+SYMBOL = {"pass": "OK  ", "info": "i   ", "warn": "WARN", "block": "STOP"}
+
+
+def cmd_plan(args) -> int:
+    rom = open_rom(args.rom)
+    if args.backup:
+        dev_state = pn.device_from_backup(Path(args.backup))
+    elif args.offline:
+        dev_state = pn.no_device()
+    else:
+        dev_state = pn.device_from_session(open_session(_pick_adb_serial(args.serial)))
+    report = pn.build_report(rom, dev_state)
+    if args.json:
+        print(report.to_json())
+        return 0 if report.verdict != "BLOCKED" else 3
+    print(f"ROM:   {rom.path}  ({report.rom['product'] or '?'} / {report.rom['codename'] or '?'}, Android {report.rom['android'] or '?'}, patch {report.rom['security_patch'] or '?'})")
+    print(f"Phone: {dev_state.label}\n")
+    for c in report.checks:
+        print(f"  [{SYMBOL[c.status]}] {c.name:<26} {c.detail}")
+    print("\nDry-run plan (nothing is written):")
+    for i in report.items:
+        target = i.target if i.action != "skip" else "skipped"
+        extra = f"  ({i.note})" if i.note else ""
+        print(f"  {i.partition:<26} {_human(i.size):>10}  {i.action:<12} {target}{extra}")
+    print(f"\nVerdict: {report.verdict}")
+    return 0 if report.verdict != "BLOCKED" else 3
+
+
 def cmd_gui(args) -> int:
     from opx.gui.app import main as gui_main
 
@@ -199,6 +297,32 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("action", choices=("where", "fetch"))
     t.set_defaults(fn=cmd_tools)
 
+    rom = sub.add_parser("rom", help="look inside a ROM (OTA zip, payload.bin or image folder)")
+    rsub = rom.add_subparsers(dest="rom_command", required=True)
+    ri = rsub.add_parser("inspect", help="device, build, full/incremental and image list")
+    ri.add_argument("path")
+    ri.set_defaults(fn=cmd_rom_inspect)
+    rx = rsub.add_parser("extract", help="extract images (hash-verified)")
+    rx.add_argument("path")
+    rx.add_argument("names", nargs="+", help="partition names, e.g. vbmeta init_boot")
+    rx.add_argument("--out", default="extracted")
+    rx.set_defaults(fn=cmd_rom_extract)
+    ra = rsub.add_parser("avb", help="show AVB rollback index and descriptors of an image")
+    ra.add_argument("image")
+    ra.set_defaults(fn=cmd_rom_avb)
+    rq = rsub.add_parser("arb", help="EXPERIMENTAL: show Qualcomm anti-rollback version of an image")
+    rq.add_argument("image")
+    rq.set_defaults(fn=cmd_rom_arb)
+
+    pl_ = sub.add_parser("plan", help="check a ROM against the phone and show a dry-run flash plan")
+    pl_.add_argument("rom", help="OTA zip, payload.bin or image folder")
+    src = pl_.add_mutually_exclusive_group()
+    src.add_argument("--backup", help="compare against a backup folder instead of the connected phone")
+    src.add_argument("--offline", action="store_true", help="no phone or backup (everything device-specific is blocked)")
+    pl_.add_argument("-s", "--serial")
+    pl_.add_argument("--json", action="store_true", help="machine-readable report")
+    pl_.set_defaults(fn=cmd_plan)
+
     sub.add_parser("gui", help="open the graphical app").set_defaults(fn=cmd_gui)
     return p
 
@@ -207,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)
-    except (bk.BackupError, ToolNotFound) as e:
+    except (bk.BackupError, ToolNotFound, RomError, pl.PayloadError, avb.AvbError, qcom.QcomError, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:

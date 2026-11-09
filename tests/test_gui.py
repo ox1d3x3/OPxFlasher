@@ -61,3 +61,24 @@ def test_gui_warns_without_root(adb_env, monkeypatch):
     assert win.session.access.kind == "none"
     assert not win.start_btn.isEnabled()
     assert "root" in win.banner.text().lower()
+
+
+def test_gui_rom_check_tab(window, adb_env, tmp_path):
+    import romfactory as rf
+    from test_plan import put, rom_zip, sized
+
+    app, win = window
+    for slot in ("_a", "_b"):
+        put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
+    rom = rom_zip(tmp_path)
+    win.tabs.setCurrentIndex(1)
+    win.rom_edit.setText(str(rom.path))
+    win.check_rom()
+    settle(app)
+    assert win.report is not None
+    assert win.report.verdict == "BLOCKED"  # Qualcomm ARB reader not validated yet
+    table = win.checks_table
+    checks = {table.item(r, 1).text(): table.item(r, 0).text() for r in range(table.rowCount())}
+    assert checks["Device match"] == "OK" and checks["AVB vbmeta"] == "OK"
+    assert win.plan_table.rowCount() == len(win.report.items)
+    assert "BLOCKED" in win.verdict.text()
