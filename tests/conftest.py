@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -11,6 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from opx.tools import Tool  # noqa: E402
 
 FAKE = Path(__file__).with_name("fake_adb.py")
+
+
+def tool_cmd(*parts) -> str:
+    """An OPX_ADB / OPX_FASTBOOT value that survives spaces in paths on both OSes."""
+    parts = [str(p) for p in parts]
+    if os.name == "nt":
+        return " ".join(f'"{p}"' for p in parts)
+    return shlex.join(parts)
 
 PROPS = {
     "ro.product.model": "PJZ110",
@@ -73,8 +82,8 @@ def adb(fake_device):
 @pytest.fixture
 def adb_env(fake_device, monkeypatch):
     """Point opx.tools.find_tool at the fake adb via the environment."""
-    monkeypatch.setenv("OPX_ADB", f'"{sys.executable}" "{FAKE}"' if os.name == "nt" else f"{sys.executable} {FAKE}")
-    monkeypatch.setenv("OPX_FASTBOOT", f"{sys.executable} -c pass")
+    monkeypatch.setenv("OPX_ADB", tool_cmd(sys.executable, FAKE))
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, "-c", "pass"))
     return fake_device
 
 

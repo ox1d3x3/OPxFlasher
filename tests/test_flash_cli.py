@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from conftest import FAKE_FASTBOOT
+from conftest import FAKE_FASTBOOT, tool_cmd
 from opx import cli
 from test_flash import ROM_PARTS, make_rom
 from test_plan import put, sized
@@ -14,7 +14,7 @@ import romfactory as rf
 
 @pytest.fixture
 def ready(adb_env, fb_state, monkeypatch, tmp_path):
-    monkeypatch.setenv("OPX_FASTBOOT", f"{sys.executable} {FAKE_FASTBOOT}")
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
     for slot in ("_a", "_b"):
         put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
         put(adb_env, f"xbl_config{slot}", sized(rf.build_qcom_elf(arb=1)))

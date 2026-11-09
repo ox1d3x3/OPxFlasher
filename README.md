@@ -10,6 +10,10 @@
   Windows and Linux, GUI and command line.
 </p>
 
+<p align="center">
+  <a href="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/ci.yml"><img src="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
 > Status: **all five phases** – backup, ROM check, guarded flashing, region conversion / signal restore, root assistant.
 > Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.
 
