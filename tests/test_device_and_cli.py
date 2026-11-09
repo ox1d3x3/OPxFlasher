@@ -74,3 +74,14 @@ def test_cli_unauthorized(adb_env, monkeypatch, capsys):
         assert "not authorised" in str(e)
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_tool_override_keeps_paths_with_spaces(monkeypatch, tmp_path):
+    # Windows user folders often contain spaces ("C:\Users\First Last\...").
+    from conftest import tool_cmd
+    from opx.tools import find_tool
+
+    exe = tmp_path / "Program Files" / "python.exe"
+    script = tmp_path / "My Tools" / "fake adb.py"
+    monkeypatch.setenv("OPX_ADB", tool_cmd(exe, script, "-c"))
+    assert find_tool("adb") == [str(exe), str(script), "-c"]
