@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from datetime import datetime
@@ -327,6 +328,14 @@ def cmd_flash(args) -> int:
         overrides=overrides,
     )
     backup = Path(args.backup) if args.backup else None
+    if fl.region_change(report) and not args.no_restore_region:
+        options.restore_from_backup = [
+            n for n in session.profile.conditional
+            if fl.backup_images(backup, n) and n not in options.include_optional
+        ]
+        if options.restore_from_backup:
+            print("\nRegion change: your phone's own " + ", ".join(options.restore_from_backup)
+                  + " will be restored from the backup after flashing (keeps mobile signal).")
     plan = fl.prepare(rom, report, dev_state, options, backup)
 
     print("\nFlash steps:")
@@ -360,6 +369,72 @@ def cmd_flash(args) -> int:
     work = Path(args.work or ".") / f"opx-flash-{stamp}"
     work.mkdir(parents=True)
     runner = fl.Runner(plan, rom, session.profile, Tool("adb"), Tool("fastboot"), work / "journal.json", work / "images",
+                       on_event=_print_flash_event)
+    try:
+        runner.run()
+    except fl.Cancelled as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 130
+    except fl.FlashError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 4
+    return 0
+
+
+def cmd_region_show(args) -> int:
+    from opx import flash as fl
+    from opx import profile as profiles
+
+    manifest = json.loads((Path(args.backup) / "manifest.json").read_text("utf-8"))
+    dev = manifest.get("device", {})
+    print(f"Backup of {dev.get('model')} ({dev.get('serial') or 'serial not recorded'}), build {dev.get('build')}")
+    profile = profiles.load(manifest.get("profile") or "oplus-generic")
+    found = 0
+    for name in profile.conditional:
+        for full, (path, sha, src) in sorted(fl.backup_images(args.backup, name).items()):
+            ok = path.exists() and fl.sha256_file(path) == sha
+            kind = "logical" if src == "mapper" else "physical"
+            print(f"  {'OK ' if ok else 'BAD'}  {full:<20} {_human(path.stat().st_size if path.exists() else None):>10}  {kind}")
+            found += 1
+    if not found:
+        print("  No region files in this backup.")
+        return 1
+    return 0
+
+
+def cmd_region_restore(args) -> int:
+    from opx import flash as fl
+
+    session = open_session(_pick_adb_serial(args.serial))
+    dev_state = pn.device_from_session(session)
+    if args.only:
+        names = [n.strip() for n in args.only.split(",") if n.strip()]
+    else:  # every region file the backup actually has
+        names = [n for n in session.profile.conditional if fl.backup_images(args.backup, n)]
+    options = fl.FlashOptions(
+        restore_from_backup=names,
+        allow_fastbootd=args.allow_fastbootd,
+        reboot_after=not args.no_reboot,
+    )
+    plan = fl.prepare_restore(dev_state, Path(args.backup), options)
+    print(f"Restore region files to {dev_state.label} from {args.backup}\n")
+    for i, st in enumerate(plan.steps, 1):
+        print(f"  {i:>2}. {st.label}")
+    if not plan.ok:
+        print("\nRestore is BLOCKED:")
+        for prob in plan.problems:
+            print(f"  - {prob}")
+        return 3
+    if args.dry_run:
+        print("\nDry run: nothing was written.")
+        return 0
+    if not _confirm("RESTORE", "\nThis writes your backed-up region files back to the phone."):
+        print("Cancelled. Nothing was written.")
+        return 1
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    work = Path(args.work or ".") / f"opx-restore-{stamp}"
+    work.mkdir(parents=True)
+    runner = fl.Runner(plan, None, session.profile, Tool("adb"), Tool("fastboot"), work / "journal.json", work / "images",
                        on_event=_print_flash_event)
     try:
         runner.run()
@@ -449,7 +524,24 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--dry-run", action="store_true", help="show the steps and stop")
     f.add_argument("--work", help="folder for the journal and extracted images (default: current folder)")
     f.add_argument("--resume", metavar="JOURNAL", help="continue an interrupted flash from its journal.json")
+    f.add_argument("--no-restore-region", action="store_true",
+                   help="on a region change, do NOT restore your own oplusstanvbk/my_region from the backup")
     f.set_defaults(fn=cmd_flash)
+
+    rg = sub.add_parser("region", help="region / signal files: show them in a backup or restore them")
+    rgsub = rg.add_subparsers(dest="region_command", required=True)
+    rs = rgsub.add_parser("show", help="list the region files in a backup and check their hashes")
+    rs.add_argument("--backup", required=True)
+    rs.set_defaults(fn=cmd_region_show)
+    rr = rgsub.add_parser("restore", help="write your backed-up region files back (e.g. after an OTA lost signal)")
+    rr.add_argument("--backup", required=True)
+    rr.add_argument("-s", "--serial")
+    rr.add_argument("--only", help="comma separated subset, e.g. oplusstanvbk")
+    rr.add_argument("--allow-fastbootd", action="store_true", help="needed to restore my_region (logical)")
+    rr.add_argument("--no-reboot", action="store_true")
+    rr.add_argument("--dry-run", action="store_true")
+    rr.add_argument("--work", help="folder for the journal (default: current folder)")
+    rr.set_defaults(fn=cmd_region_restore)
 
     sub.add_parser("gui", help="open the graphical app").set_defaults(fn=cmd_gui)
     return p
