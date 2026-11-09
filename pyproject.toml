@@ -36,7 +36,7 @@ Homepage = "https://github.com/ox1d3x3/OPxFlasher"
 where = ["src"]
 
 [tool.setuptools.package-data]
-opx = ["profiles/*.json"]
+opx = ["profiles/*.json", "gui/assets/*.png", "gui/assets/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -44,6 +44,7 @@ from opx.profile import MODE_TEXT, MODES
 from opx import flash as fl
 from opx import plan as pn
 from opx.gui.flash_dialog import FlashDialog
+from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.root_tab import RootTab
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
@@ -134,6 +135,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"OPxFlasher {__version__}")
+        self.setWindowIcon(app_icon())
         self.resize(1180, 860)
         self.pool = QThreadPool.globalInstance()
         self.jobs: list[Job] = []
@@ -945,8 +947,11 @@ def run_rom_check(rom_path: str, backup: str, session: Session | None):
 
 
 def main() -> int:
+    set_windows_app_id()  # must run before the first window is created
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("OPxFlasher")
+    app.setDesktopFileName("opxflasher")
+    app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     win = MainWindow()

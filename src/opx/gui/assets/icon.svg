@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="t">
+  <title id="t">OPxFlasher</title>
+  <rect width="120" height="120" rx="28" fill="#1C1F26"/>
+  <g stroke="#F5F6F8" stroke-width="6" stroke-linecap="round">
+    <path d="M46 22 V31 M60 22 V31 M74 22 V31 M46 89 V98 M60 89 V98 M74 89 V98 M22 46 H31 M22 60 H31 M22 74 H31 M89 46 H98 M89 60 H98 M89 74 H98"/>
+  </g>
+  <rect x="32" y="32" width="56" height="56" rx="10" fill="none" stroke="#F5F6F8" stroke-width="6"/>
+  <path d="M46 61 L56 71 L75 50" fill="none" stroke="#D6322C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
