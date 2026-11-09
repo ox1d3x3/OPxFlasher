@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
 from opx import flash as fl
@@ -28,8 +32,17 @@ class FlashDialog(QDialog):
         self.rom, self.device, self.report = rom, device, report
         self.plan: fl.FlashPlan | None = None
         self.setWindowTitle("Flash firmware")
-        self.resize(760, 720)
-        layout = QVBoxLayout(self)
+        self.resize(820, 860)
+        outer = QVBoxLayout(self)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 1)
 
         head = QLabel(f"<b>Flash {rom.path.name}</b><br>to {device.label}")
         head.setWordWrap(True)
@@ -69,6 +82,32 @@ class FlashDialog(QDialog):
             o_layout.addWidget(w)
         layout.addWidget(o_box)
 
+        # region conversion
+        self.keep_region_box: QCheckBox | None = None
+        if fl.region_change(report):
+            rom_product = report.rom.get("product") or "?"
+            dev_product = device.facts.get("product") or "?"
+            r_box = QGroupBox(f"Region conversion: {dev_product} -> {rom_product}")
+            r_layout = QVBoxLayout(r_box)
+            self.keep_region_box = QCheckBox(
+                "Keep mobile signal: restore this phone's own region files from the backup (recommended)"
+            )
+            self.keep_region_box.setChecked(True)
+            note = QLabel(
+                "Your oplusstanvbk and my_region are written back after the new firmware, so the modem keeps "
+                "the setup that works with your SIM. Changing region needs a factory reset, so Wipe data is "
+                "switched on and locked."
+            )
+            note.setStyleSheet("color:#9aa3b5")
+            note.setWordWrap(True)
+            r_layout.addWidget(self.keep_region_box)
+            r_layout.addWidget(note)
+            layout.addWidget(r_box)
+            self.wipe_box.setChecked(True)
+            self.wipe_box.setEnabled(False)
+            self.keep_region_box.toggled.connect(self._sync_optional)
+            self._sync_optional()
+
         # the one overridable block
         self.arb_edit: QLineEdit | None = None
         if fl.overridable_blocks(report):
@@ -82,6 +121,7 @@ class FlashDialog(QDialog):
                 f"{detail}\n\nOnly continue if you have confirmed these numbers yourself. Type ARB CHECKED:"
             )
             warn.setWordWrap(True)
+            warn.setMinimumHeight(warn.sizeHint().height() + 40)
             warn.setStyleSheet("color:#ffb3ad")
             self.arb_edit = QLineEdit()
             self.arb_edit.setPlaceholderText("ARB CHECKED")
@@ -93,13 +133,14 @@ class FlashDialog(QDialog):
         layout.addWidget(QLabel("What will happen:"))
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
+        self.preview.setMinimumHeight(220)
         layout.addWidget(self.preview, 1)
 
         confirm_row = QHBoxLayout()
         confirm_row.addWidget(QLabel("Type FLASH to enable the button:"))
         self.confirm_edit = QLineEdit()
         confirm_row.addWidget(self.confirm_edit, 1)
-        layout.addLayout(confirm_row)
+        outer.addLayout(confirm_row)
 
         btns = QHBoxLayout()
         btns.addStretch(1)
@@ -110,14 +151,23 @@ class FlashDialog(QDialog):
         self.start_btn.clicked.connect(self.accept)
         btns.addWidget(cancel)
         btns.addWidget(self.start_btn)
-        layout.addLayout(btns)
+        outer.addLayout(btns)
 
-        for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box]:
+        extra = [self.keep_region_box] if self.keep_region_box is not None else []
+        for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box, *extra]:
             cb.toggled.connect(self.refresh)
         for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
             if edit is not None:
                 edit.textChanged.connect(self.refresh)
         self.refresh()
+
+    def _sync_optional(self) -> None:
+        """The ROM's own region files can't be chosen while restoring the phone's."""
+        keep = bool(self.keep_region_box and self.keep_region_box.isChecked())
+        for cb in self.optional_boxes.values():
+            if keep:
+                cb.setChecked(False)
+            cb.setEnabled(not keep)
 
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose your backup of this phone", self.backup_edit.text())
@@ -126,7 +176,12 @@ class FlashDialog(QDialog):
 
     def options(self) -> fl.FlashOptions:
         arb_ok = self.arb_edit is not None and self.arb_edit.text().strip() == "ARB CHECKED"
+        backup = self.backup_edit.text().strip()
+        restore = []
+        if self.keep_region_box is not None and self.keep_region_box.isChecked():
+            restore = [n for n in self.device.profile.conditional if fl.backup_images(backup, n)]
         return fl.FlashOptions(
+            restore_from_backup=restore,
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
             wipe_data=self.wipe_box.isChecked(),
             reboot_after=self.reboot_box.isChecked(),

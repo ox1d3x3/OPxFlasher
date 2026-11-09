@@ -3,7 +3,7 @@
 **Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.**
 Windows and Linux, GUI and command line.
 
-> Status: **Phase 1 (backup), Phase 2 (ROM check) and Phase 3 (guarded flashing).**
+> Status: **Phase 1 (backup), Phase 2 (ROM check), Phase 3 (guarded flashing) and Phase 4 (region conversion / signal restore).**
 > Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.
 
 OPxFlasher was born after a OnePlus 13 (CN) got stuck on a ColorOS 17 release
@@ -91,6 +91,34 @@ How it flashes:
 - Optional: factory reset (`--wipe`), stay in bootloader (`--no-reboot`),
   flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
 
+## Phase 4: Region conversion and signal restore
+
+Converting a phone to another region (for example a Chinese OnePlus 13 to an
+Indian OxygenOS build) usually breaks mobile signal, because the new firmware's
+region files don't match the phone's modem setup. OxygenOS updates can break it
+again later by replacing those files.
+
+**Conversion mode.** When the ROM is for a different region/variant of the same
+device, OPxFlasher:
+
+- requires a data wipe (the phone wouldn't boot with the old data),
+- flashes the new firmware, then writes the phone's **own** `oplusstanvbk`
+  (both slots) and `my_region` back **from your backup**, so the modem keeps the
+  setup that works with your SIM.
+
+**Signal restore on its own** (no ROM), for after an update took the signal away:
+the *Signal / region* tab or `opx region restore`.
+
+Rules that always apply:
+
+- Only region files (`oplusstanvbk`, `my_region`, `odm`) can be restored. Identity
+  partitions (`persist`, `modemst*`, `fsg`, `ocdt` ...) never are.
+- The backup must be from this same phone, and **every image is re-hashed against
+  its manifest before anything is written**. One mismatch and nothing is touched.
+- `my_region` lives inside `super`, so restoring it needs fastbootd (which is refused
+  on firmware known to break it).
+- A file can't come from both the ROM and your backup in the same run.
+
 ## Install
 
 Requires Python 3.10+.
@@ -134,7 +162,13 @@ opx plan ROM.zip --json                      # machine-readable report
 opx flash ROM.zip --backup backups/<folder> --allow-fastbootd --dry-run   # show the steps
 opx flash ROM.zip --backup backups/<folder> --allow-fastbootd             # flash (asks you to type FLASH)
 opx flash --resume opx-flash-<time>/journal.json                          # continue an interrupted flash
+
+opx region show --backup backups/<folder>                       # region files in a backup, hash-checked
+opx region restore --backup backups/<folder> --allow-fastbootd  # restore signal files (asks you to type RESTORE)
 ```
+
+On a region change, `opx flash` restores your own region files automatically
+(`--no-restore-region` turns that off) and refuses to run without `--wipe`.
 
 Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]"`.
 
@@ -143,7 +177,7 @@ Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]
 1. ✅ Backup + verify (read-only)
 2. ✅ ROM detection, anti-rollback checks, dry-run flash plans (Qualcomm ARB pending validation)
 3. ✅ Guarded flashing: known-bad firmware blocks, `super.img` from the bootloader, journal and resume
-4. Region conversion using **your own** backed-up signal files
+4. ✅ Region conversion and signal restore using **your own** backed-up region files
 5. Root assistant (patch `init_boot`, re-root after OTA)
 
 Partitions that hold device identity (`persist`, `modemst*`, `fsg`, `ocdt`,

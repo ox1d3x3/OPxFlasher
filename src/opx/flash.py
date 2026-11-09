@@ -17,6 +17,7 @@ be resumed from the journal.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from dataclasses import asdict, dataclass, field
@@ -26,7 +27,7 @@ from typing import Callable
 
 from opx import __version__
 from opx.fastboot import Fastboot, FastbootError, wait_for_fastboot
-from opx.plan import BLOCK, DeviceState, Report
+from opx.plan import BLOCK, WARN, DeviceState, Report
 from opx.profile import Profile
 from opx.rom import payload as pl
 from opx.rom.ota import RomInfo, open_rom
@@ -57,6 +58,7 @@ class FlashOptions:
     reboot_after: bool = True
     allow_fastbootd: bool = False
     overrides: list[str] = field(default_factory=list)
+    restore_from_backup: list[str] = field(default_factory=list)  # region files written from YOUR backup
 
 
 def override_key(check) -> str | None:
@@ -99,6 +101,35 @@ def check_backup(folder: Path | None, facts: dict[str, str]) -> list[str]:
     return problems
 
 
+def backup_images(folder: Path | str | None, name: str) -> dict[str, tuple[Path, str, str]]:
+    """Backed-up images of one partition: {full_name: (file, sha256, source)}."""
+    if not folder:
+        return {}
+    manifest_path = Path(folder) / "manifest.json"
+    if not manifest_path.exists():
+        return {}
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    out = {}
+    for part in manifest.get("partitions", []):
+        if part.get("status") == "failed":
+            continue
+        if part["name"] in (name, f"{name}_a", f"{name}_b"):
+            out[part["name"]] = (Path(folder) / part["file"], part["sha256"], part.get("source", "by-name"))
+    return out
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while chunk := fh.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def region_change(report: Report | None) -> bool:
+    return bool(report) and any(c.name == "Region" and c.status == WARN for c in report.checks)
+
+
 # --- steps ----------------------------------------------------------------------
 
 
@@ -108,9 +139,13 @@ class Step:
     partition: str = ""
     status: str = "pending"  # pending, done, failed
     detail: str = ""
+    source: str = "rom"  # "rom" or "backup"
 
     @property
     def label(self) -> str:
+        if self.source == "backup":
+            where = "both slots" if self.kind == "flash" else "logical, in fastbootd"
+            return f"Restore {self.partition} from your backup ({where})"
         return {
             "to-bootloader": "Reboot to bootloader",
             "preflight": "Check bootloader (unlocked, slot)",
@@ -177,31 +212,96 @@ def prepare(
     has_super_image = "super" in physical
     if has_super_image:
         physical.remove("super")
-    physical.sort(key=lambda n: (AVB_ORDER_LAST.index(n) + 1) if n in AVB_ORDER_LAST else 0)
 
-    steps = [Step("to-bootloader"), Step("preflight")]
-    steps += [Step("flash", name) for name in physical]
-    if has_super_image:
-        steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
-    elif logical:
-        if "fastbootd" in blocked:
-            problems.append("Logical partitions need fastbootd, which is known to be broken on this firmware.")
-        elif not options.allow_fastbootd:
+    if region_change(report) and not options.wipe_data:
+        problems.append(
+            "This ROM is for a different region/variant. Converting needs a data wipe (factory reset); "
+            "the phone would not boot with the old data."
+        )
+    restore_physical, restore_logical = _restore_targets(options, device.profile, backup_folder, chosen, problems)
+
+    steps = _assemble(
+        rom_physical=physical,
+        rom_logical=[] if has_super_image else logical,
+        super_image=has_super_image,
+        restore_physical=restore_physical,
+        restore_logical=restore_logical,
+        options=options,
+        blocked=blocked,
+        problems=problems,
+    )
+
+    return FlashPlan(
+        rom_path=str(rom.path),
+        device=dict(device.facts),
+        options=options,
+        steps=steps,
+        problems=problems,
+        blocked_actions=sorted(blocked),
+        backup=str(backup_folder) if backup_folder else None,
+    )
+
+
+def _restore_targets(options, profile, backup_folder, chosen, problems) -> tuple[list[str], list[str]]:
+    restore_physical, restore_logical = [], []
+    for name in dict.fromkeys(options.restore_from_backup):
+        if not profile.is_conditional(name):
             problems.append(
-                "This ROM has logical partitions (" + ", ".join(logical[:4]) + ("..." if len(logical) > 4 else "")
-                + ") and no super.img. Allow fastbootd to flash them, or use a ROM folder that includes super.img."
+                f"{name} can't be restored by OPxFlasher; only region files ({', '.join(profile.conditional)}) can."
             )
+            continue
+        if name in chosen:
+            problems.append(f"{name} is set to come from both the ROM and your backup. Choose one.")
+            continue
+        images = backup_images(backup_folder, name)
+        if not images:
+            problems.append(f"Your backup has no {name} image to restore.")
+            continue
+        if any(src == "mapper" for _, _, src in images.values()):
+            restore_logical.append(name)
         else:
-            steps += [Step("to-fastbootd"), Step("snapshot")]
-            steps += [Step("flash-logical", name) for name in logical]
-            steps.append(Step("back-to-bootloader"))
+            restore_physical.append(name)
+    return restore_physical, restore_logical
+
+
+def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems) -> list[Step]:
+    physical = [Step("flash", n) for n in rom_physical] + [Step("flash", n, source="backup") for n in restore_physical]
+    physical.sort(key=lambda st: (AVB_ORDER_LAST.index(st.partition) + 1) if st.partition in AVB_ORDER_LAST else 0)
+    steps = [Step("to-bootloader"), Step("preflight"), *physical]
+    if super_image:
+        steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
+
+    logical = [Step("flash-logical", n) for n in rom_logical] + [Step("flash-logical", n, source="backup") for n in restore_logical]
+    if logical:
+        names = ", ".join(st.partition for st in logical[:4]) + ("..." if len(logical) > 4 else "")
+        if "fastbootd" in blocked:
+            problems.append(f"Flashing {names} needs fastbootd, which is known to be broken on this firmware.")
+        elif not options.allow_fastbootd:
+            hint = " or use a ROM folder that includes super.img" if rom_logical else ""
+            problems.append(f"Flashing {names} (logical partitions) needs fastbootd. Allow fastbootd{hint}.")
+        else:
+            steps += [Step("to-fastbootd"), Step("snapshot"), *logical, Step("back-to-bootloader")]
     if options.wipe_data:
         steps.append(Step("wipe"))
     if options.reboot_after:
         steps.append(Step("reboot"))
+    return steps
 
+
+def prepare_restore(device: DeviceState, backup_folder: Path | None, options: FlashOptions) -> FlashPlan:
+    """Restore only the region files from a backup (e.g. after an OTA replaced them). No ROM involved."""
+    problems = check_backup(backup_folder, device.facts)
+    blocked = device.profile.blocked_actions(device.props)
+    if "bootloader" in blocked:
+        problems.append("This phone's current firmware is known to break the bootloader's fastboot mode. Restoring is disabled.")
+    if not options.restore_from_backup:
+        problems.append("Choose at least one region file to restore.")
+    if options.include_optional or options.wipe_data:
+        problems.append("A restore only writes region files from your backup.")
+    restore_physical, restore_logical = _restore_targets(options, device.profile, backup_folder, set(), problems)
+    steps = _assemble([], [], False, restore_physical, restore_logical, options, blocked, problems)
     return FlashPlan(
-        rom_path=str(rom.path),
+        rom_path="",
         device=dict(device.facts),
         options=options,
         steps=steps,
@@ -243,7 +343,24 @@ def load_journal(path: Path) -> FlashPlan:
 
 
 def _image_names(plan: FlashPlan) -> list[str]:
-    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-logical", "flash-super")]
+    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-logical", "flash-super") and s.source == "rom"]
+
+
+def verified_backup_files(plan: FlashPlan, emit: EventFn) -> dict[str, Path]:
+    """Check every backup image we'll write against the hash recorded when it was made."""
+    files: dict[str, Path] = {}
+    for step in plan.steps:
+        if step.source != "backup" or step.status == "done":
+            continue
+        images = backup_images(plan.backup, step.partition)
+        if not images:
+            raise FlashError(f"The backup no longer has {step.partition}.")
+        for full, (path, sha, _src) in images.items():
+            emit({"type": "log", "message": f"Checking backup image {path.name} ..."})
+            if not path.exists() or sha256_file(path) != sha:
+                raise FlashError(f"Backup image {path.name} doesn't match the hash recorded in its manifest. Nothing was written.")
+            files[full] = path
+    return files
 
 
 def extract_images(rom: RomInfo, names: list[str], workdir: Path, emit: EventFn, cancel: threading.Event) -> dict[str, Path]:
@@ -270,7 +387,7 @@ class Runner:
     def __init__(
         self,
         plan: FlashPlan,
-        rom: RomInfo,
+        rom: RomInfo | None,
         profile: Profile,
         adb: Tool,
         fastboot: Tool,
@@ -292,6 +409,7 @@ class Runner:
         self.wait_timeout = wait_timeout
         self.serial = plan.device.get("serial") or None
         self.fb: Fastboot | None = None
+        self.backup_files: dict[str, Path] = {}
 
     # --- mode handling ------------------------------------------------
 
@@ -357,18 +475,27 @@ class Runner:
 
     # --- steps --------------------------------------------------------
 
-    def _flash_physical(self, fb: Fastboot, name: str, image: Path) -> str:
+    def _flash_physical(self, fb: Fastboot, name: str, image_for) -> str:
         targets = [f"{name}_a", f"{name}_b"] if fb.has_slot(name) else [name]
-        size = image.stat().st_size
-        for target in targets:
+        chosen = {t: image_for(t) for t in targets}
+        for target, image in chosen.items():
+            size = image.stat().st_size
             part_size = fb.partition_size(target)
             if part_size is None:
                 raise FlashError(f"{target} does not exist on this phone")
             if size > part_size:
-                raise FlashError(f"{name}.img ({size} bytes) is larger than {target} ({part_size} bytes)")
-        for target in targets:
+                raise FlashError(f"{image.name} ({size} bytes) is larger than {target} ({part_size} bytes)")
+        for target, image in chosen.items():
             fb.flash(target, image)
         return " + ".join(targets)
+
+    def _backup_image(self, name: str, target: str) -> Path:
+        """The backup image for a target, falling back to the other slot's copy."""
+        slot = self.plan.device.get("slot_suffix", "")
+        for candidate in (target, name + slot, name, f"{name}_a", f"{name}_b"):
+            if candidate in self.backup_files:
+                return self.backup_files[candidate]
+        raise FlashError(f"No backup image for {target}")
 
     def _run_step(self, step: Step, files: dict[str, Path]) -> str:
         if step.kind == "to-bootloader":
@@ -393,7 +520,9 @@ class Runner:
                 raise FlashError("The bootloader is locked. Flashing is not possible.")
             return f"unlocked, current slot {fb.getvar('current-slot') or '?'}"
         if step.kind == "flash":
-            return "wrote " + self._flash_physical(fb, step.partition, files[step.partition])
+            if step.source == "backup":
+                return "restored " + self._flash_physical(fb, step.partition, lambda t: self._backup_image(step.partition, t))
+            return "wrote " + self._flash_physical(fb, step.partition, lambda t: files[step.partition])
         if step.kind == "flash-super":
             size = files["super"].stat().st_size
             super_size = fb.partition_size("super")
@@ -408,6 +537,9 @@ class Runner:
                 return f"cancelled ({status})"
             return "none pending"
         if step.kind == "flash-logical":
+            if step.source == "backup":
+                fb.flash(step.partition, self._backup_image(step.partition, step.partition))
+                return f"restored {step.partition} from your backup (current slot)"
             fb.flash(step.partition, files[step.partition])
             return f"wrote {step.partition} (current slot)"
         if step.kind == "wipe":
@@ -422,7 +554,11 @@ class Runner:
         plan = self.plan
         if not plan.ok:
             raise FlashError("Flashing is blocked:\n- " + "\n- ".join(plan.problems))
-        files = extract_images(self.rom, _image_names(plan), self.workdir, self.emit, self.cancel)
+        rom_names = _image_names(plan)
+        if rom_names and self.rom is None:
+            raise FlashError("This plan needs the ROM, but none was given.")
+        files = extract_images(self.rom, rom_names, self.workdir, self.emit, self.cancel) if rom_names else {}
+        self.backup_files = verified_backup_files(plan, self.emit)
         save_journal(plan, self.journal)
         pending = [s for s in plan.steps if s.status != "done"]
         total = len(plan.steps)
@@ -456,5 +592,5 @@ def resume_runner(journal: Path, profile: Profile, adb: Tool, fastboot: Tool, **
     for step in plan.steps:
         if step.status == "failed":
             step.status = "pending"
-    rom = open_rom(plan.rom_path)
+    rom = open_rom(plan.rom_path) if plan.rom_path else None
     return Runner(plan, rom, profile, adb, fastboot, journal, Path(journal).parent / "images", **kwargs)

@@ -51,6 +51,9 @@ from opx.tools import Tool
 STYLE = """
 QMainWindow, QDialog, QMessageBox { background: #15171c; }
 QWidget { color: #e6e8ee; font-size: 10pt; }
+QCheckBox:disabled, QRadioButton:disabled, QLabel:disabled { color: #6b7280; }
+QScrollArea { background: transparent; }
+QScrollArea > QWidget > QWidget { background: transparent; }
 QGroupBox { border: 1px solid #2c3039; border-radius: 8px; margin-top: 14px; padding: 10px; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #9aa3b5; }
 QPushButton { background: #262a33; border: 1px solid #353a45; border-radius: 6px; padding: 6px 14px; }
@@ -345,6 +348,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(backup_tab, "Backup")
         self.tabs.addTab(rom_tab, "ROM check")
+        self.tabs.addTab(self._build_signal_tab(), "Signal / region")
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -398,6 +402,9 @@ class MainWindow(QMainWindow):
         self.check_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
+        if hasattr(self, "restore_btn"):
+            ready = bool(self.sig_plan and self.sig_plan.ok) and self.sig_confirm.text().strip() == "RESTORE"
+            self.restore_btn.setEnabled(not self.busy and ready)
         for b in self.mode_group.buttons():
             b.setEnabled(not self.busy)
 
@@ -489,6 +496,10 @@ class MainWindow(QMainWindow):
         else:
             self._show_banner("", "info")
         self.say(f"Connected: {facts.get('model')} {facts.get('build')} (root: {session.access.kind})")
+        self._sig_device = None
+        if not self.sig_backup_edit.text().strip() and self.last_folder:
+            self.sig_backup_edit.setText(str(self.last_folder))
+        self.refresh_signal()
         self._update_buttons()
 
     # --- backup -----------------------------------------------------------
@@ -578,6 +589,8 @@ class MainWindow(QMainWindow):
     def _backup_done(self, folder: Path) -> None:
         self._set_busy(False)
         self.last_folder = Path(folder)
+        if not self.sig_backup_edit.text().strip():
+            self.sig_backup_edit.setText(str(folder))
         self.item_label.setText("Backup finished")
         self.say(f"Saved to {folder}")
         self._update_buttons()
@@ -721,55 +734,198 @@ class MainWindow(QMainWindow):
             dialog.plan, self.check_rom_obj, self.session.profile, Tool("adb"), Tool("fastboot"),
             work / "journal.json", work / "images", cancel=self.flash_cancel,
         )
-        self.flash_journal = work / "journal.json"
+        self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn, "Flash")
+
+    def _launch(self, runner, journal, label, bar, stop_btn, what: str) -> None:
+        """Run a flash/restore Runner off the UI thread, showing progress in the given widgets."""
+        self.flash_journal = journal
+        self._active = (label, bar, stop_btn, what)
         self._set_busy(True)
-        self.stop_flash_btn.setEnabled(True)
-        self.flash_bar.setValue(0)
-        self.flash_bar.show()
-        self.flash_label.show()
-        self.flash_label.setText("Preparing images...")
-        self.say(f"Flashing started. Journal: {self.flash_journal}")
+        stop_btn.setEnabled(True)
+        bar.setValue(0)
+        bar.show()
+        label.show()
+        label.setText("Preparing...")
+        self.say(f"{what} started. Journal: {journal}")
         job = Job(runner.run)
         runner.emit = job.signals.event.emit
         self.run_job(job, self._flash_done, self._flash_failed, self._flash_event)
 
     def _stop_flash(self) -> None:
         self.flash_cancel.set()
-        self.stop_flash_btn.setEnabled(False)
+        for btn in (self.stop_flash_btn, self.stop_restore_btn):
+            btn.setEnabled(False)
         self.say("Will stop after the current step (a running write is never interrupted).")
 
     def _flash_event(self, e: dict) -> None:
+        label, bar, _stop, _what = self._active
         t = e["type"]
         if t == "extract":
-            self.flash_label.setText(f"Preparing image {e['index']}/{e['total']}: {e['name']}")
+            label.setText(f"Preparing image {e['index']}/{e['total']}: {e['name']}")
         elif t == "step_start":
-            self.flash_label.setText(f"Step {e['index']}/{e['total']}: {e['label']}")
-            self.flash_bar.setValue(int(100 * (e["index"] - 1) / e["total"]))
+            label.setText(f"Step {e['index']}/{e['total']}: {e['label']}")
+            bar.setValue(int(100 * (e["index"] - 1) / e["total"]))
             self.say(f"[{e['index']}/{e['total']}] {e['label']}")
         elif t == "step_done":
             self.say(f"    {e['status']}: {e['detail']}")
         elif t == "log":
             self.say(e["message"])
         elif t == "finished":
-            self.flash_bar.setValue(100)
+            bar.setValue(100)
 
     def _flash_done(self, plan) -> None:
+        label, _bar, stop, what = self._active
         self._set_busy(False)
-        self.stop_flash_btn.setEnabled(False)
-        self.flash_label.setText("Flash complete")
-        self.say("Flash complete.")
-        QMessageBox.information(self, "Flash", "Flash complete. The phone is rebooting." if plan.options.reboot_after
-                                else "Flash complete. The phone is still in the bootloader.")
+        stop.setEnabled(False)
+        label.setText(f"{what} complete")
+        self.say(f"{what} complete.")
+        QMessageBox.information(self, what, f"{what} complete. The phone is rebooting." if plan.options.reboot_after
+                                else f"{what} complete. The phone is still in the bootloader.")
 
     def _flash_failed(self, exc: BaseException) -> None:
+        label, _bar, stop, what = self._active
         self._set_busy(False)
-        self.stop_flash_btn.setEnabled(False)
-        self.flash_label.setText("Flash stopped")
+        stop.setEnabled(False)
+        label.setText(f"{what} stopped")
         self.say(str(exc))
         QMessageBox.warning(
-            self, "Flash stopped",
+            self, f"{what} stopped",
             f"{exc}\n\nResume later with:\nopx flash --resume \"{getattr(self, 'flash_journal', '')}\"",
         )
+
+    # --- signal / region tab ------------------------------------------------
+
+    def _build_signal_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        intro = QLabel(
+            "Lost mobile signal after an update on a converted phone? The update probably replaced the region "
+            "files. This writes your phone's <b>own</b> oplusstanvbk and my_region back from a verified backup of "
+            "this same phone. Nothing else is touched."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        box = QGroupBox("Backup to restore from")
+        b_layout = QVBoxLayout(box)
+        row = QHBoxLayout()
+        self.sig_backup_edit = QLineEdit()
+        self.sig_backup_edit.setPlaceholderText("A Critical or Full backup of this phone")
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self._choose_signal_backup)
+        row.addWidget(self.sig_backup_edit, 1)
+        row.addWidget(browse)
+        b_layout.addLayout(row)
+        self.sig_table = make_table(["File", "Size", "Type", "Backup hash"], stretch=0)
+        self.sig_table.setMaximumHeight(140)
+        b_layout.addWidget(self.sig_table)
+        self.sig_fastbootd = QCheckBox("Allow fastbootd (needed for my_region, which lives inside super)")
+        self.sig_fastbootd.setChecked(True)
+        b_layout.addWidget(self.sig_fastbootd)
+        layout.addWidget(box)
+
+        layout.addWidget(QLabel("What will happen:"))
+        self.sig_preview = QPlainTextEdit()
+        self.sig_preview.setReadOnly(True)
+        layout.addWidget(self.sig_preview, 1)
+
+        act = QHBoxLayout()
+        act.addWidget(QLabel("Type RESTORE:"))
+        self.sig_confirm = QLineEdit()
+        self.sig_confirm.setMaximumWidth(160)
+        act.addWidget(self.sig_confirm)
+        self.restore_btn = QPushButton("Restore signal files")
+        self.restore_btn.setObjectName("primary")
+        self.restore_btn.setEnabled(False)
+        self.restore_btn.clicked.connect(self.start_restore)
+        self.stop_restore_btn = QPushButton("Stop after this step")
+        self.stop_restore_btn.setEnabled(False)
+        self.stop_restore_btn.clicked.connect(self._stop_flash)
+        act.addWidget(self.restore_btn)
+        act.addWidget(self.stop_restore_btn)
+        act.addStretch(1)
+        layout.addLayout(act)
+        self.sig_label = QLabel("")
+        self.sig_label.hide()
+        self.sig_bar = QProgressBar()
+        self.sig_bar.setFormat("Restoring  %p%")
+        self.sig_bar.hide()
+        layout.addWidget(self.sig_label)
+        layout.addWidget(self.sig_bar)
+
+        self.sig_plan = None
+        self._sig_device = None
+        self._sig_hash_cache: dict[tuple[str, str], bool] = {}
+        self.sig_backup_edit.textChanged.connect(self.refresh_signal)
+        self.sig_fastbootd.toggled.connect(self.refresh_signal)
+        self.sig_confirm.textChanged.connect(self.refresh_signal)
+        return tab
+
+    def _choose_signal_backup(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose a backup of this phone", self.out_edit.text())
+        if folder:
+            self.sig_backup_edit.setText(folder)
+
+    def _signal_device(self):
+        if self.session is None or not self.session.access.usable:
+            return None
+        if self._sig_device is None or self._sig_device_serial != self.session.serial:
+            self._sig_device = pn.device_from_session(self.session)
+            self._sig_device_serial = self.session.serial
+        return self._sig_device
+
+    def refresh_signal(self) -> None:
+        folder = self.sig_backup_edit.text().strip()
+        profile = self.session.profile if self.session else None
+        rows = []
+        names = []
+        if folder and profile:
+            for name in profile.conditional:
+                images = fl.backup_images(folder, name)
+                if images:
+                    names.append(name)
+                for full, (path, sha, src) in sorted(images.items()):
+                    key = (str(path), sha)
+                    if key not in self._sig_hash_cache:
+                        self._sig_hash_cache[key] = path.exists() and fl.sha256_file(path) == sha
+                    rows.append((full, human(path.stat().st_size) if path.exists() else "missing",
+                                 "logical" if src == "mapper" else "physical",
+                                 "OK" if self._sig_hash_cache[key] else "MISMATCH"))
+        self.sig_table.setRowCount(len(rows))
+        for r, values in enumerate(rows):
+            for c, v in enumerate(values):
+                self.sig_table.setItem(r, c, QTableWidgetItem(v))
+
+        device = self._signal_device()
+        if device is None:
+            self.sig_plan = None
+            self.sig_preview.setPlainText("Connect the phone in Android with root access (see the Phone panel).")
+        elif not folder:
+            self.sig_plan = None
+            self.sig_preview.setPlainText("Choose the backup to restore from.")
+        else:
+            options = fl.FlashOptions(restore_from_backup=names, allow_fastbootd=self.sig_fastbootd.isChecked())
+            self.sig_plan = fl.prepare_restore(device, Path(folder), options)
+            lines = [f"{i:>2}. {st.label}" for i, st in enumerate(self.sig_plan.steps, 1)]
+            if self.sig_plan.problems:
+                lines += ["", "BLOCKED:"] + [f"  - {p}" for p in self.sig_plan.problems]
+            else:
+                lines += ["", "Ready. Type RESTORE to enable the button."]
+            self.sig_preview.setPlainText("\n".join(lines))
+        self._update_buttons()
+
+    def start_restore(self) -> None:
+        plan = self.sig_plan
+        if not plan or not plan.ok or self.sig_confirm.text().strip() != "RESTORE" or self.session is None:
+            return
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        work = Path(self.out_edit.text()).expanduser() / f"restore-{stamp}"
+        work.mkdir(parents=True, exist_ok=True)
+        self.flash_cancel = threading.Event()
+        runner = fl.Runner(plan, None, self.session.profile, Tool("adb"), Tool("fastboot"),
+                           work / "journal.json", work / "images", cancel=self.flash_cancel)
+        self.sig_confirm.clear()
+        self._launch(runner, work / "journal.json", self.sig_label, self.sig_bar, self.stop_restore_btn, "Restore")
 
 
 def run_rom_check(rom_path: str, backup: str, session: Session | None):
