@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -38,6 +39,8 @@ from opx import __version__
 from opx import backup as bk
 from opx import device as dev
 from opx.profile import MODE_TEXT, MODES
+from opx import plan as pn
+from opx.rom.ota import open_rom
 from opx.session import Session, open_session
 
 STYLE = """
@@ -59,6 +62,10 @@ QProgressBar { background: #1c1f26; border: 1px solid #2c3039; border-radius: 6p
 QProgressBar::chunk { background: #d6322c; border-radius: 6px; }
 QLabel#banner { border-radius: 6px; padding: 8px; }
 QLabel#title { font-size: 20pt; font-weight: 700; }
+QLabel#verdict { font-size: 13pt; font-weight: 700; padding: 8px; border-radius: 6px; }
+QTabWidget::pane { border: 1px solid #2c3039; border-radius: 8px; top: -1px; }
+QTabBar::tab { background: #1c1f26; border: 1px solid #2c3039; padding: 6px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px; }
+QTabBar::tab:selected { background: #262a33; color: white; }
 QScrollBar:vertical, QScrollBar:horizontal { background: #1c1f26; border: none; width: 10px; height: 10px; }
 QScrollBar::handle { background: #3a3f4b; border-radius: 4px; min-height: 24px; min-width: 24px; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
@@ -75,6 +82,19 @@ def human(n: int | None) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return str(n)
+
+
+def make_table(headers: list[str], stretch: int) -> QTableWidget:
+    table = QTableWidget(0, len(headers))
+    table.setHorizontalHeaderLabels(headers)
+    header = table.horizontalHeader()
+    for col in range(len(headers)):
+        mode = QHeaderView.Stretch if col == stretch else QHeaderView.ResizeToContents
+        header.setSectionResizeMode(col, mode)
+    table.verticalHeader().setVisible(False)
+    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.setWordWrap(True)
+    return table
 
 
 class JobSignals(QObject):
@@ -126,7 +146,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("OPxFlasher")
         title.setObjectName("title")
-        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones. Phase 1: read-only backup.")
+        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones. Backup and ROM check: nothing is ever flashed yet.")
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -136,7 +156,7 @@ class MainWindow(QMainWindow):
         dev_layout = QVBoxLayout(dev_box)
         row = QHBoxLayout()
         self.device_combo = QComboBox()
-        self.device_combo.setMinimumWidth(420)
+        self.device_combo.setMinimumWidth(180)
         self.device_combo.currentIndexChanged.connect(self._device_selected)
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self.refresh_devices)
@@ -165,11 +185,13 @@ class MainWindow(QMainWindow):
         self.banner.setWordWrap(True)
         self.banner.hide()
         dev_layout.addWidget(self.banner)
-        top = QHBoxLayout()
-        top.setSpacing(10)
-        top.addWidget(dev_box, 1)
+        dev_box.setMinimumWidth(340)
+        dev_box.setMaximumWidth(400)
+        dev_layout.addStretch(1)
 
-        # backup options
+        # --- Backup tab ---------------------------------------------------
+        backup_tab = QWidget()
+        backup_layout = QVBoxLayout(backup_tab)
         opt_box = QGroupBox("Backup")
         opt_layout = QVBoxLayout(opt_box)
         self.mode_group = QButtonGroup(self)
@@ -211,35 +233,107 @@ class MainWindow(QMainWindow):
         btn_row.addStretch(1)
         btn_row.addWidget(self.verify_btn)
         opt_layout.addLayout(btn_row)
-        top.addWidget(opt_box, 1)
-        layout.addLayout(top)
+        backup_layout.addWidget(opt_box)
 
-        # progress
         self.item_label = QLabel("Idle")
         self.item_bar = QProgressBar()
         self.item_bar.setFormat("Current partition  %p%")
         self.overall_bar = QProgressBar()
         self.overall_bar.setFormat("Overall  %p%")
-        layout.addWidget(self.item_label)
-        layout.addWidget(self.item_bar)
-        layout.addWidget(self.overall_bar)
+        backup_layout.addWidget(self.item_label)
+        backup_layout.addWidget(self.item_bar)
+        backup_layout.addWidget(self.overall_bar)
 
-        # table + log
-        splitter = QSplitter(Qt.Vertical)
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Partition", "Size", "Path", "Status"])
-        header = self.table.horizontalHeader()
-        for col in (0, 1, 3):
-            header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table = make_table(["Partition", "Size", "Path", "Status"], stretch=2)
+        backup_layout.addWidget(self.table, 1)
+
+        # --- ROM check tab ------------------------------------------------
+        rom_tab = QWidget()
+        rom_layout = QVBoxLayout(rom_tab)
+        rom_box = QGroupBox("Firmware to check (nothing is flashed)")
+        rom_form = QVBoxLayout(rom_box)
+        rom_row = QHBoxLayout()
+        self.rom_edit = QLineEdit()
+        self.rom_edit.setPlaceholderText("Full OTA zip, payload.bin, or a folder of .img files")
+        pick_file = QPushButton("File...")
+        pick_file.clicked.connect(self._choose_rom_file)
+        pick_folder = QPushButton("Folder...")
+        pick_folder.clicked.connect(self._choose_rom_folder)
+        rom_row.addWidget(QLabel("ROM:"))
+        rom_row.addWidget(self.rom_edit, 1)
+        rom_row.addWidget(pick_file)
+        rom_row.addWidget(pick_folder)
+        rom_form.addLayout(rom_row)
+
+        cmp_row = QHBoxLayout()
+        self.cmp_group = QButtonGroup(self)
+        self.cmp_live = QRadioButton("Connected phone")
+        self.cmp_live.setChecked(True)
+        self.cmp_backup = QRadioButton("Backup folder:")
+        self.cmp_group.addButton(self.cmp_live)
+        self.cmp_group.addButton(self.cmp_backup)
+        self.cmp_backup_edit = QLineEdit()
+        self.cmp_backup_edit.setPlaceholderText("An OPxFlasher backup (Full mode gives the most checks)")
+        pick_backup = QPushButton("Browse...")
+        pick_backup.clicked.connect(self._choose_compare_backup)
+        cmp_row.addWidget(QLabel("Compare with:"))
+        cmp_row.addWidget(self.cmp_live)
+        cmp_row.addWidget(self.cmp_backup)
+        cmp_row.addWidget(self.cmp_backup_edit, 1)
+        cmp_row.addWidget(pick_backup)
+        rom_form.addLayout(cmp_row)
+
+        act_row = QHBoxLayout()
+        self.check_btn = QPushButton("Check ROM")
+        self.check_btn.setObjectName("primary")
+        self.check_btn.clicked.connect(self.check_rom)
+        self.save_report_btn = QPushButton("Save report...")
+        self.save_report_btn.clicked.connect(self._save_report)
+        self.save_report_btn.setEnabled(False)
+        act_row.addWidget(self.check_btn)
+        act_row.addWidget(self.save_report_btn)
+        act_row.addStretch(1)
+        rom_form.addLayout(act_row)
+        rom_layout.addWidget(rom_box)
+
+        self.verdict = QLabel("Choose a ROM and press Check ROM.")
+        self.verdict.setObjectName("verdict")
+        self.verdict.setWordWrap(True)
+        self.rom_summary = QLabel("")
+        self.rom_summary.setStyleSheet("color:#9aa3b5")
+        self.rom_summary.setWordWrap(True)
+        self.reasons = QLabel("")
+        self.reasons.setWordWrap(True)
+        self.reasons.setStyleSheet("color:#ffb3ad")
+        self.reasons.hide()
+        rom_layout.addWidget(self.verdict)
+        rom_layout.addWidget(self.reasons)
+        rom_layout.addWidget(self.rom_summary)
+        rom_split = QSplitter(Qt.Vertical)
+        self.checks_table = make_table(["Result", "Check", "Details"], stretch=2)
+        self.plan_table = make_table(["Partition", "Size", "Action", "Target", "Note"], stretch=4)
+        rom_split.addWidget(self.checks_table)
+        rom_split.addWidget(self.plan_table)
+        rom_layout.addWidget(rom_split, 1)
+        self.report: pn.Report | None = None
+
+        # --- assemble -----------------------------------------------------
+        self.tabs = QTabWidget()
+        self.tabs.addTab(backup_tab, "Backup")
+        self.tabs.addTab(rom_tab, "ROM check")
+        upper = QWidget()
+        upper_layout = QHBoxLayout(upper)
+        upper_layout.setContentsMargins(0, 0, 0, 0)
+        upper_layout.addWidget(dev_box)
+        upper_layout.addWidget(self.tabs, 1)
+
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        splitter.addWidget(self.table)
-        splitter.addWidget(self.log)
-        splitter.setSizes([340, 140])
-        layout.addWidget(splitter, 1)
+        body = QSplitter(Qt.Vertical)
+        body.addWidget(upper)
+        body.addWidget(self.log)
+        body.setSizes([660, 110])
+        layout.addWidget(body, 1)
 
         self.setCentralWidget(root)
 
@@ -277,6 +371,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(ready and not self.busy)
         self.cancel_btn.setEnabled(self.busy)
         self.open_btn.setEnabled(self.last_folder is not None)
+        self.check_btn.setEnabled(not self.busy)
         for b in self.mode_group.buttons():
             b.setEnabled(not self.busy)
 
@@ -495,6 +590,94 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Verify backup", "Problems found:\n\n" + "\n".join(bad))
         else:
             QMessageBox.information(self, "Verify backup", f"All {len(report)} image(s) match the manifest.")
+
+    # --- ROM check --------------------------------------------------------
+
+    def _choose_rom_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Choose ROM", "", "Firmware (*.zip *.bin);;All files (*)")
+        if path:
+            self.rom_edit.setText(path)
+
+    def _choose_rom_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose a folder with payload.bin or .img files")
+        if folder:
+            self.rom_edit.setText(folder)
+
+    def _choose_compare_backup(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose an OPxFlasher backup folder", self.out_edit.text())
+        if folder:
+            self.cmp_backup_edit.setText(folder)
+            self.cmp_backup.setChecked(True)
+
+    def check_rom(self) -> None:
+        rom_path = self.rom_edit.text().strip()
+        if not rom_path:
+            QMessageBox.information(self, "ROM check", "Choose a ROM file or folder first.")
+            return
+        backup = self.cmp_backup_edit.text().strip() if self.cmp_backup.isChecked() else ""
+        if self.cmp_backup.isChecked() and not backup:
+            QMessageBox.information(self, "ROM check", "Choose the backup folder to compare with.")
+            return
+        self._set_busy(True)
+        self.say(f"Checking {rom_path} ...")
+        self.run_job(Job(run_rom_check, rom_path, backup, self.session), self._rom_report_ready)
+
+    def _rom_report_ready(self, report: pn.Report) -> None:
+        self._set_busy(False)
+        self.report = report
+        self.save_report_btn.setEnabled(True)
+        colours = {"BLOCKED": "#5c1d1b", "OK WITH WARNINGS": "#4d3b12", "OK": "#1d4d2b"}
+        text = {
+            "BLOCKED": "BLOCKED - this ROM must not be flashed as things stand",
+            "OK WITH WARNINGS": "OK with warnings - read them before going further",
+            "OK": "OK - all safety checks passed (dry run)",
+        }[report.verdict]
+        self.verdict.setText(text)
+        self.verdict.setStyleSheet(f"background:{colours[report.verdict]}")
+        blocks = [c for c in report.checks if c.status == "block"]
+        self.reasons.setText("\n".join(f"Stopped by {c.name}: {c.detail}" for c in blocks))
+        self.reasons.setVisible(bool(blocks))
+        r = report.rom
+        self.rom_summary.setText(
+            f"ROM: {r['product'] or '?'} / {r['codename'] or '?'}, Android {r['android'] or '?'}, "
+            f"patch {r['security_patch'] or '?'}, full package: {r['full']}, {r['images']} images"
+        )
+        status_text = {"pass": "OK", "info": "Info", "warn": "Warning", "block": "STOP"}
+        status_colour = {"pass": "#5fd38d", "info": "#9aa3b5", "warn": "#f0c24b", "block": "#ff6b63"}
+        self.checks_table.setRowCount(len(report.checks))
+        for row, c in enumerate(report.checks):
+            cell = QTableWidgetItem(status_text[c.status])
+            cell.setForeground(QColor(status_colour[c.status]))
+            self.checks_table.setItem(row, 0, cell)
+            self.checks_table.setItem(row, 1, QTableWidgetItem(c.name))
+            self.checks_table.setItem(row, 2, QTableWidgetItem(c.detail))
+        self.checks_table.resizeRowsToContents()
+        action_text = {"flash": "flash", "super": "into super", "conditional": "optional", "skip": "never flashed"}
+        self.plan_table.setRowCount(len(report.items))
+        for row, i in enumerate(report.items):
+            values = (i.partition, human(i.size), action_text[i.action], i.target, i.note)
+            for col, v in enumerate(values):
+                self.plan_table.setItem(row, col, QTableWidgetItem(v))
+        self.say(f"ROM check: {report.verdict}")
+
+    def _save_report(self) -> None:
+        if not self.report:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save report", "opx-rom-report.json", "JSON (*.json)")
+        if path:
+            Path(path).write_text(self.report.to_json(), "utf-8")
+            self.say(f"Report saved to {path}")
+
+
+def run_rom_check(rom_path: str, backup: str, session: Session | None) -> pn.Report:
+    rom = open_rom(rom_path)
+    if backup:
+        device = pn.device_from_backup(Path(backup))
+    elif session is not None and session.access.usable:
+        device = pn.device_from_session(session)
+    else:
+        device = pn.no_device()
+    return pn.build_report(rom, device)
 
 
 def main() -> int:

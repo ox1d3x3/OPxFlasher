@@ -53,6 +53,10 @@ class Profile:
     full_exclude: list[str]
     never_flash: list[str]
     known_issues: list[KnownIssue] = field(default_factory=list)
+    conditional: list[str] = field(default_factory=list)
+    avb_images: list[str] = field(default_factory=list)
+    qcom_arb_images: list[str] = field(default_factory=list)
+    qcom_arb_validated: bool = False
 
     def rules_for(self, mode: str) -> list[PartitionRule]:
         if mode == "network":
@@ -63,6 +67,9 @@ class Profile:
 
     def is_never_flash(self, partition: str) -> bool:
         return any(PartitionRule(p, False).matches(partition) for p in self.never_flash)
+
+    def is_conditional(self, partition: str) -> bool:
+        return any(PartitionRule(p, False).matches(partition) for p in self.conditional)
 
     def issues_for(self, props: dict[str, str]) -> list[KnownIssue]:
         return [i for i in self.known_issues if i.applies(props)]
@@ -95,6 +102,10 @@ def load(profile_id: str) -> Profile:
         full_exclude=backup.get("full_exclude", ["userdata"]),
         never_flash=raw.get("never_flash", []),
         known_issues=[KnownIssue(**i) for i in raw.get("known_issues", [])],
+        conditional=raw.get("conditional", []),
+        avb_images=raw.get("avb_images", ["vbmeta"]),
+        qcom_arb_images=raw.get("qcom_arb_images", []),
+        qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
     )
 
 

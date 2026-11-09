@@ -20,6 +20,10 @@
     ],
     "full_exclude": ["userdata"]
   },
+  "conditional": ["oplusstanvbk", "my_region", "odm"],
+  "avb_images": ["vbmeta", "vbmeta_system", "vbmeta_vendor"],
+  "qcom_arb_images": ["xbl_config", "abl"],
+  "qcom_arb_validated": false,
   "never_flash": [
     "persist*",
     "modemst1",

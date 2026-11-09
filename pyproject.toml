@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opxflasher"
-version = "0.1.0"
+version = "0.2.0"
 description = "Safety-first backup and flashing tool for OPPO / OnePlus (OPlus platform) phones"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -20,6 +20,7 @@ classifiers = [
 
 [project.optional-dependencies]
 gui = ["PySide6-Essentials>=6.6"]
+zstd = ["zstandard>=0.21"]
 dev = ["pytest>=7", "PySide6-Essentials>=6.6"]
 
 [project.scripts]
