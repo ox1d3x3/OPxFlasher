@@ -48,7 +48,7 @@ from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.root_tab import RootTab
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
-from opx.tools import Tool
+from opx.tools import Tool, fetch_platform_tools
 
 STYLE = """
 QMainWindow, QDialog, QMessageBox { background: #15171c; }
@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("OPxFlasher")
         title.setObjectName("title")
-        subtitle = QLabel("Backup, ROM check, flashing, signal restore and root for OPPO / OnePlus phones.")
+        subtitle = QLabel("AIO tool for OnePlus / OPPO devices: backup, ROM check, flashing, signal restore and root.")
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -174,6 +174,11 @@ class MainWindow(QMainWindow):
         row.addWidget(self.device_combo, 1)
         row.addWidget(self.refresh_btn)
         dev_layout.addLayout(row)
+        self.tools_btn = QPushButton("Download adb and fastboot")
+        self.tools_btn.setToolTip("Downloads Google's official platform-tools (Google's terms apply)")
+        self.tools_btn.clicked.connect(self.download_tools)
+        self.tools_btn.hide()
+        dev_layout.addWidget(self.tools_btn)
 
         self.info_labels: dict[str, QLabel] = {}
         form = QFormLayout()
@@ -436,6 +441,16 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         for err in scan.errors:
             self.say(err)
+        tools_missing = any("not found" in e for e in scan.errors)
+        self.tools_btn.setVisible(tools_missing)
+        if tools_missing and not scan.devices:
+            self._show_banner(
+                "adb and fastboot are missing. Click \"Download adb and fastboot\" to get "
+                "Google's official platform-tools, then plug in your phone.",
+                "warning",
+            )
+            self._update_buttons()
+            return
         self.devices = scan.devices
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
@@ -452,6 +467,29 @@ class MainWindow(QMainWindow):
             self._update_buttons()
             return
         self._device_selected(0)
+
+    def download_tools(self) -> None:
+        answer = QMessageBox.question(
+            self, "OPxFlasher",
+            "Download Google's official Android platform-tools (adb and fastboot, about 10 MB)?\n\n"
+            "They come straight from dl.google.com and Google's terms apply.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._set_busy(True)
+        self.tools_btn.setEnabled(False)
+        self.say("Downloading platform-tools from Google...")
+        self.run_job(Job(fetch_platform_tools), self._tools_downloaded, self._tools_failed)
+
+    def _tools_downloaded(self, path) -> None:
+        self.tools_btn.setEnabled(True)
+        self.tools_btn.hide()
+        self.say(f"platform-tools saved to {path}")
+        self.refresh_devices()
+
+    def _tools_failed(self, exc: BaseException) -> None:
+        self.tools_btn.setEnabled(True)
+        self._job_failed(exc)
 
     def _clear_info(self) -> None:
         for lbl in self.info_labels.values():
@@ -955,6 +993,13 @@ def main() -> int:
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     win = MainWindow()
+    if "--smoke-test" in sys.argv:
+        # Used by CI on the packaged .exe / AppImage: the app, its data files and
+        # icon load, without touching any phone.
+        app.processEvents()
+        ok = not app.windowIcon().isNull() and win.windowTitle().startswith("OPxFlasher")
+        print("smoke test", "ok" if ok else "FAILED", flush=True)
+        return 0 if ok else 1
     win.show()
     win.refresh_devices()
     return app.exec()

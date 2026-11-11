@@ -85,3 +85,22 @@ def test_tool_override_keeps_paths_with_spaces(monkeypatch, tmp_path):
     script = tmp_path / "My Tools" / "fake adb.py"
     monkeypatch.setenv("OPX_ADB", tool_cmd(exe, script, "-c"))
     assert find_tool("adb") == [str(exe), str(script), "-c"]
+
+
+def test_platform_tools_download_covers_macos(monkeypatch, tmp_path):
+    from opx import tools
+
+    assert tools.GOOGLE_PLATFORM_TOOLS["darwin"].endswith("platform-tools-latest-darwin.zip")
+    monkeypatch.setattr(tools.sys, "platform", "darwin")
+    monkeypatch.setattr(tools.os, "name", "posix")
+    monkeypatch.setattr(tools.Path, "home", lambda: tmp_path)
+    assert tools.user_tools_dir() == tmp_path / "Library" / "Application Support" / "OPxFlasher" / "platform-tools"
+
+
+def test_tools_next_to_appimage_are_found(monkeypatch, tmp_path):
+    from opx import tools
+
+    image = tmp_path / "OPxFlasher.AppImage"
+    image.write_bytes(b"")
+    monkeypatch.setenv("APPIMAGE", str(image))
+    assert tmp_path / "platform-tools" / f"adb{tools._EXE}" in tools._candidates("adb")

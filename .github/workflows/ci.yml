@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os == 'windows-latest' && 'Windows' || 'Linux' }} / Python ${{ matrix.python }}
+    name: ${{ matrix.os == 'windows-latest' && 'Windows' || matrix.os == 'macos-latest' && 'macOS' || 'Linux' }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -23,6 +23,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python: ["3.10", "3.13"]
+        include:
+          - os: macos-latest
+            python: "3.13"
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONFAULTHANDLER: "1"

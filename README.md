@@ -6,8 +6,8 @@
 </h1>
 
 <p align="center">
-  <b>Backup and flashing tool for OPPO / OnePlus (OPlus platform) phones.</b><br>
-  Windows and Linux, GUI and command line.
+  <b>AIO tool for OnePlus / OPPO devices.</b><br>
+  Backup, ROM check, flashing, signal restore and root. Windows, Linux and macOS; GUI and command line.
 </p>
 
 <p align="center">
@@ -154,20 +154,47 @@ After an OTA, run the same steps with the new build's full OTA.
 
 ## Install
 
-Requires Python 3.10+.
+### Windows and Linux: one file, nothing to install
+
+Download from the [latest release](https://github.com/ox1d3x3/OPxFlasher/releases/latest):
+
+- **Windows:** `OPxFlasher-<version>-windows-x64.exe`. Double-click to run. The file
+  isn't code-signed yet, so Windows SmartScreen may say "Windows protected your PC":
+  choose *More info → Run anyway*.
+- **Linux:** `OPxFlasher-<version>-linux-x86_64.AppImage`. Make it executable once
+  (`chmod +x OPxFlasher-*.AppImage`, or tick "Allow executing" in file properties),
+  then double-click it. Works on most distributions from 2022 onwards. If it says FUSE
+  is missing, install `libfuse2` or run it with `--appimage-extract-and-run`.
+
+The command-line tool `opx` isn't in these files; install with pip (below) for that.
+
+### macOS (and any system with Python)
+
+Requires Python 3.10+ and [pipx](https://pipx.pypa.io) (`brew install pipx`):
 
 ```sh
-git clone https://github.com/ox1d3x3/OPxFlasher
-cd OPxFlasher
-python -m pip install ".[gui]"
+pipx install "opxflasher[gui,zstd] @ git+https://github.com/ox1d3x3/OPxFlasher"
+opxflasher        # the app
+opx --help        # the command line
 ```
 
-You also need Google's platform-tools (adb + fastboot). If they aren't on your PATH:
+Update later with `pipx upgrade opxflasher`. On Linux and Windows the same command works
+if you prefer it to the portable files.
+
+From a checkout instead: `python -m pip install ".[gui,zstd]"`.
+
+### adb and fastboot
+
+OPxFlasher doesn't ship Google's platform-tools (adb + fastboot). If they aren't on your
+PATH, download them once:
 
 ```sh
 opx tools fetch     # downloads Google's official platform-tools (Google's terms apply)
 opx tools where     # shows which adb/fastboot will be used
 ```
+
+With the portable files you can also put Google's `platform-tools` folder next to the
+`.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
 
 ## Use
 
