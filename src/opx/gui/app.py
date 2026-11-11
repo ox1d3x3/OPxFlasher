@@ -43,6 +43,7 @@ from opx import device as dev
 from opx.profile import MODE_TEXT, MODES
 from opx import flash as fl
 from opx import plan as pn
+from opx.gui.catalog_dialog import CatalogDialog
 from opx.gui.flash_dialog import FlashDialog
 from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.root_tab import RootTab
@@ -275,10 +276,15 @@ class MainWindow(QMainWindow):
         pick_file.clicked.connect(self._choose_rom_file)
         pick_folder = QPushButton("Folder...")
         pick_folder.clicked.connect(self._choose_rom_folder)
+        self.catalog_btn = QPushButton("Official ROMs...")
+        self.catalog_btn.setToolTip("Pick an official ROM for the connected phone "
+                                    "(OTA catalog by Daniel Springer)")
+        self.catalog_btn.clicked.connect(self.open_catalog)
         rom_row.addWidget(QLabel("ROM:"))
         rom_row.addWidget(self.rom_edit, 1)
         rom_row.addWidget(pick_file)
         rom_row.addWidget(pick_folder)
+        rom_row.addWidget(self.catalog_btn)
         rom_form.addLayout(rom_row)
 
         cmp_row = QHBoxLayout()
@@ -692,6 +698,26 @@ class MainWindow(QMainWindow):
         if folder:
             self.cmp_backup_edit.setText(folder)
             self.cmp_backup.setChecked(True)
+
+    def _dialog_job(self, fn, done, failed, event=None) -> None:
+        job = Job(fn)
+        if event:
+            job.kwargs["emit"] = job.signals.event.emit
+        self.run_job(job, done, failed, event)
+
+    def open_catalog(self) -> None:
+        model = self.session.props.get("ro.product.model", "") if self.session else ""
+        if not model:
+            QMessageBox.information(
+                self, "OPxFlasher",
+                "Connect your phone with USB debugging first, so OPxFlasher knows which ROMs fit it. "
+                "Or use opx ota list --model <model> on the command line.")
+            return
+        dlg = CatalogDialog(self, self._dialog_job, model)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.downloaded:
+            self.rom_edit.setText(str(dlg.downloaded))
+            self.say(f"Downloaded {dlg.downloaded}")
+            self.check_rom()
 
     def check_rom(self) -> None:
         rom_path = self.rom_edit.text().strip()

@@ -290,3 +290,50 @@ def test_smoke_test_flag(monkeypatch, capsys):
     QApplication.instance() or QApplication([])
     assert gui.main() == 0
     assert "smoke test ok" in capsys.readouterr().out
+
+
+def test_gui_official_roms_dialog(window, monkeypatch, tmp_path):
+    from test_catalog import PKG, SAMPLE
+
+    from opx import catalog
+    from opx.gui import catalog_dialog as cd
+
+    app, win = window
+    releases = [catalog.Release.from_json(r) for r in SAMPLE["releases"]]
+    monkeypatch.setattr(cd.catalog, "for_phone", lambda model: [r for r in releases if r.model == model])
+    monkeypatch.setattr(cd.catalog, "fetch", lambda **kw: releases)
+    monkeypatch.setattr(cd.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+
+    def fake_download(rel, folder, progress=None, cancel=None):
+        progress(len(PKG), len(PKG))
+        out = folder / rel.filename
+        out.write_bytes(PKG)
+        return out
+
+    monkeypatch.setattr(cd.catalog, "download", fake_download)
+
+    dlg = cd.CatalogDialog(win, win._dialog_job, "PJZ110")
+    settle(app)
+    assert dlg.table.rowCount() == 2
+    assert dlg.selected().id == "bbb222"  # newest first
+
+    dlg.others.setChecked(True)
+    settle(app)
+    assert dlg.table.rowCount() == 3
+    eu = next(i for i, r in enumerate(dlg.releases) if r.model == "CPH2653")
+    assert "other variant" in dlg.table.item(eu, 6).text()
+
+    # another variant asks first; cancelling downloads nothing
+    asked = []
+    monkeypatch.setattr(cd.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or cd.QMessageBox.StandardButton.Cancel)
+    dlg.table.selectRow(eu)
+    dlg.download()
+    settle(app)
+    assert asked and "CPH2653" in asked[0] and dlg.downloaded is None
+
+    dlg.table.selectRow(0)
+    dlg.download()
+    settle(app)
+    assert dlg.downloaded == tmp_path / releases[1].filename
+    assert dlg.result() == cd.QDialog.DialogCode.Accepted
