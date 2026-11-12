@@ -31,6 +31,7 @@ def window(adb_env, monkeypatch):
 
 def test_gui_connects_and_backs_up(window, tmp_path):
     app, win = window
+    assert not win.windowIcon().isNull()
     assert win.device_combo.count() == 1
     assert win.session is not None and win.session.access.kind == "su"
     assert win.info_labels["model"].text() == "PJZ110"

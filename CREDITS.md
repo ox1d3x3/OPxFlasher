@@ -20,6 +20,9 @@ understood, and they deserve the credit for that groundwork.
 - **Android SDK Platform-Tools** (adb, fastboot) – Google. Not bundled;
   `opx tools fetch` downloads it from Google under Google's terms.
 - **Qt for Python (PySide6)** – The Qt Company, LGPL-3.0.
+- **Space Grotesk** – Florian Karsten and the Space Grotesk Project Authors,
+  SIL Open Font License 1.1. Used for the "OPxFlasher" wordmark; the text is
+  converted to outlines, so the font itself is not shipped.
 
 If you contributed to any of the work above and want your credit changed, please
 open an issue.
