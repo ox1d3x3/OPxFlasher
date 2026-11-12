@@ -157,7 +157,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel("OPxFlasher")
         title.setObjectName("title")
-        subtitle = QLabel("Safety-first tools for OPPO / OnePlus phones: backup, ROM check, guarded flashing, signal restore and root.")
+        subtitle = QLabel("Backup, ROM check, flashing, signal restore and root for OPPO / OnePlus phones.")
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)

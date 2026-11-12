@@ -49,7 +49,7 @@ BG = "#15171C"
 
 WORDMARK = "OPxFlasher"
 ACCENT_CHARS = 3  # "OPx"
-TAGLINE = "Safety-first flashing for OPPO and OnePlus"
+TAGLINE = "Backup and flashing for OPPO and OnePlus"
 
 
 # --------------------------------------------------------------------------- render
