@@ -89,11 +89,11 @@ def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
     import sys
 
     import romfactory as rf
-    from conftest import FAKE_FASTBOOT
+    from conftest import FAKE_FASTBOOT, tool_cmd
     from test_flash import make_rom
     from test_plan import put, sized
 
-    monkeypatch.setenv("OPX_FASTBOOT", f"{sys.executable} {FAKE_FASTBOOT}")
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
     for slot in ("_a", "_b"):
         put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
         put(adb_env, f"xbl_config{slot}", sized(rf.build_qcom_elf(arb=1)))
@@ -145,10 +145,10 @@ def _gui_phone(adb_env, monkeypatch):
     import sys
 
     import romfactory as rf
-    from conftest import FAKE_FASTBOOT
+    from conftest import FAKE_FASTBOOT, tool_cmd
     from test_plan import put, sized
 
-    monkeypatch.setenv("OPX_FASTBOOT", f"{sys.executable} {FAKE_FASTBOOT}")
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
     for slot in ("_a", "_b"):
         put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
         put(adb_env, f"xbl_config{slot}", sized(rf.build_qcom_elf(arb=1)))
