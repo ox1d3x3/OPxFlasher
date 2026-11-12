@@ -211,6 +211,10 @@ def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
     assert d.options().restore_from_backup == ["oplusstanvbk", "my_region"]
     d.arb_edit.setText("ARB CHECKED")
     d.confirm_edit.setText("FLASH")
+    assert d.variant_box is not None and not d.variant_box.isChecked()  # default: no
+    assert not d.plan.ok and any("Different variant" in p for p in d.plan.problems)
+    assert not d.start_btn.isEnabled()
+    d.variant_box.setChecked(True)
     assert d.plan.ok, d.plan.problems
     assert "Restore my_region from your backup" in d.preview.toPlainText()
 

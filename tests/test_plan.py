@@ -93,9 +93,20 @@ def test_wrong_device_blocks(adb, phone, tmp_path):
     assert status(r, "Device match") == "block"
 
 
-def test_region_change_warns(adb, phone, tmp_path):
-    r = report_for(adb, rom_zip(tmp_path, product="CPH2649"))
-    assert status(r, "Region") == "warn"
+def test_other_variant_blocks_until_confirmed(adb, phone, tmp_path):
+    from opx import flash as fl
+
+    r = report_for(adb, rom_zip(tmp_path, product="CPH2653"))
+    assert status(r, "Variant") == "block"
+    detail = next(c.detail for c in r.checks if c.name == "Variant")
+    assert "OnePlus 13 EU (CPH2653)" in detail and "OnePlus 13 China (PJZ110)" in detail
+    assert fl.region_change(r)
+    assert [c.name for c in fl.hard_blocks(r, [fl.OVERRIDE_VARIANT]) if c.name == "Variant"] == []
+
+
+def test_same_variant_passes(adb, phone, tmp_path):
+    r = report_for(adb, rom_zip(tmp_path))
+    assert status(r, "Variant") == "pass"
 
 
 def test_incremental_blocks(adb, phone, tmp_path):

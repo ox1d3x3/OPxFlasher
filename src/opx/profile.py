@@ -67,6 +67,7 @@ class Profile:
     known_issues: list[KnownIssue] = field(default_factory=list)
     conditional: list[str] = field(default_factory=list)
     avb_images: list[str] = field(default_factory=list)
+    variants: dict[str, str] = field(default_factory=dict)  # model number -> region name
     qcom_arb_images: list[str] = field(default_factory=list)
     qcom_arb_validated: bool = False
 
@@ -81,6 +82,11 @@ class Profile:
         if is_user_data(partition):
             return True
         return any(PartitionRule(p, False).matches(partition) for p in self.never_flash)
+
+    def variant_name(self, model: str) -> str:
+        """e.g. "OnePlus 13 China (PJZ110)"; falls back to the model number."""
+        region = self.variants.get(model.upper())
+        return f"{self.name} {region} ({model})" if region else model
 
     def is_conditional(self, partition: str) -> bool:
         return any(PartitionRule(p, False).matches(partition) for p in self.conditional)
@@ -121,6 +127,7 @@ def load(profile_id: str) -> Profile:
         known_issues=[KnownIssue(**i) for i in raw.get("known_issues", [])],
         conditional=raw.get("conditional", []),
         avb_images=raw.get("avb_images", ["vbmeta"]),
+        variants=raw.get("variants", {}),
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
     )

@@ -108,13 +108,28 @@ class FlashDialog(QDialog):
             self.keep_region_box.toggled.connect(self._sync_optional)
             self._sync_optional()
 
-        # the one overridable block
+        # different variant of the same phone: the user must say yes (default: no)
+        self.variant_box: QCheckBox | None = None
+        variant = fl.overridable_blocks(report, fl.OVERRIDE_VARIANT)
+        if variant:
+            v_box = QGroupBox("Different variant")
+            v_box.setStyleSheet("QGroupBox { border-color: #8a5a26; }")
+            v_layout = QVBoxLayout(v_box)
+            v_text = QLabel(variant[0].detail.replace(" Confirm the variant change to continue.", ""))
+            v_text.setWordWrap(True)
+            v_text.setStyleSheet("color:#ffd29a")
+            self.variant_box = QCheckBox("Yes, I want to flash this other variant")
+            v_layout.addWidget(v_text)
+            v_layout.addWidget(self.variant_box)
+            layout.addWidget(v_box)
+
+        # unvalidated Qualcomm anti-rollback reader
         self.arb_edit: QLineEdit | None = None
-        if fl.overridable_blocks(report):
+        if fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED):
             a_box = QGroupBox("Qualcomm anti-rollback: not validated")
             a_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
             a_layout = QVBoxLayout(a_box)
-            detail = "\n".join(c.detail for c in fl.overridable_blocks(report))
+            detail = "\n".join(c.detail for c in fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED))
             warn = QLabel(
                 "OPxFlasher can't yet confirm the Qualcomm anti-rollback version for this phone.\n"
                 "Flashing firmware with a LOWER anti-rollback version than the phone hard-bricks it permanently.\n\n"
@@ -153,7 +168,7 @@ class FlashDialog(QDialog):
         btns.addWidget(self.start_btn)
         outer.addLayout(btns)
 
-        extra = [self.keep_region_box] if self.keep_region_box is not None else []
+        extra = [b for b in (self.keep_region_box, self.variant_box) if b is not None]
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box, *extra]:
             cb.toggled.connect(self.refresh)
         for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
@@ -186,7 +201,8 @@ class FlashDialog(QDialog):
             wipe_data=self.wipe_box.isChecked(),
             reboot_after=self.reboot_box.isChecked(),
             allow_fastbootd=self.fastbootd_box.isChecked(),
-            overrides=[fl.OVERRIDE_QCOM_UNVALIDATED] if arb_ok else [],
+            overrides=([fl.OVERRIDE_QCOM_UNVALIDATED] if arb_ok else [])
+            + ([fl.OVERRIDE_VARIANT] if self.variant_box is not None and self.variant_box.isChecked() else []),
         )
 
     def refresh(self) -> None:

@@ -34,6 +34,7 @@ from opx.rom.ota import RomInfo, open_rom
 from opx.tools import Tool
 
 OVERRIDE_QCOM_UNVALIDATED = "qcom-arb-unvalidated"
+OVERRIDE_VARIANT = "variant-change"  # same phone model, other region: user confirms
 AVB_ORDER_LAST = ("vbmeta_system", "vbmeta_vendor", "vbmeta")
 
 Event = dict
@@ -64,6 +65,8 @@ class FlashOptions:
 def override_key(check) -> str | None:
     if check.status == BLOCK and check.name.startswith("Qualcomm ARB") and "not yet validated" in check.detail:
         return OVERRIDE_QCOM_UNVALIDATED
+    if check.status == BLOCK and check.name == "Variant":
+        return OVERRIDE_VARIANT
     return None
 
 
@@ -71,8 +74,8 @@ def hard_blocks(report: Report, overrides: list[str]) -> list:
     return [c for c in report.checks if c.status == BLOCK and (override_key(c) is None or override_key(c) not in overrides)]
 
 
-def overridable_blocks(report: Report) -> list:
-    return [c for c in report.checks if override_key(c) is not None]
+def overridable_blocks(report: Report, key: str | None = None) -> list:
+    return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
 
 def check_backup(folder: Path | None, facts: dict[str, str]) -> list[str]:
@@ -127,7 +130,7 @@ def sha256_file(path: Path) -> str:
 
 
 def region_change(report: Report | None) -> bool:
-    return bool(report) and any(c.name == "Region" and c.status == WARN for c in report.checks)
+    return bool(report) and any(c.name == "Variant" and c.status == BLOCK for c in report.checks)
 
 
 # --- steps ----------------------------------------------------------------------

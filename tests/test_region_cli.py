@@ -42,10 +42,19 @@ def test_flash_conversion_restores_region_by_default(ready, monkeypatch, tmp_pat
     rom = rom_for(tmp_path, parts=IN_PARTS)
     base = ["flash", str(rom.path), "--backup", str(backup), "--allow-fastbootd", "--accept-unvalidated-arb", "--work", str(tmp_path / "w")]
 
+    assert cli.main(base + ["--wipe"]) == 3  # another variant needs --accept-variant-change
+    assert "--accept-variant-change" in capsys.readouterr().out
+    assert state.read()["log"] == []
+
+    base += ["--accept-variant-change"]
     assert cli.main(base) == 3  # conversion without --wipe is blocked
     assert "different region" in capsys.readouterr().out
 
-    answers(monkeypatch, "ARB CHECKED", "FLASH")
+    answers(monkeypatch, "no")  # the variant question defaults to no
+    assert cli.main(base + ["--wipe"]) == 1
+    assert state.read()["log"] == []
+
+    answers(monkeypatch, "CHANGE VARIANT", "ARB CHECKED", "FLASH")
     assert cli.main(base + ["--wipe"]) == 0
     out = capsys.readouterr().out
     assert "Region change: your phone's own oplusstanvbk, my_region will be restored" in out

@@ -65,7 +65,8 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 | Check | Blocks when |
 |---|---|
 | Package | the OTA is incremental, or can't be identified as full |
-| Device match | the ROM's device codename differs from the phone's (a region change on the same device is a warning) |
+| Device match | the ROM's device codename differs from the phone's (e.g. an OnePlus 13 ROM on an OnePlus 15) |
+| Variant | the ROM is for another variant of the same phone (e.g. CN PJZ110 vs EU CPH2653). You can go ahead by confirming it: tick *Yes, I want to flash this other variant* in the app (it starts unticked), or `--accept-variant-change` and typing CHANGE VARIANT on the command line. It's a region change, so a data wipe is required and your own signal files are restored |
 | Known issue | the phone's current firmware is known to be dangerous (e.g. ColorOS 17 CN fastbootd) |
 | AVB rollback | the ROM's `vbmeta` rollback index is lower than the phone's |
 | Qualcomm ARB | the ROM's anti-rollback version is lower than the phone's, **or the reader isn't validated yet** |

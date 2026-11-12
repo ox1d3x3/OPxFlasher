@@ -3,15 +3,31 @@
   "name": "OnePlus 13",
   "inherits": "oplus-generic",
   "match": {
-    "ro.product.model": ["PJZ110", "CPH2653", "CPH2655"]
+    "ro.product.model": [
+      "PJZ110",
+      "CPH2653",
+      "CPH2655",
+      "CPH2649"
+    ]
   },
-  "notes": "PJZ110 = China (ColorOS), CPH2653 = EU, CPH2655 = NA. Network/region files are oplusstanvbk (physical) and my_region (logical, inside super).",
+  "notes": "PJZ110 = China (ColorOS), CPH2653 = EU, CPH2655 = NA, CPH2649 = India (to confirm). Network/region files are oplusstanvbk (physical) and my_region (logical, inside super).",
   "known_issues": [
     {
-      "match": { "ro.build.display.id": "PJZ110_17*" },
+      "match": {
+        "ro.build.display.id": "PJZ110_17*"
+      },
       "severity": "danger",
-      "blocks": ["fastbootd", "bootloader"],
+      "blocks": [
+        "fastbootd",
+        "bootloader"
+      ],
       "message": "ColorOS 17 CN: on the release candidate, 'adb reboot fastboot' left phones stuck (fastbootd crash, bootloader fastboot reboot loop, EDL reflash needed). Do not reboot to fastboot or the bootloader on this build until a fix is confirmed. Use the official rollback to ColorOS 16 instead."
     }
-  ]
+  ],
+  "variants": {
+    "PJZ110": "China",
+    "CPH2653": "EU",
+    "CPH2655": "NA",
+    "CPH2649": "India"
+  }
 }

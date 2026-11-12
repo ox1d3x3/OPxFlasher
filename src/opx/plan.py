@@ -235,13 +235,17 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
     else:
         add("Device match", PASS, f"Both are '{rom.codename}'.")
         dev_product = dev.facts.get("product", "")
-        if rom.product and dev_product and rom.product != dev_product:
+        if rom.product and dev_product and rom.product.upper() != dev_product.upper():
             add(
-                "Region",
-                WARN,
-                f"Region/variant change: {dev_product} -> {rom.product}. "
-                "Mobile network may need your own backed-up oplusstanvbk and my_region.",
+                "Variant",
+                BLOCK,
+                f"Different variant: this ROM is for {prof.variant_name(rom.product)}, your phone is "
+                f"{prof.variant_name(dev_product)}. Flashing it changes the region: a data wipe is needed, "
+                "and mobile network may need your own backed-up oplusstanvbk and my_region. "
+                "Confirm the variant change to continue.",
             )
+        elif rom.product and dev_product:
+            add("Variant", PASS, f"Same variant: {prof.variant_name(dev_product)}.")
 
     # 3. firmware already known to be dangerous on the phone
     for issue in prof.issues_for(dev.props):

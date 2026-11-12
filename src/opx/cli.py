@@ -370,8 +370,11 @@ def cmd_flash(args) -> int:
     _print_report(rom, report, dev_state)
 
     overrides = []
-    if args.accept_unvalidated_arb and fl.overridable_blocks(report):
+    if args.accept_unvalidated_arb and fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED):
         overrides.append(fl.OVERRIDE_QCOM_UNVALIDATED)
+    variant = fl.overridable_blocks(report, fl.OVERRIDE_VARIANT)
+    if variant and args.accept_variant_change:
+        overrides.append(fl.OVERRIDE_VARIANT)
     options = fl.FlashOptions(
         include_optional=[p for p in (args.include or "").split(",") if p],
         wipe_data=args.wipe,
@@ -397,14 +400,22 @@ def cmd_flash(args) -> int:
         print("\nFlashing is BLOCKED:")
         for p in plan.problems:
             print(f"  - {p}")
-        if fl.overridable_blocks(report) and not args.accept_unvalidated_arb:
+        if fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED) and not args.accept_unvalidated_arb:
             print("  (The Qualcomm ARB block can be overridden with --accept-unvalidated-arb once you have checked the numbers yourself.)")
+        if variant and not args.accept_variant_change:
+            print("  (To flash another variant of your phone on purpose, add --accept-variant-change and --wipe.)")
         return 3
     if args.dry_run:
         print("\nDry run: nothing was written.")
         return 0
 
-    if overrides and not _confirm(
+    if variant and not _confirm(
+        "CHANGE VARIANT",
+        "\n" + variant[0].detail.replace(" Confirm the variant change to continue.", ""),
+    ):
+        print("Cancelled. Nothing was written.")
+        return 1
+    if fl.OVERRIDE_QCOM_UNVALIDATED in overrides and not _confirm(
         "ARB CHECKED",
         "\nWARNING: the Qualcomm anti-rollback reader is not validated for this phone.\n"
         "Flashing firmware with a lower ARB than the phone's hard-bricks it permanently.\n"
@@ -790,6 +801,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--wipe", action="store_true", help="factory reset (needed when changing region or OS)")
     f.add_argument("--no-reboot", action="store_true", help="stay in the bootloader when done")
     f.add_argument("--allow-fastbootd", action="store_true", help="allow fastbootd for logical partitions")
+    f.add_argument("--accept-variant-change", action="store_true",
+                   help="flash a ROM for another variant (region) of the same phone; you'll be asked to confirm")
     f.add_argument("--accept-unvalidated-arb", action="store_true",
                    help="override ONLY the 'Qualcomm ARB reader not validated' block (asks for confirmation)")
     f.add_argument("--dry-run", action="store_true", help="show the steps and stop")

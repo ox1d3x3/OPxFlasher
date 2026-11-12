@@ -56,7 +56,7 @@ def prepare(adb, fastboot, tmp_path, options, rom=None, backup="critical"):
     return plan, runner, folder, originals
 
 
-CONVERT = dict(overrides=[fl.OVERRIDE_QCOM_UNVALIDATED], allow_fastbootd=True)
+CONVERT = dict(overrides=[fl.OVERRIDE_QCOM_UNVALIDATED, fl.OVERRIDE_VARIANT], allow_fastbootd=True)
 
 
 def test_conversion_requires_wipe(adb, fastboot, phone, tmp_path):
