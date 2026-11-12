@@ -13,10 +13,21 @@ from importlib import resources
 
 MODES = ("network", "critical", "full")
 
+# Partitions that hold the user's own data rather than the OS: apps, photos and
+# files (userdata), the encryption data for them (metadata) and the Google
+# account lock (frp). They are never backed up and never flashed, whatever a
+# device profile says. A factory reset ("fastboot -w") still erases userdata
+# and metadata; that is a wipe, not a flash.
+USER_DATA_PARTITIONS = ("userdata", "metadata", "frp")
+
+
+def is_user_data(partition: str) -> bool:
+    return any(PartitionRule(p, False).matches(partition) for p in USER_DATA_PARTITIONS)
+
 MODE_TEXT = {
     "network": "Network essentials (oplusstanvbk + my_region)",
     "critical": "Critical (network + persist, modem, ocdt, oplusreserve ...)",
-    "full": "Full firmware (every partition except userdata)",
+    "full": "Full firmware (the whole OS, none of your personal data)",
 }
 
 
@@ -67,6 +78,8 @@ class Profile:
         raise ValueError(f"mode {mode!r} has no rule list (full mode uses the partition table)")
 
     def is_never_flash(self, partition: str) -> bool:
+        if is_user_data(partition):
+            return True
         return any(PartitionRule(p, False).matches(partition) for p in self.never_flash)
 
     def is_conditional(self, partition: str) -> bool:

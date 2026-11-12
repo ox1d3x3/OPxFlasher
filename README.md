@@ -39,7 +39,11 @@ partitions you can never get back before anything else happens.
 |---|---|
 | **Network essentials** | `oplusstanvbk_a/b`, `my_region` – the files that carry region / signal setup |
 | **Critical** (default) | Network + `persist*`, `modemst1/2`, `fsg`, `fsc`, `ocdt`, `devinfo`, `oplusreserve*` – IMEI, calibration and device identity |
-| **Full firmware** | Every physical partition except `userdata` (`super` includes all logical partitions) |
+| **Full firmware** | The whole Android OS: every physical partition (`super` includes all logical partitions), **none of your personal data** |
+
+Your personal data is never backed up, in any mode: `userdata` (apps, photos,
+files), `metadata` (its encryption data) and `frp` (Google account lock) are always
+skipped. This is built into the code, so a device profile can't change it.
 
 Backups need **root**: either a rooted system (Magisk / KernelSU / APatch, with root
 granted to *Shell*) or a custom recovery with root ADB. Bootloader fastboot cannot
@@ -67,8 +71,8 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 | Qualcomm ARB | the ROM's anti-rollback version is lower than the phone's, **or the reader isn't validated yet** |
 | Sizes | an image is bigger than its partition, or the dynamic groups don't fit in `super` |
 
-`persist`, `modemst*`, `fsg`, `ocdt`, `devinfo`, `oplusreserve*` and `userdata` are
-always skipped. `oplusstanvbk`, `my_region` and `odm` are marked **optional** (region /
+`persist`, `modemst*`, `fsg`, `ocdt`, `devinfo`, `oplusreserve*`, `userdata`,
+`metadata` and `frp` are always skipped. `oplusstanvbk`, `my_region` and `odm` are marked **optional** (region /
 signal files), to be restored from your own backup.
 
 > **Qualcomm ARB is experimental.** The reader has not been validated against real
@@ -217,7 +221,9 @@ Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]
 5. ✅ Root assistant: matching stock image, patch in the app, checked flash to the current slot, unroot
 
 Partitions that hold device identity (`persist`, `modemst*`, `fsg`, `ocdt`,
-`devinfo`, `oplusreserve*`, `userdata`) are on a permanent **never-flash** list.
+`devinfo`, `oplusreserve*`) or your personal data (`userdata`, `metadata`, `frp`) are
+on a permanent **never-flash** list. A factory reset still erases `userdata` and
+`metadata` when you choose it.
 
 ## Development
 

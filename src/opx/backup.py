@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from opx import __version__
-from opx.profile import PartitionRule, Profile
+from opx.profile import USER_DATA_PARTITIONS, PartitionRule, Profile, is_user_data
 from opx.remote import BY_NAME_DIRS, MAPPER_DIR, RemoteShell, check_name
 
 CHUNK = 1024 * 1024
@@ -120,17 +120,25 @@ def build_plan(shell: RemoteShell, profile: Profile, mode: str, props: dict[str,
 
     def add(name: str, source: str) -> None:
         check_name(name)
+        if is_user_data(name):
+            raise BackupError(f"{name} holds personal data and is never backed up.")
         base = by_name_dir if source == "by-name" else MAPPER_DIR
         plan.items.append(PlanItem(name=name, path=f"{base}/{name}", source=source))
 
     if mode == "full":
         excluded = [PartitionRule(p, False) for p in profile.full_exclude]
         for name in sorted(physical):
-            if not any(r.matches(name) for r in excluded):
-                add(name, "by-name")
+            if is_user_data(name) or any(r.matches(name) for r in excluded):
+                continue
+            add(name, "by-name")
         plan.warnings.append(
             "Full mode reads physical partitions only. 'super' contains every logical "
             "partition (system, my_region, ...), so they are included inside super.img."
+        )
+        plan.warnings.append(
+            "Your personal data is not included: " + ", ".join(USER_DATA_PARTITIONS)
+            + " are always skipped (apps, photos, files, their encryption data and the "
+            "Google account lock)."
         )
     else:
         for rule in profile.rules_for(mode):
