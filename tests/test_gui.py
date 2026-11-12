@@ -256,3 +256,37 @@ def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
     assert tab.label.text() == "Root complete"
     assert (adb_env / "by-name" / "init_boot_a").read_bytes().startswith(patched)
     assert (adb_env / "by-name" / "init_boot_b").read_bytes().startswith(STOCK)
+
+
+def test_gui_offers_to_download_adb_and_fastboot(adb_env, monkeypatch, tmp_path):
+    from opx import device as dev
+    from opx.gui import app as gui
+    from opx.gui.app import MainWindow
+
+    missing = dev.Scan(errors=["adb not found. Run 'opx tools fetch' to download Google's platform-tools"])
+    monkeypatch.setattr(gui.dev, "scan", lambda: missing)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    fetched = []
+    monkeypatch.setattr(gui, "fetch_platform_tools", lambda: fetched.append(1) or tmp_path / "pt")
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.refresh_devices()
+    settle(app)
+    assert win.tools_btn.isVisibleTo(win)
+    assert "missing" in win.banner.text()
+
+    monkeypatch.setattr(gui.dev, "scan", lambda: dev.Scan())  # tools now present, no phone
+    win.tools_btn.click()
+    settle(app)
+    assert fetched == [1]
+    assert not win.tools_btn.isVisibleTo(win)
+
+
+def test_smoke_test_flag(monkeypatch, capsys):
+    from opx.gui import app as gui
+
+    monkeypatch.setattr(gui.sys, "argv", ["OPxFlasher", "--smoke-test"])
+    QApplication.instance() or QApplication([])
+    assert gui.main() == 0
+    assert "smoke test ok" in capsys.readouterr().out

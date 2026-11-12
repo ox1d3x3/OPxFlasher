@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OPxFlasher
+GenericName=Android flasher
+Comment=AIO tool for OnePlus / OPPO devices
+Exec=OPxFlasher
+Icon=opxflasher
+Terminal=false
+Categories=Utility;Development;
+StartupWMClass=opxflasher

@@ -554,7 +554,7 @@ def cmd_gui(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="opx", description="OPxFlasher - backup and flashing for OPPO/OnePlus phones")
+    p = argparse.ArgumentParser(prog="opx", description="OPxFlasher - AIO tool for OnePlus / OPPO devices")
     p.add_argument("--version", action="version", version=f"OPxFlasher {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 

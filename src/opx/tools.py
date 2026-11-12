@@ -26,6 +26,7 @@ from pathlib import Path
 GOOGLE_PLATFORM_TOOLS = {
     "win32": "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
     "linux": "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
+    "darwin": "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
 }
 
 _EXE = ".exe" if os.name == "nt" else ""
@@ -38,6 +39,8 @@ class ToolNotFound(RuntimeError):
 def user_tools_dir() -> Path:
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     return base / "OPxFlasher" / "platform-tools"
@@ -50,10 +53,12 @@ def app_dir() -> Path:
 
 
 def _candidates(name: str) -> list[Path]:
-    return [
-        app_dir() / "platform-tools" / f"{name}{_EXE}",
-        user_tools_dir() / f"{name}{_EXE}",
-    ]
+    dirs = [app_dir() / "platform-tools"]
+    # An AppImage runs from a read-only mount; look next to the .AppImage file instead.
+    if os.environ.get("APPIMAGE"):
+        dirs.append(Path(os.environ["APPIMAGE"]).resolve().parent / "platform-tools")
+    dirs.append(user_tools_dir())
+    return [d / f"{name}{_EXE}" for d in dirs]
 
 
 def find_tool(name: str) -> list[str]:
@@ -140,9 +145,14 @@ def fetch_platform_tools(dest: Path | None = None, progress=None) -> Path:
     The download is Google's Android SDK Platform-Tools and is covered by
     Google's terms; OPxFlasher does not redistribute it.
     """
-    key = "win32" if sys.platform.startswith("win") else "linux"
-    if not sys.platform.startswith(("win", "linux")):
-        raise RuntimeError("Automatic download supports Windows and Linux only.")
+    if sys.platform.startswith("win"):
+        key = "win32"
+    elif sys.platform == "darwin":
+        key = "darwin"
+    elif sys.platform.startswith("linux"):
+        key = "linux"
+    else:
+        raise RuntimeError("Automatic download supports Windows, Linux and macOS only.")
     url = GOOGLE_PLATFORM_TOOLS[key]
     dest = dest or user_tools_dir()
     dest.parent.mkdir(parents=True, exist_ok=True)
