@@ -201,6 +201,26 @@ opx tools where     # shows which adb/fastboot will be used
 With the portable files you can also put Google's `platform-tools` folder next to the
 `.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
 
+## Restore the whole ROM from a backup
+
+A **Full firmware** backup is an offline copy of your phone's whole Android OS (never your
+personal data). If the ROM breaks, put it back:
+
+- **App:** Backup tab → **Restore full ROM...** → choose the backup folder.
+- **Command line:** `opx restore-rom <backup-folder>` (add `--dry-run` to only see the checks).
+
+The backup is checked like any ROM (phone, variant, known bad firmware, anti-rollback,
+sizes), then written from the bootloader: firmware and boot images of the slot that was
+active at backup time, then `super` (system, vendor, my_region, ...), then vbmeta.
+Identity partitions and your data are never written.
+
+- Only restores to **the phone it came from** (serial must match).
+- Going back to an **older build** than the one installed needs a data wipe.
+- If the phone **can't boot**, put it in fastboot. OPxFlasher then can't read the phone's
+  current firmware, so you confirm it hasn't installed an update since the backup
+  (`--not-updated`). Restoring older firmware over a newer anti-rollback version can
+  hard-brick a phone.
+
 ## Reboot and flash one image
 
 **Reboot buttons** (phone panel) and `opx reboot system|bootloader|fastbootd|recovery`

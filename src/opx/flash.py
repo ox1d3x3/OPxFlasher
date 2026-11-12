@@ -34,7 +34,8 @@ from opx.rom.ota import RomInfo, open_rom
 from opx.tools import Tool
 
 OVERRIDE_QCOM_UNVALIDATED = "qcom-arb-unvalidated"
-OVERRIDE_VARIANT = "variant-change"  # same phone model, other region: user confirms
+OVERRIDE_VARIANT = "variant-change"
+OVERRIDE_UNKNOWN_FIRMWARE = "restore-phone-not-booted"  # full ROM restore with the phone not in Android  # same phone model, other region: user confirms
 AVB_ORDER_LAST = ("vbmeta_system", "vbmeta_vendor", "vbmeta")
 
 Event = dict
@@ -67,6 +68,8 @@ def override_key(check) -> str | None:
         return OVERRIDE_QCOM_UNVALIDATED
     if check.status == BLOCK and check.name == "Variant":
         return OVERRIDE_VARIANT
+    if check.status == BLOCK and check.name == "Current firmware":
+        return OVERRIDE_UNKNOWN_FIRMWARE
     return None
 
 

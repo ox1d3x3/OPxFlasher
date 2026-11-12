@@ -654,6 +654,79 @@ def cmd_reboot(args) -> int:
     return 0
 
 
+def cmd_restore_rom(args) -> int:
+    from opx import flash as fl
+    from opx import restore as rs
+
+    folder = Path(args.backup)
+    scan = dev.scan()
+    live_phone = [d for d in scan.devices if d.transport == "adb" and d.state == "device"]
+    fb_phone = [d for d in scan.devices if d.transport == "fastboot"]
+    if args.serial:
+        live_phone = [d for d in live_phone if d.serial == args.serial]
+        fb_phone = [d for d in fb_phone if d.serial == args.serial]
+    try:
+        if live_phone:
+            session = open_session(live_phone[0].serial)
+            device, profile, live = pn.device_from_session(session), session.profile, True
+        elif len(fb_phone) == 1:
+            device = rs.device_in_fastboot(folder, fb_phone[0].serial)
+            profile, live = device.profile, False
+        else:
+            print("Connect the phone in Android (USB debugging) or in fastboot (one phone only).")
+            return 2
+        overrides = []
+        if args.not_updated:
+            overrides.append(fl.OVERRIDE_UNKNOWN_FIRMWARE)
+        if args.accept_unvalidated_arb:
+            overrides.append(fl.OVERRIDE_QCOM_UNVALIDATED)
+        rom, report, plan = rs.prepare_restore_rom(folder, device, live, args.wipe, overrides, args.allow_fastbootd)
+    except rs.RestoreError as e:
+        print(e)
+        return 2
+    print(rom.notes[-1])
+    _print_report(rom, report, device)
+    print("\nRestore steps:")
+    for i, st in enumerate(plan.steps, 1):
+        print(f"  {i:>2}. {st.label}")
+    if not plan.ok:
+        print("\nRestore is BLOCKED:")
+        for p in plan.problems:
+            print(f"  - {p}")
+        if fl.overridable_blocks(report, fl.OVERRIDE_UNKNOWN_FIRMWARE) and not args.not_updated:
+            print("  (If you haven't installed any update since this backup, add --not-updated.)")
+        return 3
+    if args.dry_run:
+        print("\nDry run: nothing was written.")
+        return 0
+    if args.not_updated and not _confirm(
+        "NOT UPDATED",
+        "\nYou're confirming the phone has NOT installed any update since this backup. "
+        "If it has, restoring older firmware can hard-brick it.",
+    ):
+        print("Cancelled. Nothing was written.")
+        return 1
+    if args.accept_unvalidated_arb and not _confirm(
+        "ARB CHECKED", "\nThe Qualcomm anti-rollback reader isn't validated for this phone yet."):
+        print("Cancelled. Nothing was written.")
+        return 1
+    wipe = " ALL DATA ON THE PHONE WILL BE ERASED." if args.wipe else " Your data stays."
+    if not _confirm("RESTORE ROM", f"\nThis replaces the phone's OS with the backup.{wipe}"):
+        print("Cancelled. Nothing was written.")
+        return 1
+    work = Path(args.work)
+    work.mkdir(parents=True, exist_ok=True)
+    runner = fl.Runner(plan, rom, profile, Tool("adb"), Tool("fastboot"), work / "restore-journal.json",
+                       work / "images", on_event=_print_flash_event)
+    try:
+        runner.run()
+    except fl.FlashError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 4
+    print("\nRestore finished.")
+    return 0
+
+
 def cmd_flash_image(args) -> int:
     from opx import flash as fl
     from opx import single as sg
@@ -780,6 +853,18 @@ def build_parser() -> argparse.ArgumentParser:
     rbt.add_argument("-s", "--serial")
     rbt.add_argument("--yes", action="store_true", help="skip the extra question for fastbootd from fastboot")
     rbt.set_defaults(fn=cmd_reboot)
+
+    rr = sub.add_parser("restore-rom", help="restore the whole OS from a Full firmware backup of this phone")
+    rr.add_argument("backup", help="the Full firmware backup folder")
+    rr.add_argument("--wipe", action="store_true", help="erase data (needed when going back to an older build)")
+    rr.add_argument("--not-updated", action="store_true",
+                    help="phone can't boot: confirm it hasn't installed an update since the backup")
+    rr.add_argument("--accept-unvalidated-arb", action="store_true")
+    rr.add_argument("--allow-fastbootd", action="store_true")
+    rr.add_argument("--dry-run", action="store_true", help="show the checks and steps only")
+    rr.add_argument("--work", default="opx-work", help="folder for the journal")
+    rr.add_argument("-s", "--serial")
+    rr.set_defaults(fn=cmd_restore_rom)
 
     fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")
     fi.add_argument("partition", help="partition name without slot suffix, e.g. boot, recovery, vbmeta")

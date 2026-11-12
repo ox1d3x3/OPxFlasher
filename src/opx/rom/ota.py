@@ -63,6 +63,8 @@ class RomInfo:
 
     @property
     def is_full(self) -> bool | None:
+        if self.kind == "backup":
+            return True  # a Full firmware backup is a complete image set
         if "pre-build" in self.metadata or "pre-build-incremental" in self.metadata:
             return False
         if self.payload is not None:

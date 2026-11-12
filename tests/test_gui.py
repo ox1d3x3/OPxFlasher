@@ -400,3 +400,36 @@ def test_gui_reboot_buttons(window, monkeypatch, fb_state):
     btns["bootloader"].click()
     settle(app)
     assert fb_state.read()["mode"] == "bootloader"
+
+
+def test_gui_restore_full_rom(window, monkeypatch, tmp_path, fb_state):
+    import os
+    import sys
+    from pathlib import Path
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+    from opx import cli
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    assert cli.main(["backup", "--mode", "full", "--out", str(tmp_path / "b")]) == 0
+    folder = next((tmp_path / "b").iterdir())
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    good = (phone / "by-name" / "boot_a").read_bytes()
+    (phone / "by-name" / "boot_a").write_bytes(b"\0" * len(good))
+
+    monkeypatch.setattr(gui.QFileDialog, "getExistingDirectory", lambda *a, **k: str(folder))
+    seen = {}
+
+    def accept(dialog):
+        seen["title"] = dialog.windowTitle()
+        seen["preview"] = dialog.preview.toPlainText()
+        dialog.confirm_edit.setText("FLASH")
+        return gui.QDialog.DialogCode.Accepted if dialog.plan.ok else gui.QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(gui.FlashDialog, "exec", accept)
+    win.restore_full_rom()
+    settle(app, 400)
+    assert seen["title"] == "Restore full ROM" and "Flash super.img" in seen["preview"]
+    assert (phone / "by-name" / "boot_a").read_bytes() == good, win.log.toPlainText()[-600:]

@@ -258,10 +258,14 @@ class MainWindow(QMainWindow):
         self.open_btn.clicked.connect(self._open_folder)
         self.verify_btn = QPushButton("Verify a backup...")
         self.verify_btn.clicked.connect(self.verify_existing)
+        self.restore_rom_btn = QPushButton("Restore full ROM...")
+        self.restore_rom_btn.setToolTip("Put the whole OS back from a Full firmware backup of this phone")
+        self.restore_rom_btn.clicked.connect(self.restore_full_rom)
         for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
             btn_row.addWidget(b)
         btn_row.addStretch(1)
         btn_row.addWidget(self.verify_btn)
+        btn_row.addWidget(self.restore_rom_btn)
         opt_layout.addLayout(btn_row)
         backup_layout.addWidget(opt_box)
 
@@ -374,6 +378,7 @@ class MainWindow(QMainWindow):
         # --- assemble -----------------------------------------------------
         self.tabs = QTabWidget()
         self.tabs.addTab(backup_tab, "Backup")
+        self.rom_tab = rom_tab
         self.tabs.addTab(rom_tab, "ROM check")
         self.tabs.addTab(self._build_signal_tab(), "Signal / region")
         self.root_tab = RootTab(self)
@@ -431,6 +436,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(self.busy)
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
+        self.restore_rom_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
         if hasattr(self, "root_tab"):
@@ -861,6 +867,51 @@ class MainWindow(QMainWindow):
             work / "journal.json", work / "images", cancel=self.flash_cancel,
         )
         self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn, "Flash")
+
+    def restore_full_rom(self) -> None:
+        from opx import restore as rs
+
+        d = self.selected_device()
+        if self.session is None and (d is None or d.transport != "fastboot"):
+            QMessageBox.information(self, "Restore full ROM",
+                                    "Connect the phone in Android (USB debugging) or in fastboot first.")
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Choose a Full firmware backup of this phone",
+                                                  str(self.last_folder or self.out_edit.text()))
+        if not folder:
+            return
+        folder = Path(folder)
+        try:
+            if self.session is not None:
+                device, profile, live = pn.device_from_session(self.session), self.session.profile, True
+            else:
+                device = rs.device_in_fastboot(folder, d.serial)
+                profile, live = device.profile, False
+            older = any(c.name == "Older build" for c in rs.restore_checks(folder, device, live, False))
+            rom, report, _ = rs.prepare_restore_rom(folder, device, live, older, [])
+        except rs.RestoreError as e:
+            QMessageBox.warning(self, "Restore full ROM", str(e))
+            return
+        dialog = FlashDialog(self, rom, device, report, str(folder))
+        dialog.setWindowTitle("Restore full ROM")
+        for name, cb in dialog.optional_boxes.items():
+            cb.setChecked(rom.image(name) is not None)  # the phone's own region files
+        if older:
+            dialog.wipe_box.setChecked(True)
+            dialog.wipe_box.setEnabled(False)
+        dialog.refresh()
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.plan or not dialog.plan.ok:
+            self.say("Restore cancelled. Nothing was written.")
+            return
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        work = folder.parent / f"restore-rom-{stamp}"
+        work.mkdir(parents=True, exist_ok=True)
+        self.flash_cancel = threading.Event()
+        runner = fl.Runner(dialog.plan, rom, profile, Tool("adb"), Tool("fastboot"),
+                           work / "journal.json", work / "images", cancel=self.flash_cancel)
+        self.tabs.setCurrentWidget(self.rom_tab)  # progress shows under the ROM check
+        self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn,
+                     "Restore full ROM")
 
     def _launch(self, runner, journal, label, bar, stop_btn, what: str) -> None:
         """Run a flash/restore Runner off the UI thread, showing progress in the given widgets."""

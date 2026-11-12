@@ -123,6 +123,21 @@ class FlashDialog(QDialog):
             v_layout.addWidget(self.variant_box)
             layout.addWidget(v_box)
 
+        # full ROM restore with the phone not in Android: user confirms no update since the backup
+        self.not_updated_box: QCheckBox | None = None
+        unknown_fw = fl.overridable_blocks(report, fl.OVERRIDE_UNKNOWN_FIRMWARE)
+        if unknown_fw:
+            f_box = QGroupBox("Phone's current firmware is unknown")
+            f_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
+            f_layout = QVBoxLayout(f_box)
+            f_text = QLabel(unknown_fw[0].detail)
+            f_text.setWordWrap(True)
+            f_text.setStyleSheet("color:#ffb3ad")
+            self.not_updated_box = QCheckBox("This phone has NOT installed any update since this backup")
+            f_layout.addWidget(f_text)
+            f_layout.addWidget(self.not_updated_box)
+            layout.addWidget(f_box)
+
         # unvalidated Qualcomm anti-rollback reader
         self.arb_edit: QLineEdit | None = None
         if fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED):
@@ -168,7 +183,7 @@ class FlashDialog(QDialog):
         btns.addWidget(self.start_btn)
         outer.addLayout(btns)
 
-        extra = [b for b in (self.keep_region_box, self.variant_box) if b is not None]
+        extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box) if b is not None]
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box, *extra]:
             cb.toggled.connect(self.refresh)
         for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
@@ -202,7 +217,9 @@ class FlashDialog(QDialog):
             reboot_after=self.reboot_box.isChecked(),
             allow_fastbootd=self.fastbootd_box.isChecked(),
             overrides=([fl.OVERRIDE_QCOM_UNVALIDATED] if arb_ok else [])
-            + ([fl.OVERRIDE_VARIANT] if self.variant_box is not None and self.variant_box.isChecked() else []),
+            + ([fl.OVERRIDE_VARIANT] if self.variant_box is not None and self.variant_box.isChecked() else [])
+            + ([fl.OVERRIDE_UNKNOWN_FIRMWARE]
+               if self.not_updated_box is not None and self.not_updated_box.isChecked() else []),
         )
 
     def refresh(self) -> None:
