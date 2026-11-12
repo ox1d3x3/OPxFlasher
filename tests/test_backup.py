@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+from pathlib import Path
 import json
 import threading
 
@@ -207,3 +208,60 @@ def test_known_issue_for_coloros_17_cn():
 
 def test_unknown_model_uses_generic_profile():
     assert profiles.detect({"ro.product.model": "SOMETHING"}).id == "oplus-generic"
+
+
+def test_empty_space_is_not_stored_but_reads_back_identically(adb, tmp_path):
+    import os
+    import random
+
+    from conftest import PHYSICAL
+
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    size = PHYSICAL["super"]
+    # mostly empty, with data at the start, in the middle and at the very end
+    body = bytearray(size)
+    body[:4096] = random.Random(1).randbytes(4096)
+    body[size // 2: size // 2 + 100] = b"x" * 100
+    body[-1] = 7
+    (phone / "by-name" / "super").write_bytes(bytes(body))
+    s = session(adb)
+    folder = bk.run_backup(s.shell, bk.build_plan(s.shell, s.profile, "full", s.props), tmp_path / "b")
+    img = folder / "super.img"
+    assert img.read_bytes() == bytes(body)
+    manifest = json.loads((folder / "manifest.json").read_text())
+    entry = next(p for p in manifest["partitions"] if p["name"] == "super")
+    assert entry["sha256"] == hashlib.sha256(body).hexdigest() and entry["status"] == "ok"
+
+
+def test_trailing_empty_space_keeps_the_full_size(adb, tmp_path):
+    import os
+
+    from conftest import PHYSICAL
+
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    (phone / "by-name" / "super").write_bytes(b"data" + b"\0" * (PHYSICAL["super"] - 4))
+    s = session(adb)
+    folder = bk.run_backup(s.shell, bk.build_plan(s.shell, s.profile, "full", s.props), tmp_path / "b")
+    assert (folder / "super.img").stat().st_size == PHYSICAL["super"]
+
+
+def test_disk_usage_is_not_more_than_size(tmp_path):
+    f = tmp_path / "x.img"
+    with open(f, "wb") as fh:
+        bk.make_sparse(fh)
+        fh.seek(8 * 1024 * 1024)
+        fh.write(b"end")
+    assert f.stat().st_size == 8 * 1024 * 1024 + 3
+    assert 0 < bk.disk_usage(f) <= f.stat().st_size + 65536
+
+
+def test_full_backup_refused_while_an_update_merges(adb, tmp_path):
+    import os
+
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    (phone / "mapper" / "system_a-cow").write_bytes(b"\0" * 512)
+    s = session(adb)
+    with pytest.raises(bk.BackupError, match="update is still being applied"):
+        bk.build_plan(s.shell, s.profile, "full", s.props)
+    # Critical backups read logical partitions through the snapshot view and stay allowed
+    assert bk.build_plan(s.shell, s.profile, "critical", s.props).items

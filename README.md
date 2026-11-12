@@ -41,6 +41,12 @@ partitions you can never get back before anything else happens.
 | **Critical** (default) | Network + `persist*`, `modemst1/2`, `fsg`, `fsc`, `ocdt`, `devinfo`, `oplusreserve*` – IMEI, calibration and device identity |
 | **Full firmware** | The whole Android OS: every physical partition (`super` includes all logical partitions), **none of your personal data** |
 
+Empty space isn't stored: runs of zeros (a lot of `super`) are left as holes in the image
+files, so a Full backup takes far less disk than the phone's partitions add up to, while
+every file still reads back byte-for-byte (and hashes) the same. A Full backup is refused
+while an OTA update is still being applied or merged, because `super` is half old, half new
+until it finishes.
+
 Your personal data is never backed up, in any mode: `userdata` (apps, photos,
 files), `metadata` (its encryption data) and `frp` (Google account lock) are always
 skipped. This is built into the code, so a device profile can't change it.

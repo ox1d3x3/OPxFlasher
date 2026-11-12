@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import threading
@@ -85,23 +86,64 @@ class ItemResult:
     error: str = ""
 
 
+def make_sparse(fh) -> None:
+    """Let skipped (all-zero) ranges stay unallocated. Linux and macOS do this for any
+    seek past data; Windows NTFS needs the file marked sparse first."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        FSCTL_SET_SPARSE = 0x900C4
+        handle = msvcrt.get_osfhandle(fh.fileno())
+        returned = wintypes.DWORD()
+        ctypes.windll.kernel32.DeviceIoControl(
+            wintypes.HANDLE(handle), FSCTL_SET_SPARSE, None, 0, None, 0, ctypes.byref(returned), None)
+    except (OSError, AttributeError, ImportError):
+        pass  # not sparse: zeros get written out, the file is still correct
+
+
+def disk_usage(path: Path) -> int:
+    """Bytes a file really uses on disk (smaller than its size when it has holes)."""
+    st = path.stat()
+    blocks = getattr(st, "st_blocks", None)
+    if blocks is not None:
+        return blocks * 512
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            high = wintypes.DWORD()
+            low = ctypes.windll.kernel32.GetCompressedFileSizeW(str(path), ctypes.byref(high))
+            if low != 0xFFFFFFFF:
+                return (high.value << 32) + low
+        except (OSError, AttributeError):
+            pass
+    return st.st_size
+
+
 def device_facts(props: dict[str, str]) -> dict[str, str]:
     return {k: props.get(v, "") for k, v in PROP_KEYS.items()}
 
 
-def _partition_tables(shell: RemoteShell) -> tuple[str | None, list[str], list[str]]:
+def _partition_tables(shell: RemoteShell) -> tuple[str | None, list[str], list[str], bool]:
+    """(by-name dir, physical names, logical names, OTA snapshot active)."""
     by_name_dir, physical = None, []
     for d in BY_NAME_DIRS:
         names = shell.list_dir(d)
         if names:
             by_name_dir, physical = d, names
             break
-    mapper = [
-        n
-        for n in shell.list_dir(MAPPER_DIR)
-        if n != "control" and not n.endswith(("-cow", "-verity")) and "-cow-" not in n
-    ]
-    return by_name_dir, physical, mapper
+    raw = shell.list_dir(MAPPER_DIR)
+    # Virtual A/B: while an update is applied or merging, partitions are dm snapshots
+    # with "-cow" / "-base" / "-src" helper devices next to them.
+    snapshot = any(n.endswith(("-cow", "-base", "-src")) or "-cow-" in n for n in raw)
+    mapper = [n for n in raw if n != "control" and not n.endswith(("-cow", "-verity", "-base", "-src"))
+              and "-cow-" not in n]
+    return by_name_dir, physical, mapper, snapshot
 
 
 def build_plan(shell: RemoteShell, profile: Profile, mode: str, props: dict[str, str]) -> Plan:
@@ -114,7 +156,7 @@ def build_plan(shell: RemoteShell, profile: Profile, mode: str, props: dict[str,
     for issue in profile.issues_for(props):
         plan.warnings.append(f"[{issue.severity}] {issue.message}")
 
-    by_name_dir, physical, mapper = _partition_tables(shell)
+    by_name_dir, physical, mapper, snapshot = _partition_tables(shell)
     if not by_name_dir:
         raise BackupError("Could not read the partition list (/dev/block/by-name).")
 
@@ -124,6 +166,12 @@ def build_plan(shell: RemoteShell, profile: Profile, mode: str, props: dict[str,
             raise BackupError(f"{name} holds personal data and is never backed up.")
         base = by_name_dir if source == "by-name" else MAPPER_DIR
         plan.items.append(PlanItem(name=name, path=f"{base}/{name}", source=source))
+
+    if mode == "full" and snapshot:
+        raise BackupError(
+            "An OTA update is still being applied or merged on this phone, so 'super' is half old, "
+            "half new. Reboot and wait until the update has finished (Settings shows no pending "
+            "update), then take the Full backup.")
 
     if mode == "full":
         excluded = [PartitionRule(p, False) for p in profile.full_exclude]
@@ -237,6 +285,7 @@ def run_backup(
         proc = shell.dd_stream(item.path)
         try:
             with open(partial, "wb") as fh:
+                make_sparse(fh)
                 assert proc.stdout is not None
                 last = 0.0
                 while True:
@@ -246,7 +295,10 @@ def run_backup(
                     chunk = proc.stdout.read(CHUNK)
                     if not chunk:
                         break
-                    fh.write(chunk)
+                    if chunk.count(0) == len(chunk):
+                        fh.seek(len(chunk), 1)  # empty space: leave a hole, costs no disk
+                    else:
+                        fh.write(chunk)
                     digest.update(chunk)
                     written += len(chunk)
                     now = time.monotonic()
@@ -260,6 +312,7 @@ def run_backup(
                             "overall_done": overall_done + written,
                             "overall_total": overall_total,
                         })
+                fh.truncate(written)  # a trailing hole still sets the full size
             proc.wait(timeout=60)
             stderr = proc.stderr.read().decode("utf-8", "replace").strip() if proc.stderr else ""
         except Cancelled:
@@ -313,6 +366,12 @@ def run_backup(
 
     write_manifest(True)
     failed = [r.name for r in results if r.status == "failed"]
+    files = [folder / r.file for r in results if r.status != "failed" and (folder / r.file).exists()]
+    logical_size = sum(f.stat().st_size for f in files)
+    on_disk = sum(disk_usage(f) for f in files)
+    if logical_size - on_disk > 64 * 1024 * 1024:
+        emit({"type": "log", "message": f"Empty space skipped: the backup is {logical_size / 1e9:.1f} GB "
+                                        f"but uses {on_disk / 1e9:.1f} GB of disk."})
     emit({
         "type": "finished",
         "folder": str(folder),
