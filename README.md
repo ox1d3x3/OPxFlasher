@@ -207,6 +207,16 @@ opx tools where     # shows which adb/fastboot will be used
 With the portable files you can also put Google's `platform-tools` folder next to the
 `.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
 
+## Everyday helpers
+
+- **Phone panel:** model and variant (e.g. *OnePlus 13 China (PJZ110)*), build, Android,
+  security patch, active slot, bootloader locked/unlocked, root access and this phone's
+  **last backup** (or a reminder to make one before flashing).
+- **Export log...** (under the tabs): saves the log, app/OS versions, phone details and the
+  last flash journals as a zip for a GitHub issue. Serial numbers are hidden.
+- **Check for updates:** asks GitHub for newer releases (including release candidates) only
+  when you click it. OPxFlasher sends nothing on its own.
+
 ## Restore the whole ROM from a backup
 
 A **Full firmware** backup is an offline copy of your phone's whole Android OS (never your

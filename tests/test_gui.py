@@ -455,3 +455,37 @@ def test_gui_make_recovery_zip(window, monkeypatch, tmp_path):
     settle(app, 200)
     assert shown and "ONLY for the phone" in shown[0]
     assert len(list((tmp_path / "b").glob("OPxFlasher-restore-*.zip"))) == 1
+
+
+def test_gui_dashboard_export_and_updates(window, monkeypatch, tmp_path):
+    import zipfile
+
+    from opx import cli, support
+    from opx.gui import app as gui
+
+    app, win = window
+    labels = win.info_labels
+    assert labels["variant"].text() == "OnePlus 13 China (PJZ110)"
+    assert labels["bootloader"].text() in ("Unlocked", "Locked", "Unknown")
+    assert labels["last_backup"].text().startswith("None yet")
+
+    win.out_edit.setText(str(tmp_path / "b"))
+    assert cli.main(["backup", "--mode", "critical", "--out", str(tmp_path / "b")]) == 0
+    win._refresh_last_backup()
+    assert labels["last_backup"].text().startswith("Critical, ")
+
+    out = tmp_path / "log.zip"
+    monkeypatch.setattr(gui.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    win.say("talking to FAKE0001")
+    win.export_log()
+    with zipfile.ZipFile(out) as z:
+        assert "FAKE0001" not in z.read("log.txt").decode()
+
+    monkeypatch.setattr(gui.support, "check_for_update",
+                        lambda: support.Update("v9.0.0", "https://example.invalid/r", False))
+    asked = []
+    monkeypatch.setattr(gui.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or gui.QMessageBox.StandardButton.No)
+    win.check_updates()
+    settle(app)
+    assert asked and "v9.0.0" in asked[0]

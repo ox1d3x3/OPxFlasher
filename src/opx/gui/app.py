@@ -52,6 +52,7 @@ from opx.gui.root_tab import RootTab
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
 from opx import reboot as rb
+from opx import support
 from opx.tools import Tool, fetch_platform_tools
 
 STYLE = """
@@ -198,14 +199,18 @@ class MainWindow(QMainWindow):
         form = QFormLayout()
         for key, text in (
             ("model", "Model"),
+            ("variant", "Variant"),
             ("build", "Build"),
             ("android", "Android"),
             ("security_patch", "Security patch"),
             ("slot_suffix", "Active slot"),
+            ("bootloader", "Bootloader"),
             ("access", "Root access"),
+            ("last_backup", "Last backup"),
             ("profile", "Profile"),
         ):
             lbl = QLabel("-")
+            lbl.setWordWrap(True)
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.info_labels[key] = lbl
             form.addRow(text + ":", lbl)
@@ -397,9 +402,24 @@ class MainWindow(QMainWindow):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        log_box = QWidget()
+        log_layout = QVBoxLayout(log_box)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+        log_bar = QHBoxLayout()
+        log_bar.addWidget(QLabel("Log"))
+        log_bar.addStretch(1)
+        self.export_log_btn = QPushButton("Export log...")
+        self.export_log_btn.setToolTip("Save the log and phone details as a zip for a bug report (serials hidden)")
+        self.export_log_btn.clicked.connect(self.export_log)
+        self.update_btn = QPushButton("Check for updates")
+        self.update_btn.clicked.connect(self.check_updates)
+        log_bar.addWidget(self.export_log_btn)
+        log_bar.addWidget(self.update_btn)
+        log_layout.addLayout(log_bar)
+        log_layout.addWidget(self.log)
         body = QSplitter(Qt.Vertical)
         body.addWidget(upper)
-        body.addWidget(self.log)
+        body.addWidget(log_box)
         body.setSizes([660, 110])
         layout.addWidget(body, 1)
 
@@ -409,6 +429,41 @@ class MainWindow(QMainWindow):
 
     def say(self, text: str) -> None:
         self.log.appendPlainText(text)
+
+    def export_log(self) -> None:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        default = Path(self.out_edit.text()).expanduser() / f"opxflasher-log-{stamp}.zip"
+        path, _ = QFileDialog.getSaveFileName(self, "Save log", str(default), "Zip (*.zip)")
+        if not path:
+            return
+        facts = bk.device_facts(self.session.props) if self.session else {}
+        serials = [d.serial for d in self.devices]
+        root = Path(self.out_edit.text()).expanduser()
+        journals = sorted(root.glob("*/journal.json"), key=lambda p: p.stat().st_mtime)[-3:] if root.is_dir() else []
+        out = support.export_log(Path(path), self.log.toPlainText(), facts, serials, journals)
+        self.say(f"Log saved to {out} (serial numbers hidden). Attach it to a GitHub issue.")
+
+    def check_updates(self) -> None:
+        self.update_btn.setEnabled(False)
+        self.say("Checking GitHub for a newer release...")
+        self.run_job(Job(support.check_for_update), self._update_checked, self._update_failed)
+
+    def _update_checked(self, update) -> None:
+        self.update_btn.setEnabled(True)
+        if update is None:
+            self.say(f"You have the newest version ({__version__}).")
+            return
+        kind = "release candidate" if update.prerelease else "release"
+        self.say(f"New {kind} available: {update.tag} - {update.url}")
+        answer = QMessageBox.question(self, "Update available",
+                                      f"OPxFlasher {update.tag} ({kind}) is available; you have {__version__}.\n\n"
+                                      "Open the download page?")
+        if answer == QMessageBox.StandardButton.Yes:
+            QDesktopServices.openUrl(QUrl(update.url))
+
+    def _update_failed(self, exc: BaseException) -> None:
+        self.update_btn.setEnabled(True)
+        self.say(str(exc))
 
     def mode(self) -> str:
         return self.mode_group.checkedButton().property("mode")
@@ -594,12 +649,15 @@ class MainWindow(QMainWindow):
         for key in ("model", "build", "android", "security_patch", "slot_suffix"):
             self.info_labels[key].setText(facts.get(key) or "-")
         access_text = {
-            "su": "Yes (su: Magisk / KernelSU / APatch)",
+            "su": "Yes (su)",
             "root-shell": "Yes (recovery / adb root)",
             "none": "No",
         }[session.access.kind]
         self.info_labels["access"].setText(access_text)
         self.info_labels["profile"].setText(session.profile.name)
+        self.info_labels["variant"].setText(session.profile.variant_name(facts.get("model", "")) or "-")
+        self.info_labels["bootloader"].setText(support.bootloader_text(session.props))
+        self._refresh_last_backup()
 
         issues = session.profile.issues_for(session.props)
         if issues:
@@ -705,9 +763,17 @@ class MainWindow(QMainWindow):
             self.overall_bar.setValue(100)
             self.last_folder = Path(e["folder"])
 
+    def _refresh_last_backup(self) -> None:
+        if self.session is None:
+            return
+        serial = self.session.props.get("ro.serialno", "")
+        backups = support.find_backups(Path(self.out_edit.text()).expanduser(), serial)
+        self.info_labels["last_backup"].setText(support.last_backup_text(backups))
+
     def _backup_done(self, folder: Path) -> None:
         self._set_busy(False)
         self.last_folder = Path(folder)
+        self._refresh_last_backup()
         if not self.sig_backup_edit.text().strip():
             self.sig_backup_edit.setText(str(folder))
         self.item_label.setText("Backup finished")
