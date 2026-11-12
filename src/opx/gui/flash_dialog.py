@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from opx.i18n import tr
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -31,7 +33,7 @@ class FlashDialog(QDialog):
         super().__init__(parent)
         self.rom, self.device, self.report = rom, device, report
         self.plan: fl.FlashPlan | None = None
-        self.setWindowTitle("Flash firmware")
+        self.setWindowTitle(tr("Flash firmware"))
         self.resize(820, 860)
         outer = QVBoxLayout(self)
         content = QWidget()
@@ -49,12 +51,12 @@ class FlashDialog(QDialog):
         layout.addWidget(head)
 
         # backup (required)
-        b_box = QGroupBox("Your backup of this phone (required)")
+        b_box = QGroupBox(tr("Your backup of this phone (required)"))
         b_layout = QVBoxLayout(b_box)
         row = QHBoxLayout()
         self.backup_edit = QLineEdit(backup_hint)
         self.backup_edit.setPlaceholderText("A Critical or Full backup made by OPxFlasher")
-        browse = QPushButton("Browse...")
+        browse = QPushButton(tr("Browse..."))
         browse.clicked.connect(self._browse)
         row.addWidget(self.backup_edit, 1)
         row.addWidget(browse)
@@ -62,7 +64,7 @@ class FlashDialog(QDialog):
         layout.addWidget(b_box)
 
         # options
-        o_box = QGroupBox("Options")
+        o_box = QGroupBox(tr("Options"))
         o_layout = QVBoxLayout(o_box)
         self.optional_boxes: dict[str, QCheckBox] = {}
         for item in report.items:
@@ -70,12 +72,12 @@ class FlashDialog(QDialog):
                 cb = QCheckBox(f"Also flash {item.partition} from the ROM (region / signal file - usually leave off)")
                 self.optional_boxes[item.partition] = cb
                 o_layout.addWidget(cb)
-        self.wipe_box = QCheckBox("Wipe data (factory reset) - needed when changing region or OS. ERASES EVERYTHING.")
-        self.reboot_box = QCheckBox("Reboot to Android when finished")
+        self.wipe_box = QCheckBox(tr("Wipe data (factory reset) - needed when changing region or OS. ERASES EVERYTHING."))
+        self.reboot_box = QCheckBox(tr("Reboot to Android when finished"))
         self.reboot_box.setChecked(True)
         has_logical = any(i.action == "super" for i in report.items)
         fastbootd_blocked = "fastbootd" in device.profile.blocked_actions(device.props)
-        self.fastbootd_box = QCheckBox("Use fastbootd for logical partitions (system, my_region ...)")
+        self.fastbootd_box = QCheckBox(tr("Use fastbootd for logical partitions (system, my_region ...)"))
         self.fastbootd_box.setChecked(has_logical and not fastbootd_blocked)
         self.fastbootd_box.setEnabled(has_logical and not fastbootd_blocked)
         for w in (self.wipe_box, self.reboot_box, self.fastbootd_box):
@@ -112,13 +114,13 @@ class FlashDialog(QDialog):
         self.variant_box: QCheckBox | None = None
         variant = fl.overridable_blocks(report, fl.OVERRIDE_VARIANT)
         if variant:
-            v_box = QGroupBox("Different variant")
+            v_box = QGroupBox(tr("Different variant"))
             v_box.setStyleSheet("QGroupBox { border-color: #8a5a26; }")
             v_layout = QVBoxLayout(v_box)
             v_text = QLabel(variant[0].detail.replace(" Confirm the variant change to continue.", ""))
             v_text.setWordWrap(True)
             v_text.setStyleSheet("color:#ffd29a")
-            self.variant_box = QCheckBox("Yes, I want to flash this other variant")
+            self.variant_box = QCheckBox(tr("Yes, I want to flash this other variant"))
             v_layout.addWidget(v_text)
             v_layout.addWidget(self.variant_box)
             layout.addWidget(v_box)
@@ -127,13 +129,13 @@ class FlashDialog(QDialog):
         self.not_updated_box: QCheckBox | None = None
         unknown_fw = fl.overridable_blocks(report, fl.OVERRIDE_UNKNOWN_FIRMWARE)
         if unknown_fw:
-            f_box = QGroupBox("Phone's current firmware is unknown")
+            f_box = QGroupBox(tr("Phone's current firmware is unknown"))
             f_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
             f_layout = QVBoxLayout(f_box)
             f_text = QLabel(unknown_fw[0].detail)
             f_text.setWordWrap(True)
             f_text.setStyleSheet("color:#ffb3ad")
-            self.not_updated_box = QCheckBox("This phone has NOT installed any update since this backup")
+            self.not_updated_box = QCheckBox(tr("This phone has NOT installed any update since this backup"))
             f_layout.addWidget(f_text)
             f_layout.addWidget(self.not_updated_box)
             layout.addWidget(f_box)
@@ -141,7 +143,7 @@ class FlashDialog(QDialog):
         # unvalidated Qualcomm anti-rollback reader
         self.arb_edit: QLineEdit | None = None
         if fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED):
-            a_box = QGroupBox("Qualcomm anti-rollback: not validated")
+            a_box = QGroupBox(tr("Qualcomm anti-rollback: not validated"))
             a_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
             a_layout = QVBoxLayout(a_box)
             detail = "\n".join(c.detail for c in fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED))
@@ -160,23 +162,23 @@ class FlashDialog(QDialog):
             layout.addWidget(a_box)
 
         # plan preview
-        layout.addWidget(QLabel("What will happen:"))
+        layout.addWidget(QLabel(tr("What will happen:")))
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setMinimumHeight(220)
         layout.addWidget(self.preview, 1)
 
         confirm_row = QHBoxLayout()
-        confirm_row.addWidget(QLabel("Type FLASH to enable the button:"))
+        confirm_row.addWidget(QLabel(tr("Type FLASH to enable the button:")))
         self.confirm_edit = QLineEdit()
         confirm_row.addWidget(self.confirm_edit, 1)
         outer.addLayout(confirm_row)
 
         btns = QHBoxLayout()
         btns.addStretch(1)
-        cancel = QPushButton("Cancel")
+        cancel = QPushButton(tr("Cancel"))
         cancel.clicked.connect(self.reject)
-        self.start_btn = QPushButton("Start flashing")
+        self.start_btn = QPushButton(tr("Start flashing"))
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self.accept)
         btns.addWidget(cancel)

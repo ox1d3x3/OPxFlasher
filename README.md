@@ -216,6 +216,25 @@ With the portable files you can also put Google's `platform-tools` folder next t
   last flash journals as a zip for a GitHub issue. Serial numbers are hidden.
 - **Check for updates:** asks GitHub for newer releases (including release candidates) only
   when you click it. OPxFlasher sends nothing on its own.
+- **Phone not showing up?** (phone panel, or `opx usb-check`): on Windows it finds a
+  OnePlus / OPPO phone with a missing or broken USB driver and says how to fix it; on Linux
+  it checks your user may open the phone (udev rules / `plugdev`). It also spots a phone
+  stuck in Qualcomm 9008 (EDL) mode. It only looks; nothing is installed.
+
+## Add your phone
+
+Phones are described by small JSON **device profiles**. To add yours, write a profile,
+check it with `opx profile check my-phone.json`, and install it with
+`opx profile install my-phone.json` (it goes to your own profiles folder; built-in profiles
+can't be replaced). New profiles start in check-only mode until flashing is confirmed on a
+real phone. See [docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md), and share working
+profiles in a pull request.
+
+## Translations
+
+All app text can be translated. Copy `src/opx/locales/template.json` to your language code
+(e.g. `de.json`), fill in what you can, and drop it in your `locales` folder or send a pull
+request. Untranslated text stays English. See [docs/TRANSLATING.md](docs/TRANSLATING.md).
 
 ## Restore the whole ROM from a backup
 

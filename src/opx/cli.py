@@ -727,6 +727,55 @@ def cmd_restore_rom(args) -> int:
     return 0
 
 
+def cmd_usb_check(args) -> int:
+    from opx import usbcheck
+
+    worst = 0
+    for f in usbcheck.check():
+        mark = {"ok": "OK  ", "warning": "NOTE", "problem": "FIX "}[f.level]
+        print(f"[{mark}] {f.message}")
+        worst = max(worst, {"ok": 0, "warning": 1, "problem": 2}[f.level])
+    return 1 if worst == 2 else 0
+
+
+def cmd_profile(args) -> int:
+    import shutil
+
+    from opx import profile as profiles
+
+    if args.action == "list":
+        builtin = profiles._builtin_ids()
+        for pid in profiles.all_profile_ids():
+            p = profiles.load(pid)
+            where = "built-in" if pid in builtin else "user"
+            models = ", ".join(sorted({m for v in p.match.values() for m in v})) or "-"
+            print(f"{pid:<20} {p.name:<22} {where:<8} {models}")
+        print(f"\nUser profiles folder: {profiles.user_profiles_dir()}")
+        return 0
+    if not args.file:
+        print("Give a profile .json file.")
+        return 2
+    errors = profiles.check_file(Path(args.file))
+    if errors:
+        print(f"{args.file} has problems:")
+        for e in errors:
+            print(f"  - {e}")
+        return 3
+    print(f"{args.file} looks good.")
+    if args.action == "install":
+        import json
+
+        pid = json.loads(Path(args.file).read_text("utf-8"))["id"]
+        if pid in profiles._builtin_ids():
+            print(f"'{pid}' is a built-in profile and can't be replaced; pick another id.")
+            return 3
+        dest = profiles.user_profiles_dir() / f"{pid}.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(args.file, dest)
+        print(f"Installed to {dest}")
+    return 0
+
+
 def cmd_restore_zip(args) -> int:
     from opx import restore as rs
     from opx import restore_zip as rz
@@ -887,6 +936,14 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--work", default="opx-work", help="folder for the journal")
     rr.add_argument("-s", "--serial")
     rr.set_defaults(fn=cmd_restore_rom)
+
+    us = sub.add_parser("usb-check", help="phone not showing up? check USB drivers / permissions")
+    us.set_defaults(fn=cmd_usb_check)
+
+    pr = sub.add_parser("profile", help="list, check or install device profiles (adding a new phone)")
+    pr.add_argument("action", choices=("list", "check", "install"))
+    pr.add_argument("file", nargs="?", help="profile .json (check / install)")
+    pr.set_defaults(fn=cmd_profile)
 
     rz_ = sub.add_parser("restore-zip", help="make a recovery-flashable restore zip from a Full firmware backup")
     rz_.add_argument("backup", help="the Full firmware backup folder")

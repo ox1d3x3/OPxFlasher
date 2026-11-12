@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from opx.i18n import tr
+
 import sys
 import threading
 from datetime import datetime
@@ -160,31 +162,35 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setSpacing(10)
 
-        title = QLabel("OPxFlasher")
+        title = QLabel(tr("OPxFlasher"))
         title.setObjectName("title")
-        subtitle = QLabel("AIO tool for OnePlus / OPPO devices: backup, ROM check, flashing, signal restore and root.")
+        subtitle = QLabel(tr("AIO tool for OnePlus / OPPO devices: backup, ROM check, flashing, signal restore and root."))
         subtitle.setStyleSheet("color:#9aa3b5")
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
         # device
-        dev_box = QGroupBox("Phone")
+        dev_box = QGroupBox(tr("Phone"))
         dev_layout = QVBoxLayout(dev_box)
         row = QHBoxLayout()
         self.device_combo = QComboBox()
         self.device_combo.setMinimumWidth(180)
         self.device_combo.currentIndexChanged.connect(self._device_selected)
-        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn = QPushButton(tr("Refresh"))
         self.refresh_btn.clicked.connect(self.refresh_devices)
         row.addWidget(self.device_combo, 1)
         row.addWidget(self.refresh_btn)
         dev_layout.addLayout(row)
-        self.tools_btn = QPushButton("Download adb and fastboot")
-        self.tools_btn.setToolTip("Downloads Google's official platform-tools (Google's terms apply)")
+        self.tools_btn = QPushButton(tr("Download adb and fastboot"))
+        self.tools_btn.setToolTip(tr("Downloads Google's official platform-tools (Google's terms apply)"))
         self.tools_btn.clicked.connect(self.download_tools)
         self.tools_btn.hide()
         dev_layout.addWidget(self.tools_btn)
-        dev_layout.addWidget(QLabel("Reboot to:"))
+        self.usb_btn = QPushButton(tr("Phone not showing up?"))
+        self.usb_btn.setToolTip(tr("Check USB drivers (Windows) or permissions (Linux)"))
+        self.usb_btn.clicked.connect(self.usb_check)
+        dev_layout.addWidget(self.usb_btn)
+        dev_layout.addWidget(QLabel(tr("Reboot to:")))
         reboot_grid = QGridLayout()
         self.reboot_btns: dict[str, QPushButton] = {}
         for i, (target, text) in enumerate((("system", "Android"), ("bootloader", "Bootloader"),
@@ -209,7 +215,7 @@ class MainWindow(QMainWindow):
             ("last_backup", "Last backup"),
             ("profile", "Profile"),
         ):
-            lbl = QLabel("-")
+            lbl = QLabel(tr("-"))
             lbl.setWordWrap(True)
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.info_labels[key] = lbl
@@ -227,7 +233,7 @@ class MainWindow(QMainWindow):
         # --- Backup tab ---------------------------------------------------
         backup_tab = QWidget()
         backup_layout = QVBoxLayout(backup_tab)
-        opt_box = QGroupBox("Backup")
+        opt_box = QGroupBox(tr("Backup"))
         opt_layout = QVBoxLayout(opt_box)
         self.mode_group = QButtonGroup(self)
         for i, mode in enumerate(MODES):
@@ -241,33 +247,33 @@ class MainWindow(QMainWindow):
 
         out_row = QHBoxLayout()
         self.out_edit = QLineEdit(str(Path.home() / "OPxFlasher-backups"))
-        browse = QPushButton("Browse...")
+        browse = QPushButton(tr("Browse..."))
         browse.clicked.connect(self._browse)
-        out_row.addWidget(QLabel("Save to:"))
+        out_row.addWidget(QLabel(tr("Save to:")))
         out_row.addWidget(self.out_edit, 1)
         out_row.addWidget(browse)
         opt_layout.addLayout(out_row)
-        self.verify_box = QCheckBox("Verify every image on the phone with sha256sum (recommended)")
+        self.verify_box = QCheckBox(tr("Verify every image on the phone with sha256sum (recommended)"))
         self.verify_box.setChecked(True)
         opt_layout.addWidget(self.verify_box)
 
         btn_row = QHBoxLayout()
-        self.preview_btn = QPushButton("Preview")
+        self.preview_btn = QPushButton(tr("Preview"))
         self.preview_btn.clicked.connect(self.preview)
-        self.start_btn = QPushButton("Start backup")
+        self.start_btn = QPushButton(tr("Start backup"))
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self.start_backup)
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton(tr("Cancel"))
         self.cancel_btn.clicked.connect(self.cancel)
-        self.open_btn = QPushButton("Open folder")
+        self.open_btn = QPushButton(tr("Open folder"))
         self.open_btn.clicked.connect(self._open_folder)
-        self.verify_btn = QPushButton("Verify a backup...")
+        self.verify_btn = QPushButton(tr("Verify a backup..."))
         self.verify_btn.clicked.connect(self.verify_existing)
-        self.restore_rom_btn = QPushButton("Restore full ROM...")
-        self.restore_rom_btn.setToolTip("Put the whole OS back from a Full firmware backup of this phone")
+        self.restore_rom_btn = QPushButton(tr("Restore full ROM..."))
+        self.restore_rom_btn.setToolTip(tr("Put the whole OS back from a Full firmware backup of this phone"))
         self.restore_rom_btn.clicked.connect(self.restore_full_rom)
-        self.restore_zip_btn = QPushButton("Make recovery zip...")
-        self.restore_zip_btn.setToolTip("Turn a Full firmware backup into a zip you can flash in AERA Recovery")
+        self.restore_zip_btn = QPushButton(tr("Make recovery zip..."))
+        self.restore_zip_btn.setToolTip(tr("Turn a Full firmware backup into a zip you can flash in AERA Recovery"))
         self.restore_zip_btn.clicked.connect(self.make_restore_zip)
         for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
             btn_row.addWidget(b)
@@ -278,7 +284,7 @@ class MainWindow(QMainWindow):
         opt_layout.addLayout(btn_row)
         backup_layout.addWidget(opt_box)
 
-        self.item_label = QLabel("Idle")
+        self.item_label = QLabel(tr("Idle"))
         self.item_bar = QProgressBar()
         self.item_bar.setFormat("Current partition  %p%")
         self.overall_bar = QProgressBar()
@@ -293,20 +299,20 @@ class MainWindow(QMainWindow):
         # --- ROM check tab ------------------------------------------------
         rom_tab = QWidget()
         rom_layout = QVBoxLayout(rom_tab)
-        rom_box = QGroupBox("Firmware to check (nothing is flashed)")
+        rom_box = QGroupBox(tr("Firmware to check (nothing is flashed)"))
         rom_form = QVBoxLayout(rom_box)
         rom_row = QHBoxLayout()
         self.rom_edit = QLineEdit()
         self.rom_edit.setPlaceholderText("Full OTA zip, payload.bin, or a folder of .img files")
-        pick_file = QPushButton("File...")
+        pick_file = QPushButton(tr("File..."))
         pick_file.clicked.connect(self._choose_rom_file)
-        pick_folder = QPushButton("Folder...")
+        pick_folder = QPushButton(tr("Folder..."))
         pick_folder.clicked.connect(self._choose_rom_folder)
-        self.catalog_btn = QPushButton("Official ROMs...")
+        self.catalog_btn = QPushButton(tr("Official ROMs..."))
         self.catalog_btn.setToolTip("Pick an official ROM for the connected phone "
                                     "(OTA catalog by Daniel Springer)")
         self.catalog_btn.clicked.connect(self.open_catalog)
-        rom_row.addWidget(QLabel("ROM:"))
+        rom_row.addWidget(QLabel(tr("ROM:")))
         rom_row.addWidget(self.rom_edit, 1)
         rom_row.addWidget(pick_file)
         rom_row.addWidget(pick_folder)
@@ -315,16 +321,16 @@ class MainWindow(QMainWindow):
 
         cmp_row = QHBoxLayout()
         self.cmp_group = QButtonGroup(self)
-        self.cmp_live = QRadioButton("Connected phone")
+        self.cmp_live = QRadioButton(tr("Connected phone"))
         self.cmp_live.setChecked(True)
-        self.cmp_backup = QRadioButton("Backup folder:")
+        self.cmp_backup = QRadioButton(tr("Backup folder:"))
         self.cmp_group.addButton(self.cmp_live)
         self.cmp_group.addButton(self.cmp_backup)
         self.cmp_backup_edit = QLineEdit()
         self.cmp_backup_edit.setPlaceholderText("An OPxFlasher backup (Full mode gives the most checks)")
-        pick_backup = QPushButton("Browse...")
+        pick_backup = QPushButton(tr("Browse..."))
         pick_backup.clicked.connect(self._choose_compare_backup)
-        cmp_row.addWidget(QLabel("Compare with:"))
+        cmp_row.addWidget(QLabel(tr("Compare with:")))
         cmp_row.addWidget(self.cmp_live)
         cmp_row.addWidget(self.cmp_backup)
         cmp_row.addWidget(self.cmp_backup_edit, 1)
@@ -332,19 +338,19 @@ class MainWindow(QMainWindow):
         rom_form.addLayout(cmp_row)
 
         act_row = QHBoxLayout()
-        self.check_btn = QPushButton("Check ROM")
+        self.check_btn = QPushButton(tr("Check ROM"))
         self.check_btn.setObjectName("primary")
         self.check_btn.clicked.connect(self.check_rom)
-        self.save_report_btn = QPushButton("Save report...")
+        self.save_report_btn = QPushButton(tr("Save report..."))
         self.save_report_btn.clicked.connect(self._save_report)
         self.save_report_btn.setEnabled(False)
         act_row.addWidget(self.check_btn)
         act_row.addWidget(self.save_report_btn)
-        self.flash_btn = QPushButton("Flash...")
+        self.flash_btn = QPushButton(tr("Flash..."))
         self.flash_btn.setEnabled(False)
-        self.flash_btn.setToolTip("Writes to the phone. Needs a passing ROM check on the connected phone and a backup.")
+        self.flash_btn.setToolTip(tr("Writes to the phone. Needs a passing ROM check on the connected phone and a backup."))
         self.flash_btn.clicked.connect(self.start_flash)
-        self.stop_flash_btn = QPushButton("Stop after this step")
+        self.stop_flash_btn = QPushButton(tr("Stop after this step"))
         self.stop_flash_btn.setEnabled(False)
         self.stop_flash_btn.clicked.connect(self._stop_flash)
         act_row.addWidget(self.flash_btn)
@@ -353,7 +359,7 @@ class MainWindow(QMainWindow):
         rom_form.addLayout(act_row)
         rom_layout.addWidget(rom_box)
 
-        self.verdict = QLabel("Choose a ROM and press Check ROM.")
+        self.verdict = QLabel(tr("Choose a ROM and press Check ROM."))
         self.verdict.setObjectName("verdict")
         self.verdict.setWordWrap(True)
         self.rom_summary = QLabel("")
@@ -386,14 +392,14 @@ class MainWindow(QMainWindow):
 
         # --- assemble -----------------------------------------------------
         self.tabs = QTabWidget()
-        self.tabs.addTab(backup_tab, "Backup")
+        self.tabs.addTab(backup_tab, tr("Backup"))
         self.rom_tab = rom_tab
-        self.tabs.addTab(rom_tab, "ROM check")
-        self.tabs.addTab(self._build_signal_tab(), "Signal / region")
+        self.tabs.addTab(rom_tab, tr("ROM check"))
+        self.tabs.addTab(self._build_signal_tab(), tr("Signal / region"))
         self.root_tab = RootTab(self)
-        self.tabs.addTab(self.root_tab, "Root")
+        self.tabs.addTab(self.root_tab, tr("Root"))
         self.image_tab = ImageTab(self)
-        self.tabs.addTab(self.image_tab, "Flash image")
+        self.tabs.addTab(self.image_tab, tr("Flash image"))
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -406,12 +412,12 @@ class MainWindow(QMainWindow):
         log_layout = QVBoxLayout(log_box)
         log_layout.setContentsMargins(0, 0, 0, 0)
         log_bar = QHBoxLayout()
-        log_bar.addWidget(QLabel("Log"))
+        log_bar.addWidget(QLabel(tr("Log")))
         log_bar.addStretch(1)
-        self.export_log_btn = QPushButton("Export log...")
-        self.export_log_btn.setToolTip("Save the log and phone details as a zip for a bug report (serials hidden)")
+        self.export_log_btn = QPushButton(tr("Export log..."))
+        self.export_log_btn.setToolTip(tr("Save the log and phone details as a zip for a bug report (serials hidden)"))
         self.export_log_btn.clicked.connect(self.export_log)
-        self.update_btn = QPushButton("Check for updates")
+        self.update_btn = QPushButton(tr("Check for updates"))
         self.update_btn.clicked.connect(self.check_updates)
         log_bar.addWidget(self.export_log_btn)
         log_bar.addWidget(self.update_btn)
@@ -429,6 +435,26 @@ class MainWindow(QMainWindow):
 
     def say(self, text: str) -> None:
         self.log.appendPlainText(text)
+
+    def usb_check(self) -> None:
+        from opx import usbcheck
+
+        self.usb_btn.setEnabled(False)
+        self.run_job(Job(usbcheck.check), self._usb_checked, self._usb_failed)
+
+    def _usb_checked(self, findings) -> None:
+        self.usb_btn.setEnabled(True)
+        for f in findings:
+            self.say(f"USB check: {f.message}")
+        text = "\n\n".join(f.message for f in findings)
+        if any(f.level == "problem" for f in findings):
+            QMessageBox.warning(self, "USB check", text)
+        else:
+            QMessageBox.information(self, "USB check", text)
+
+    def _usb_failed(self, exc: BaseException) -> None:
+        self.usb_btn.setEnabled(True)
+        self.say(f"USB check failed: {exc}")
 
     def export_log(self) -> None:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -966,7 +992,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Restore full ROM", str(e))
             return
         dialog = FlashDialog(self, rom, device, report, str(folder))
-        dialog.setWindowTitle("Restore full ROM")
+        dialog.setWindowTitle(tr("Restore full ROM"))
         for name, cb in dialog.optional_boxes.items():
             cb.setChecked(rom.image(name) is not None)  # the phone's own region files
         if older:
@@ -1095,12 +1121,12 @@ class MainWindow(QMainWindow):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        box = QGroupBox("Backup to restore from")
+        box = QGroupBox(tr("Backup to restore from"))
         b_layout = QVBoxLayout(box)
         row = QHBoxLayout()
         self.sig_backup_edit = QLineEdit()
         self.sig_backup_edit.setPlaceholderText("A Critical or Full backup of this phone")
-        browse = QPushButton("Browse...")
+        browse = QPushButton(tr("Browse..."))
         browse.clicked.connect(self._choose_signal_backup)
         row.addWidget(self.sig_backup_edit, 1)
         row.addWidget(browse)
@@ -1108,26 +1134,26 @@ class MainWindow(QMainWindow):
         self.sig_table = make_table(["File", "Size", "Type", "Backup hash"], stretch=0)
         self.sig_table.setMaximumHeight(140)
         b_layout.addWidget(self.sig_table)
-        self.sig_fastbootd = QCheckBox("Allow fastbootd (needed for my_region, which lives inside super)")
+        self.sig_fastbootd = QCheckBox(tr("Allow fastbootd (needed for my_region, which lives inside super)"))
         self.sig_fastbootd.setChecked(True)
         b_layout.addWidget(self.sig_fastbootd)
         layout.addWidget(box)
 
-        layout.addWidget(QLabel("What will happen:"))
+        layout.addWidget(QLabel(tr("What will happen:")))
         self.sig_preview = QPlainTextEdit()
         self.sig_preview.setReadOnly(True)
         layout.addWidget(self.sig_preview, 1)
 
         act = QHBoxLayout()
-        act.addWidget(QLabel("Type RESTORE:"))
+        act.addWidget(QLabel(tr("Type RESTORE:")))
         self.sig_confirm = QLineEdit()
         self.sig_confirm.setMaximumWidth(160)
         act.addWidget(self.sig_confirm)
-        self.restore_btn = QPushButton("Restore signal files")
+        self.restore_btn = QPushButton(tr("Restore signal files"))
         self.restore_btn.setObjectName("primary")
         self.restore_btn.setEnabled(False)
         self.restore_btn.clicked.connect(self.start_restore)
-        self.stop_restore_btn = QPushButton("Stop after this step")
+        self.stop_restore_btn = QPushButton(tr("Stop after this step"))
         self.stop_restore_btn.setEnabled(False)
         self.stop_restore_btn.clicked.connect(self._stop_flash)
         act.addWidget(self.restore_btn)
@@ -1236,6 +1262,9 @@ def main() -> int:
     app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    from opx import i18n
+
+    i18n.load()
     win = MainWindow()
     if "--smoke-test" in sys.argv:
         # Used by CI on the packaged .exe / AppImage: the app, its data files and

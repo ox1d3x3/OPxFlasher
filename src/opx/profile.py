@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import fnmatch
 import json
+from pathlib import Path
+import re
 from dataclasses import dataclass, field
 from importlib import resources
 
@@ -99,22 +101,128 @@ class Profile:
         return {b for i in self.issues_for(props) for b in i.blocks}
 
 
+GENERIC = "oplus-generic"
+ISSUE_SEVERITIES = ("info", "warning", "danger")
+BLOCKABLE = ("fastbootd", "bootloader")
+KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
+              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images",
+              "qcom_arb_validated"}
+
+
+class ProfileError(ValueError):
+    pass
+
+
+def user_profiles_dir() -> Path:
+    """Profiles people add themselves (to try a new phone before it's in a release)."""
+    from opx.tools import user_tools_dir
+
+    return user_tools_dir().parent / "profiles"
+
+
+def _builtin_ids() -> set[str]:
+    folder = resources.files("opx.profiles")
+    return {p.name[:-5] for p in folder.iterdir() if p.name.endswith(".json")}
+
+
+def _read(profile_id: str) -> dict:
+    if profile_id in _builtin_ids():  # built-in profiles can't be replaced by user files
+        data = resources.files("opx.profiles").joinpath(f"{profile_id}.json").read_text("utf-8")
+    else:
+        f = user_profiles_dir() / f"{profile_id}.json"
+        if not f.is_file():
+            raise ProfileError(f"No profile called {profile_id!r}.")
+        data = f.read_text("utf-8")
+    return json.loads(data)
+
+
+def _merge(base: dict, raw: dict) -> dict:
+    merged = {**base, **raw}
+    merged["backup"] = {**base.get("backup", {}), **raw.get("backup", {})}
+    merged["known_issues"] = base.get("known_issues", []) + raw.get("known_issues", [])
+    # A child can add never-flash partitions, never remove the parent's.
+    merged["never_flash"] = list(dict.fromkeys(base.get("never_flash", []) + raw.get("never_flash", [])))
+    return merged
+
+
 def _load_raw(profile_id: str) -> dict:
-    data = resources.files("opx.profiles").joinpath(f"{profile_id}.json").read_text("utf-8")
-    raw = json.loads(data)
+    raw = _read(profile_id)
     parent = raw.get("inherits")
     if parent:
-        base = _load_raw(parent)
-        base_backup = base.get("backup", {})
-        merged = {**base, **raw}
-        merged["backup"] = {**base_backup, **raw.get("backup", {})}
-        merged["known_issues"] = base.get("known_issues", []) + raw.get("known_issues", [])
-        return merged
+        return _merge(_load_raw(parent), raw)
     return raw
 
 
+def validate(raw: dict, builtin: bool = False) -> list[str]:
+    """Problems with a profile's JSON (empty list = fine)."""
+    errors = []
+    unknown = set(raw) - KNOWN_KEYS
+    if unknown:
+        errors.append(f"unknown keys: {', '.join(sorted(unknown))}")
+    pid = raw.get("id")
+    if not isinstance(pid, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,40}", pid or ""):
+        errors.append("id must be lower-case letters, digits and dashes (e.g. 'oneplus-12')")
+    if not isinstance(raw.get("name"), str) or not raw.get("name"):
+        errors.append("name is required (e.g. 'OnePlus 12')")
+    if pid != GENERIC:
+        if raw.get("inherits") != GENERIC:
+            errors.append(f"device profiles must inherit from '{GENERIC}'")
+        match = raw.get("match")
+        if not isinstance(match, dict) or not match or not all(
+                isinstance(k, str) and k.startswith("ro.") and isinstance(v, list) and v and all(isinstance(x, str) and x for x in v)
+                for k, v in match.items()):
+            errors.append("match must map ro.* properties to non-empty lists, e.g. "
+                          '{"ro.product.model": ["CPH2581"]}')
+    for name in raw.get("never_flash", []) + raw.get("conditional", []) + raw.get("avb_images", []) \
+            + raw.get("qcom_arb_images", []):
+        if not re.fullmatch(r"[A-Za-z0-9_.*-]{1,64}", str(name)):
+            errors.append(f"bad partition name {name!r}")
+    variants = raw.get("variants", {})
+    if not isinstance(variants, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in variants.items()):
+        errors.append("variants must map model numbers to region names")
+    boards = raw.get("recovery_boards", [])
+    if not isinstance(boards, list) or not all(isinstance(b, str) and b for b in boards):
+        errors.append("recovery_boards must be a list of names")
+    for i, issue in enumerate(raw.get("known_issues", [])):
+        if not isinstance(issue, dict) or not isinstance(issue.get("match"), dict) or not issue.get("message"):
+            errors.append(f"known_issues[{i}] needs match and message")
+            continue
+        if issue.get("severity", "warning") not in ISSUE_SEVERITIES:
+            errors.append(f"known_issues[{i}].severity must be one of {', '.join(ISSUE_SEVERITIES)}")
+        if not set(issue.get("blocks", [])) <= set(BLOCKABLE):
+            errors.append(f"known_issues[{i}].blocks may only contain {', '.join(BLOCKABLE)}")
+    if raw.get("qcom_arb_validated") and not builtin:
+        errors.append("qcom_arb_validated can only be set in a built-in profile, after checking real firmware")
+    return errors
+
+
+def check_file(path: Path) -> list[str]:
+    try:
+        raw = json.loads(Path(path).read_text("utf-8"))
+    except (OSError, ValueError) as e:
+        return [f"can't read it as JSON: {e}"]
+    if not isinstance(raw, dict):
+        return ["the file must contain one JSON object"]
+    errors = validate(raw)
+    if not errors:
+        try:
+            load_raw_profile(raw)
+        except (ProfileError, TypeError, KeyError) as e:
+            errors.append(str(e))
+    return errors
+
+
+def load_raw_profile(raw: dict) -> "Profile":
+    """Build a Profile from a dict (with inheritance), for checking a file before installing it."""
+    parent = raw.get("inherits")
+    return _build(_merge(_load_raw(parent), raw) if parent else raw)
+
+
 def load(profile_id: str) -> Profile:
-    raw = _load_raw(profile_id)
+    return _build(_load_raw(profile_id))
+
+
+def _build(raw: dict) -> Profile:
     backup = raw.get("backup", {})
     return Profile(
         id=raw["id"],
@@ -136,8 +244,20 @@ def load(profile_id: str) -> Profile:
 
 
 def all_profile_ids() -> list[str]:
-    folder = resources.files("opx.profiles")
-    return sorted(p.name[:-5] for p in folder.iterdir() if p.name.endswith(".json"))
+    """Built-in profiles, then valid user profiles (user files never replace built-ins)."""
+    ids = sorted(_builtin_ids())
+    folder = user_profiles_dir()
+    if folder.is_dir():
+        for f in sorted(folder.glob("*.json")):
+            if f.stem in ids:
+                continue
+            try:
+                raw = json.loads(f.read_text("utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(raw, dict) and raw.get("id") == f.stem and not validate(raw):
+                ids.append(f.stem)
+    return ids
 
 
 def detect(props: dict[str, str]) -> Profile:

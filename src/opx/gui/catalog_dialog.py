@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from opx.i18n import tr
+
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +41,7 @@ class CatalogDialog(QDialog):
 
     def __init__(self, parent, run_job, model: str):
         super().__init__(parent)
-        self.setWindowTitle("Official ROMs")
+        self.setWindowTitle(tr("Official ROMs"))
         self.resize(820, 480)
         self.run_job = run_job
         self.model = model
@@ -63,7 +65,7 @@ class CatalogDialog(QDialog):
         self.table.itemSelectionChanged.connect(self._update_buttons)
         layout.addWidget(self.table, 1)
 
-        self.others = QCheckBox("Also show other variants of this phone (other regions)")
+        self.others = QCheckBox(tr("Also show other variants of this phone (other regions)"))
         self.others.toggled.connect(self.load)
         layout.addWidget(self.others)
 
@@ -78,9 +80,9 @@ class CatalogDialog(QDialog):
         layout.addWidget(credit)
 
         row = QHBoxLayout()
-        self.download_btn = QPushButton("Download and check")
+        self.download_btn = QPushButton(tr("Download and check"))
         self.download_btn.clicked.connect(self.download)
-        self.cancel_btn = QPushButton("Close")
+        self.cancel_btn = QPushButton(tr("Close"))
         self.cancel_btn.clicked.connect(self._close_or_cancel)
         row.addStretch(1)
         row.addWidget(self.download_btn)

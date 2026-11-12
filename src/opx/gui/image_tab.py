@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from opx.i18n import tr
+
 import threading
 from pathlib import Path
 
@@ -42,16 +44,16 @@ class ImageTab(QWidget):
         intro.setStyleSheet("color:#9aa3b5")
         layout.addWidget(intro)
 
-        box = QGroupBox("Image")
+        box = QGroupBox(tr("Image"))
         form = QVBoxLayout(box)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Partition:"))
+        row.addWidget(QLabel(tr("Partition:")))
         self.part_combo = QComboBox()
         self.part_combo.setEditable(True)
         self.part_combo.addItems(PARTITIONS)
         self.part_combo.setMinimumWidth(160)
         row.addWidget(self.part_combo)
-        row.addWidget(QLabel("Slot:"))
+        row.addWidget(QLabel(tr("Slot:")))
         self.slot_combo = QComboBox()
         for key, text in SLOT_TEXT.items():
             self.slot_combo.addItem(text, key)
@@ -60,34 +62,34 @@ class ImageTab(QWidget):
         form.addLayout(row)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("File:"))
+        row.addWidget(QLabel(tr("File:")))
         self.image_edit = QLineEdit()
         self.image_edit.setPlaceholderText("The .img file to flash")
         row.addWidget(self.image_edit, 1)
-        pick = QPushButton("Browse...")
+        pick = QPushButton(tr("Browse..."))
         pick.clicked.connect(self._pick_image)
         row.addWidget(pick)
         form.addLayout(row)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Backup:"))
+        row.addWidget(QLabel(tr("Backup:")))
         self.backup_edit = QLineEdit()
         self.backup_edit.setPlaceholderText("A Critical or Full backup of this phone (required)")
         row.addWidget(self.backup_edit, 1)
-        pick_b = QPushButton("Browse...")
+        pick_b = QPushButton(tr("Browse..."))
         pick_b.clicked.connect(self._pick_backup)
         row.addWidget(pick_b)
         form.addLayout(row)
 
-        self.verity = QCheckBox("Disable verity and verification (vbmeta only; some custom kernels need it)")
+        self.verity = QCheckBox(tr("Disable verity and verification (vbmeta only; some custom kernels need it)"))
         form.addWidget(self.verity)
-        self.reboot_after = QCheckBox("Reboot to Android afterwards")
+        self.reboot_after = QCheckBox(tr("Reboot to Android afterwards"))
         self.reboot_after.setChecked(True)
         form.addWidget(self.reboot_after)
         layout.addWidget(box)
 
         row = QHBoxLayout()
-        self.check_btn = QPushButton("Check")
+        self.check_btn = QPushButton(tr("Check"))
         self.check_btn.clicked.connect(self.check)
         row.addWidget(self.check_btn)
         row.addStretch(1)
@@ -98,16 +100,16 @@ class ImageTab(QWidget):
         layout.addWidget(self.summary)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("Type FLASH:"))
+        row.addWidget(QLabel(tr("Type FLASH:")))
         self.confirm = QLineEdit()
         self.confirm.setMaximumWidth(140)
         self.confirm.textChanged.connect(lambda _t: self.refresh_buttons())
         row.addWidget(self.confirm)
-        self.flash_btn = QPushButton("Flash")
+        self.flash_btn = QPushButton(tr("Flash"))
         self.flash_btn.setObjectName("danger")
         self.flash_btn.clicked.connect(self.flash)
         row.addWidget(self.flash_btn)
-        self.stop_btn = QPushButton("Stop after this step")
+        self.stop_btn = QPushButton(tr("Stop after this step"))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(win._stop_flash)
         row.addWidget(self.stop_btn)

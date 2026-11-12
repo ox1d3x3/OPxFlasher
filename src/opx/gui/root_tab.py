@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from opx.i18n import tr
+
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -65,7 +67,7 @@ class RootTab(QWidget):
         layout = QVBoxLayout(self)
 
         # 1. root app
-        g1 = QGroupBox("1. Your root app")
+        g1 = QGroupBox(tr("1. Your root app"))
         l1 = QHBoxLayout(g1)
         self.manager_group = QButtonGroup(self)
         for key, (name, part) in rt.MANAGERS.items():
@@ -78,12 +80,12 @@ class RootTab(QWidget):
         layout.addWidget(g1)
 
         # 2. stock image
-        g2 = QGroupBox("2. Stock image of the build the phone is running now")
+        g2 = QGroupBox(tr("2. Stock image of the build the phone is running now"))
         l2 = QVBoxLayout(g2)
         self.src_group = QButtonGroup(self)
-        self.src_rom = QRadioButton("Full OTA of this build:")
+        self.src_rom = QRadioButton(tr("Full OTA of this build:"))
         self.src_rom.setChecked(True)
-        self.src_backup = QRadioButton("Full backup made on this build:")
+        self.src_backup = QRadioButton(tr("Full backup made on this build:"))
         self.src_group.addButton(self.src_rom)
         self.src_group.addButton(self.src_backup)
         self.rom_edit, self.backup_src_edit = QLineEdit(), QLineEdit()
@@ -91,12 +93,12 @@ class RootTab(QWidget):
             row = QHBoxLayout()
             row.addWidget(radio)
             row.addWidget(edit, 1)
-            b = QPushButton("Browse...")
+            b = QPushButton(tr("Browse..."))
             b.clicked.connect(picker)
             row.addWidget(b)
             l2.addLayout(row)
         row = QHBoxLayout()
-        self.prepare_btn = QPushButton("Check and send to phone")
+        self.prepare_btn = QPushButton(tr("Check and send to phone"))
         self.prepare_btn.clicked.connect(self.prepare)
         row.addWidget(self.prepare_btn)
         row.addStretch(1)
@@ -107,13 +109,13 @@ class RootTab(QWidget):
         layout.addWidget(g2)
 
         # 3. patch on the phone
-        g3 = QGroupBox("3. Patch it on the phone")
+        g3 = QGroupBox(tr("3. Patch it on the phone"))
         l3 = QVBoxLayout(g3)
-        self.hint = QLabel("Send the stock image first.")
+        self.hint = QLabel(tr("Send the stock image first."))
         self.hint.setWordWrap(True)
         l3.addWidget(self.hint)
         row = QHBoxLayout()
-        self.pull_btn = QPushButton("I've patched it - find and check it")
+        self.pull_btn = QPushButton(tr("I've patched it - find and check it"))
         self.pull_btn.clicked.connect(self.pull)
         row.addWidget(self.pull_btn)
         row.addStretch(1)
@@ -124,28 +126,28 @@ class RootTab(QWidget):
         layout.addWidget(g3)
 
         # 4. flash
-        g4 = QGroupBox("4. Flash (current slot only)")
+        g4 = QGroupBox(tr("4. Flash (current slot only)"))
         l4 = QVBoxLayout(g4)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Your backup:"))
+        row.addWidget(QLabel(tr("Your backup:")))
         self.backup_edit = QLineEdit()
         self.backup_edit.setPlaceholderText("Critical or Full backup of this phone (required)")
-        b = QPushButton("Browse...")
+        b = QPushButton(tr("Browse..."))
         b.clicked.connect(self._pick_backup)
         row.addWidget(self.backup_edit, 1)
         row.addWidget(b)
         l4.addLayout(row)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Type ROOT or UNROOT:"))
+        row.addWidget(QLabel(tr("Type ROOT or UNROOT:")))
         self.confirm = QLineEdit()
         self.confirm.setMaximumWidth(140)
         row.addWidget(self.confirm)
-        self.root_btn = QPushButton("Flash patched image")
+        self.root_btn = QPushButton(tr("Flash patched image"))
         self.root_btn.setObjectName("primary")
         self.root_btn.clicked.connect(lambda: self.flash("root"))
-        self.unroot_btn = QPushButton("Restore stock image")
+        self.unroot_btn = QPushButton(tr("Restore stock image"))
         self.unroot_btn.clicked.connect(lambda: self.flash("unroot"))
-        self.stop_btn = QPushButton("Stop after this step")
+        self.stop_btn = QPushButton(tr("Stop after this step"))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(win._stop_flash)
         for w in (self.root_btn, self.unroot_btn, self.stop_btn):
