@@ -196,6 +196,25 @@ opx tools where     # shows which adb/fastboot will be used
 With the portable files you can also put Google's `platform-tools` folder next to the
 `.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
 
+## Official ROMs
+
+OPxFlasher can find and download official OTA packages for your phone, using the
+public [OTA catalog by Daniel Springer](https://roms.danielspringer.at) (thank you!).
+Packages come straight from OPPO / OnePlus servers; OPxFlasher checks the size and MD5
+(when the catalog has them) and that it's a real zip, then runs the usual ROM check.
+
+- **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
+  own model are listed first; other variants (regions) are marked and ask before
+  downloading, because flashing them changes the region and needs a data wipe.
+- **Command line:**
+  ```sh
+  opx ota list                      # ROMs for the connected phone
+  opx ota list --model PJZ110       # or any model number
+  opx ota download --id <id> --out ~/Downloads
+  ```
+
+Catalog answers are cached, and OPxFlasher only asks the catalog when you open it.
+
 ## Use
 
 **GUI:** run `opxflasher` (or `opx gui`). Pick the phone, choose a mode, press

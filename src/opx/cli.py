@@ -64,6 +64,58 @@ def cmd_devices(args) -> int:
     return 0
 
 
+def cmd_ota(args) -> int:
+    from opx import catalog
+
+    model = args.model
+    if not (model or args.device):
+        model = open_session(_pick_adb_serial(args.serial)).props.get("ro.product.model", "")
+        if not model:
+            print("Can't read the phone's model; pass --model (e.g. PJZ110) or --device (e.g. 'OP 13').")
+            return 2
+    try:
+        releases = catalog.fetch(model=model or "", device=args.device or "",
+                                 region=args.region or "", latest=args.latest)
+    except catalog.CatalogError as e:
+        print(e)
+        return 1
+
+    if args.action == "list":
+        if not releases:
+            print("The catalog has no releases for that filter.")
+            return 1
+        print(f"{'id':<26} {'model':<8} {'reg':<4} {'version':<24} {'patch':<11} size")
+        for r in releases:
+            mark = "  (latest)" if r.is_latest else ""
+            print(f"{r.id:<26} {r.model:<8} {r.region:<4} {r.version:<24} "
+                  f"{r.security_patch or '-':<11} {r.size_text}{mark}")
+        print(f"\n{catalog.CREDIT}")
+        return 0
+
+    match = [r for r in releases if r.id == args.id] if args.id else [r for r in releases if r.is_latest]
+    if len(match) != 1:
+        print("Pick one release with --id (see 'opx ota list').")
+        return 2
+    rel = match[0]
+    print(f"Downloading {rel.device} {rel.region} {rel.version} ({rel.size_text}) from the official server...")
+    last = [-1]
+
+    def show(done, total):
+        pct = int(done * 100 / total) if total else 0
+        if pct != last[0]:
+            last[0] = pct
+            print(f"\r  {pct:3d}%  {done / 1e6:,.0f} MB", end="", flush=True)
+
+    try:
+        path = catalog.download(rel, Path(args.out), progress=show)
+    except catalog.CatalogError as e:
+        print(f"\n{e}")
+        return 1
+    print(f"\nSaved {path}" + (" (MD5 checked)" if rel.md5 else " (the catalog has no MD5 for this one)"))
+    print(f"Next: opx rom inspect {path}")
+    return 0
+
+
 def cmd_info(args) -> int:
     scan = dev.scan()
     fb = [d for d in scan.devices if d.transport == "fastboot" and (not args.serial or d.serial == args.serial)]
@@ -584,6 +636,17 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("tools", help="find or download adb/fastboot")
     t.add_argument("action", choices=("where", "fetch"))
     t.set_defaults(fn=cmd_tools)
+
+    ota = sub.add_parser("ota", help="official ROMs from Daniel Springer's OTA catalog")
+    ota.add_argument("action", choices=("list", "download"))
+    ota.add_argument("--model", help="model number, e.g. PJZ110 (default: the connected phone's)")
+    ota.add_argument("--device", help="device name as in the catalog, e.g. 'OP 13'")
+    ota.add_argument("--region", help="region code, e.g. CN, EU, IN, GLO")
+    ota.add_argument("--latest", action="store_true", help="only the newest release per region")
+    ota.add_argument("--id", help="release id to download (default: the latest)")
+    ota.add_argument("--out", default=".", help="folder to save the zip in")
+    ota.add_argument("-s", "--serial")
+    ota.set_defaults(fn=cmd_ota)
 
     rom = sub.add_parser("rom", help="look inside a ROM (OTA zip, payload.bin or image folder)")
     rsub = rom.add_subparsers(dest="rom_command", required=True)
