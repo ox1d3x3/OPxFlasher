@@ -89,6 +89,8 @@ def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
     import sys
 
     import romfactory as rf
+    import sys
+
     from conftest import FAKE_FASTBOOT, tool_cmd
     from test_flash import make_rom
     from test_plan import put, sized
@@ -145,6 +147,8 @@ def _gui_phone(adb_env, monkeypatch):
     import sys
 
     import romfactory as rf
+    import sys
+
     from conftest import FAKE_FASTBOOT, tool_cmd
     from test_plan import put, sized
 
@@ -337,3 +341,58 @@ def test_gui_official_roms_dialog(window, monkeypatch, tmp_path):
     settle(app)
     assert dlg.downloaded == tmp_path / releases[1].filename
     assert dlg.result() == cd.QDialog.DialogCode.Accepted
+
+
+def test_gui_flash_image_tab(window, monkeypatch, tmp_path, fb_state):
+    import os
+    from pathlib import Path
+
+    import romfactory as rf
+
+    import sys
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+    from opx import cli
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    assert cli.main(["backup", "--mode", "critical", "--out", str(tmp_path / "b")]) == 0
+    backup = next((tmp_path / "b").iterdir())
+    boot = rf.build_boot_image(b"gui-kernel", header_version=4)
+    (tmp_path / "boot.img").write_bytes(boot)
+
+    tab = win.image_tab
+    tab.part_combo.setCurrentText("boot")
+    tab.image_edit.setText(str(tmp_path / "boot.img"))
+    tab.backup_edit.setText(str(backup))
+    assert not tab.verity.isEnabled()  # vbmeta only
+    tab.check()
+    assert tab.plan is not None and tab.plan.ok, tab.summary.text()
+    assert not tab.flash_btn.isEnabled()
+    tab.confirm.setText("FLASH")
+    assert tab.flash_btn.isEnabled()
+    tab.flash_btn.click()
+    settle(app, 400)
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(boot), win.log.toPlainText()[-800:]
+
+    # a wrong image type is stopped at Check
+    (tmp_path / "vb.img").write_bytes(rf.build_vbmeta(2))
+    tab.image_edit.setText(str(tmp_path / "vb.img"))
+    tab.check()
+    assert not tab.plan.ok and "not a boot image" in tab.summary.text()
+
+
+def test_gui_reboot_buttons(window, monkeypatch, fb_state):
+    import sys
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    btns = win.reboot_btns
+    assert not btns["system"].isEnabled()  # already in Android
+    assert btns["bootloader"].isEnabled() and btns["recovery"].isEnabled()
+    btns["bootloader"].click()
+    settle(app)
+    assert fb_state.read()["mode"] == "bootloader"

@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal, QTimer
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -45,10 +46,12 @@ from opx import flash as fl
 from opx import plan as pn
 from opx.gui.catalog_dialog import CatalogDialog
 from opx.gui.flash_dialog import FlashDialog
+from opx.gui.image_tab import ImageTab
 from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.root_tab import RootTab
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
+from opx import reboot as rb
 from opx.tools import Tool, fetch_platform_tools
 
 STYLE = """
@@ -180,6 +183,16 @@ class MainWindow(QMainWindow):
         self.tools_btn.clicked.connect(self.download_tools)
         self.tools_btn.hide()
         dev_layout.addWidget(self.tools_btn)
+        dev_layout.addWidget(QLabel("Reboot to:"))
+        reboot_grid = QGridLayout()
+        self.reboot_btns: dict[str, QPushButton] = {}
+        for i, (target, text) in enumerate((("system", "Android"), ("bootloader", "Bootloader"),
+                                            ("fastbootd", "Fastbootd"), ("recovery", "Recovery"))):
+            btn = QPushButton(text)
+            btn.clicked.connect(lambda _c=False, t=target: self.reboot_to(t))
+            self.reboot_btns[target] = btn
+            reboot_grid.addWidget(btn, i // 2, i % 2)
+        dev_layout.addLayout(reboot_grid)
 
         self.info_labels: dict[str, QLabel] = {}
         form = QFormLayout()
@@ -365,6 +378,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_signal_tab(), "Signal / region")
         self.root_tab = RootTab(self)
         self.tabs.addTab(self.root_tab, "Root")
+        self.image_tab = ImageTab(self)
+        self.tabs.addTab(self.image_tab, "Flash image")
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -420,11 +435,51 @@ class MainWindow(QMainWindow):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
         if hasattr(self, "root_tab"):
             self.root_tab.refresh_buttons()
+        if hasattr(self, "image_tab"):
+            self.image_tab.refresh_buttons()
+        if hasattr(self, "reboot_btns"):
+            for c in rb.choices(self.selected_device(), self._blocked_for_reboot()):
+                btn = self.reboot_btns[c.target]
+                btn.setEnabled(not self.busy and c.allowed)
+                btn.setToolTip(c.reason or f"Reboot the phone to {c.label.lower()}")
         if hasattr(self, "restore_btn"):
             ready = bool(self.sig_plan and self.sig_plan.ok) and self.sig_confirm.text().strip() == "RESTORE"
             self.restore_btn.setEnabled(not self.busy and ready)
         for b in self.mode_group.buttons():
             b.setEnabled(not self.busy)
+
+    def selected_device(self) -> dev.Device | None:
+        i = self.device_combo.currentIndex()
+        return self.devices[i] if 0 <= i < len(self.devices) else None
+
+    def _blocked_for_reboot(self) -> set[str] | None:
+        """Blocked actions for the phone's build; None when the build can't be read."""
+        if self.session is not None:
+            return self.session.profile.blocked_actions(self.session.props)
+        d = self.selected_device()
+        return None if d is None or d.transport == "fastboot" else set()
+
+    def reboot_to(self, target: str) -> None:
+        d = self.selected_device()
+        blocked = self._blocked_for_reboot()
+        choice = next(c for c in rb.choices(d, blocked) if c.target == target)
+        if not choice.allowed:
+            return
+        if choice.confirm:
+            answer = QMessageBox.warning(
+                self, "Reboot", choice.reason + "\n\nReboot to fastbootd?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._set_busy(True)
+        self.run_job(Job(rb.reboot, d, target, blocked), self._rebooted)
+
+    def _rebooted(self, message: str) -> None:
+        self._set_busy(False)
+        self.say(message)
+        self.session = None
+        QTimer.singleShot(5000, self.refresh_devices)
 
     def _show_banner(self, text: str, level: str) -> None:
         colours = {"danger": "#5c1d1b", "warning": "#4d3b12", "info": "#1d3550"}
@@ -824,7 +879,7 @@ class MainWindow(QMainWindow):
 
     def _stop_flash(self) -> None:
         self.flash_cancel.set()
-        for btn in (self.stop_flash_btn, self.stop_restore_btn, self.root_tab.stop_btn):
+        for btn in (self.stop_flash_btn, self.stop_restore_btn, self.root_tab.stop_btn, self.image_tab.stop_btn):
             btn.setEnabled(False)
         self.say("Will stop after the current step (a running write is never interrupted).")
 

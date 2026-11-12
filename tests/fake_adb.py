@@ -135,7 +135,7 @@ def main(argv: list[str]) -> int:
         state_file = ROOT / "fastboot.json"
         state = json.loads(state_file.read_text())
         target = args[1] if len(args) > 1 else ""
-        state["mode"] = {"bootloader": "bootloader", "fastboot": "fastbootd", "": "android"}[target]
+        state["mode"] = {"bootloader": "bootloader", "fastboot": "fastbootd", "recovery": "recovery", "": "android"}[target]
         state.setdefault("log", []).append(f"adb reboot {target}".strip())
         state_file.write_text(json.dumps(state, indent=1))
         return 0

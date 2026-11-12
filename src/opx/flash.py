@@ -142,11 +142,17 @@ class Step:
     source: str = "rom"  # "rom", "backup", or "patched"/"stock" for a single checked image file
     image: str = ""  # explicit image file (root assistant)
     sha256: str = ""  # expected hash of `image`, checked again right before writing
+    slot: str = ""  # flash-image: "current", "other" or "both"
+    flags: list[str] = field(default_factory=list)  # flash-image: e.g. --disable-verity for vbmeta
 
     @property
     def label(self) -> str:
         if self.kind == "flash-current":
             return f"Flash {self.source} {self.partition} to the current slot"
+        if self.kind == "flash-image":
+            where = {"current": "the current slot", "other": "the other slot", "both": "both slots"}[self.slot]
+            extra = " with verity disabled" if self.flags else ""
+            return f"Flash {Path(self.image).name} to {self.partition} ({where}){extra}"
         if self.source == "backup":
             where = "both slots" if self.kind == "flash" else "logical, in fastbootd"
             return f"Restore {self.partition} from your backup ({where})"
@@ -166,7 +172,7 @@ class Step:
     @property
     def mode(self) -> str | None:
         """The mode the phone must be in before this step runs."""
-        if self.kind in ("preflight", "flash", "flash-super", "flash-current", "to-fastbootd", "wipe", "reboot"):
+        if self.kind in ("preflight", "flash", "flash-super", "flash-current", "flash-image", "to-fastbootd", "wipe", "reboot"):
             return "bootloader"
         if self.kind in ("snapshot", "flash-logical", "back-to-bootloader"):
             return "fastbootd"
@@ -549,6 +555,27 @@ class Runner:
                 raise FlashError(f"{image.name} is larger than {target}")
             fb.flash(target, image)
             return f"wrote {target}"
+        if step.kind == "flash-image":
+            image = Path(step.image)
+            if sha256_file(image) != step.sha256:
+                raise FlashError(f"{image.name} changed since it was checked; not writing it")
+            targets = [step.partition]
+            if fb.has_slot(step.partition):
+                cur = fb.getvar("current-slot")
+                if cur not in ("a", "b"):
+                    raise FlashError("Can't read the current slot from the bootloader.")
+                other = "b" if cur == "a" else "a"
+                slots = {"current": [cur], "other": [other], "both": [cur, other]}[step.slot]
+                targets = [f"{step.partition}_{s}" for s in slots]
+            for target in targets:
+                part_size = fb.partition_size(target)
+                if part_size is None:
+                    raise FlashError(f"{target} does not exist on this phone")
+                if image.stat().st_size > part_size:
+                    raise FlashError(f"{image.name} is larger than {target}")
+            for target in targets:
+                fb.flash(target, image, flags=tuple(step.flags))
+            return "wrote " + ", ".join(targets)
         if step.kind == "flash-super":
             size = files["super"].stat().st_size
             super_size = fb.partition_size("super")

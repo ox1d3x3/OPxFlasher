@@ -200,6 +200,24 @@ opx tools where     # shows which adb/fastboot will be used
 With the portable files you can also put Google's `platform-tools` folder next to the
 `.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
 
+## Reboot and flash one image
+
+**Reboot buttons** (phone panel) and `opx reboot system|bootloader|fastbootd|recovery`
+work from Android, recovery, the bootloader or fastbootd. On firmware known to brick on
+those reboots (ColorOS 17 CN: fastbootd and the bootloader) the buttons are disabled with
+the reason. From the bootloader OPxFlasher can't see the build, so Fastbootd asks first.
+
+**Flash image** tab and `opx flash-image <partition> <file.img> --backup <folder>`
+flash a single image, such as a recovery, a (patched) boot or init_boot, vendor_boot,
+dtbo or vbmeta, to the current slot, the other slot or both.
+It refuses partitions holding the phone's identity or your data, partitions inside
+`super` (use a full ROM flash), files of the wrong type (e.g. a vbmeta into boot), images
+bigger than the partition, and firmware with a broken bootloader. `--disable-verity`
+(vbmeta only) flashes with verity and verification off. As for every flash, a Critical or
+Full backup of this phone is required, the image is re-hashed right before writing, and
+you confirm by typing FLASH. If the phone is already in fastboot, the backup tells
+OPxFlasher which phone it is.
+
 ## Official ROMs
 
 OPxFlasher can find and download official OTA packages for your phone, using the

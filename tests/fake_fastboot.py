@@ -104,6 +104,9 @@ def main(argv: list[str]) -> int:
     def log(entry: str) -> None:
         state.setdefault("log", []).append(entry)
 
+    vflags = []
+    while args and args[0] in ("--disable-verity", "--disable-verification"):
+        vflags.append(args.pop(0))
     if args[:1] == ["flash"]:
         part, image = args[1], Path(args[2])
         data = image.read_bytes()
@@ -127,7 +130,7 @@ def main(argv: list[str]) -> int:
         else:
             err(f"Writing '{part}' FAILED (remote: 'partition does not exist')")
             return 1
-        log(f"flash {part}")
+        log(" ".join([*vflags, "flash", part]))
         save(state)
         err(f"Sending '{part}' OKAY\nWriting '{part}' OKAY\nFinished.")
         return 0
@@ -138,6 +141,8 @@ def main(argv: list[str]) -> int:
             state["mode"] = "brick" if state.get("fastbootd_broken") else "fastbootd"
         elif target == "bootloader":
             state["mode"] = "bootloader"
+        elif target == "recovery":
+            state["mode"] = "recovery"
         else:
             state["mode"] = "android"
         log(f"reboot {target}".strip())

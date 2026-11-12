@@ -599,6 +599,96 @@ def cmd_root_unroot(args) -> int:
     return _root_flash(args, "unroot", "UNROOT")
 
 
+def _phone_for_reboot(serial: str | None):
+    from opx import profile as profiles
+
+    scan = dev.scan()
+    usable = [d for d in scan.devices
+              if (d.transport == "adb" and d.state in ("device", "recovery"))
+              or (d.transport == "fastboot" and d.state in ("bootloader", "fastbootd"))]
+    if serial:
+        usable = [d for d in usable if d.serial == serial]
+    if len(usable) != 1:
+        for err in scan.errors:
+            print(err)
+        print("No phone found." if not usable else "Several phones connected; pick one with -s SERIAL.")
+        return None, None
+    d = usable[0]
+    if d.transport != "adb":
+        return d, None  # build unknown in fastboot
+    tool = Tool("adb").bind(d.serial)
+    props = {k: tool.run("shell", "getprop", k, timeout=15).stdout.strip()
+             for k in ("ro.product.model", "ro.build.display.id")}
+    return d, profiles.detect(props).blocked_actions(props)
+
+
+def cmd_reboot(args) -> int:
+    from opx import reboot as rb
+
+    d, blocked = _phone_for_reboot(args.serial)
+    if d is None:
+        return 2
+    choice = next(c for c in rb.choices(d, blocked) if c.target == args.target)
+    if not choice.allowed:
+        print(f"Not rebooting: {choice.reason}")
+        return 3
+    if choice.confirm and not args.yes and not _confirm("YES", choice.reason):
+        print("Cancelled.")
+        return 1
+    try:
+        print(rb.reboot(d, args.target, blocked))
+    except rb.RebootError as e:
+        print(e, file=sys.stderr)
+        return 4
+    return 0
+
+
+def cmd_flash_image(args) -> int:
+    from opx import flash as fl
+    from opx import single as sg
+
+    backup = Path(args.backup) if args.backup else None
+    live = None
+    scan = dev.scan()
+    if any(d.transport == "adb" and d.state == "device" for d in scan.devices):
+        live = open_session(_pick_adb_serial(args.serial))
+        device = pn.device_from_session(live)
+    elif backup and (backup / "manifest.json").exists():
+        device = pn.device_from_backup(backup)  # phone already in fastboot: use the backup's facts
+    else:
+        print("Connect the phone in Android (USB debugging), or pass --backup so OPxFlasher knows the phone.")
+        return 2
+    plan, warnings = sg.prepare_image_flash(device, backup, args.partition, Path(args.image), args.slot,
+                                            args.disable_verity, not args.no_reboot)
+    print(f"Flash one image on {device.label}:")
+    for i, st in enumerate(plan.steps, 1):
+        print(f"  {i:>2}. {st.label}")
+    for w in warnings:
+        print(f"  ! {w}")
+    if not plan.ok:
+        print("\nBLOCKED:")
+        for prob in plan.problems:
+            print(f"  - {prob}")
+        return 3
+    if args.dry_run:
+        print("\nDry run: nothing was written.")
+        return 0
+    if not _confirm("FLASH", f"\nThis writes {Path(args.image).name} to {args.partition} ({args.slot} slot)."):
+        print("Cancelled. Nothing was written.")
+        return 1
+    work = Path(args.work)
+    work.mkdir(parents=True, exist_ok=True)
+    profile = live.profile if live else device.profile
+    runner = fl.Runner(plan, None, profile, Tool("adb"), Tool("fastboot"), work / "flash-image-journal.json",
+                       work / "images", on_event=_print_flash_event)
+    try:
+        runner.run()
+    except fl.FlashError as e:
+        print(f"\n{e}", file=sys.stderr)
+        return 4
+    return 0
+
+
 def cmd_gui(args) -> int:
     from opx.gui.app import main as gui_main
 
@@ -673,6 +763,24 @@ def build_parser() -> argparse.ArgumentParser:
     pl_.add_argument("-s", "--serial")
     pl_.add_argument("--json", action="store_true", help="machine-readable report")
     pl_.set_defaults(fn=cmd_plan)
+
+    rbt = sub.add_parser("reboot", help="reboot to Android, bootloader, fastbootd or recovery")
+    rbt.add_argument("target", choices=("system", "bootloader", "fastbootd", "recovery"))
+    rbt.add_argument("-s", "--serial")
+    rbt.add_argument("--yes", action="store_true", help="skip the extra question for fastbootd from fastboot")
+    rbt.set_defaults(fn=cmd_reboot)
+
+    fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")
+    fi.add_argument("partition", help="partition name without slot suffix, e.g. boot, recovery, vbmeta")
+    fi.add_argument("image", help="the .img file")
+    fi.add_argument("--backup", help="a Critical or Full backup of this phone (required)")
+    fi.add_argument("--slot", choices=("current", "other", "both"), default="current")
+    fi.add_argument("--disable-verity", action="store_true", help="vbmeta only: flash with verity/verification off")
+    fi.add_argument("--no-reboot", action="store_true", help="stay in the bootloader afterwards")
+    fi.add_argument("--dry-run", action="store_true", help="show the plan and checks only")
+    fi.add_argument("--work", default="opx-work", help="folder for the journal")
+    fi.add_argument("-s", "--serial")
+    fi.set_defaults(fn=cmd_flash_image)
 
     f = sub.add_parser("flash", help="flash a ROM after every safety check passes (writes to the phone)")
     f.add_argument("rom", nargs="?", help="OTA zip, payload.bin or image folder")

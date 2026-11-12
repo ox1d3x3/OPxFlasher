@@ -82,14 +82,19 @@ class Fastboot:
             raise FastbootError(f"fastboot {' '.join(args)} failed: {out.splitlines()[-1] if out else res.returncode}")
         return out
 
-    def flash(self, partition: str, image: Path, timeout: float = 1800) -> str:
+    def flash(self, partition: str, image: Path, timeout: float = 1800, flags: tuple[str, ...] = ()) -> str:
         check_name(partition)
         if self.profile.is_never_flash(partition):
             raise RefusedPartition(f"{partition} is on the never-flash list and will not be written")
         image = Path(image)
         if not image.is_file():
             raise FastbootError(f"image not found: {image}")
-        return self._check(("flash", partition, str(image)), timeout)
+        if flags:
+            if set(flags) - {"--disable-verity", "--disable-verification"}:
+                raise FastbootError(f"unsupported flash flags {flags}")
+            if not partition.startswith("vbmeta"):
+                raise FastbootError("verity flags only apply to vbmeta")
+        return self._check((*flags, "flash", partition, str(image)), timeout)
 
     def set_active(self, slot: str) -> None:
         if slot not in ("a", "b"):
@@ -104,7 +109,7 @@ class Fastboot:
         self._check(("snapshot-update", "cancel"), 60)
 
     def reboot(self, target: str = "") -> None:
-        if target not in ("", "bootloader", "fastboot"):
+        if target not in ("", "bootloader", "fastboot", "recovery"):
             raise FastbootError(f"invalid reboot target {target!r}")
         args = ("reboot", target) if target else ("reboot",)
         res = self.tool.run(*args, timeout=30)
