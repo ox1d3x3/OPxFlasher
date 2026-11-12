@@ -44,6 +44,22 @@ def test_region_and_user_override(locales):
     assert i18n.load("pt_PT") == "pt" and i18n.tr("Backup") == "Cópia"
 
 
+def test_saved_language_setting(locales, monkeypatch, tmp_path):
+    from opx import settings
+
+    monkeypatch.setattr(settings, "path", lambda: tmp_path / "s" / "settings.json")
+    monkeypatch.delenv("OPX_LANG", raising=False)
+    assert settings.get("language") is None
+    settings.put("language", "de")
+    settings.put("other", 1)
+    assert settings.load() == {"language": "de", "other": 1}
+    assert i18n.system_language() == "de"
+    monkeypatch.setenv("OPX_LANG", "fr")  # the environment wins
+    assert i18n.system_language() == "fr"
+    (tmp_path / "s" / "settings.json").write_text("[1, 2]")
+    assert settings.load() == {}
+
+
 def test_unknown_or_broken_falls_back_to_english(locales, monkeypatch):
     builtin, _ = locales
     (builtin / "fr.json").write_text("{not json", "utf-8")

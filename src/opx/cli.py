@@ -789,12 +789,14 @@ def cmd_restore_zip(args) -> int:
             print(f"\r  {pct:3d}%  {what:<24}", end="", flush=True)
 
     try:
-        out = rz.build(Path(args.backup), Path(args.out), compress=args.compress, progress=show)
+        out = rz.build(Path(args.backup), Path(args.out), compress=args.compress, progress=show,
+                       recovery=args.recovery)
     except rs.RestoreError as e:
         print(f"\n{e}")
         return 2
     print(f"\nSaved {out}")
-    print("Flash it in AERA Recovery (Install -> the zip). It's ONLY for the phone this backup came from.")
+    print(f"Flash it in {rz.RECOVERIES[args.recovery]} (Install -> the zip). "
+          "It's ONLY for the phone this backup came from.")
     return 0
 
 
@@ -949,6 +951,8 @@ def build_parser() -> argparse.ArgumentParser:
     rz_.add_argument("backup", help="the Full firmware backup folder")
     rz_.add_argument("--out", default=".", help="folder to save the zip in")
     rz_.add_argument("--compress", action="store_true", help="smaller zip, slower to make")
+    rz_.add_argument("--recovery", choices=["aera", "orangefox"], default="aera",
+                     help="aera (AERA image zip, default) or orangefox (OrangeFox / TWRP flashable zip)")
     rz_.set_defaults(fn=cmd_restore_zip)
 
     fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")

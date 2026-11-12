@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from opx.i18n import tr
-
 import sys
 import threading
 from datetime import datetime
@@ -40,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from opx.i18n import tr
 from opx import __version__
 from opx import backup as bk
 from opx import device as dev
@@ -273,7 +272,7 @@ class MainWindow(QMainWindow):
         self.restore_rom_btn.setToolTip(tr("Put the whole OS back from a Full firmware backup of this phone"))
         self.restore_rom_btn.clicked.connect(self.restore_full_rom)
         self.restore_zip_btn = QPushButton(tr("Make recovery zip..."))
-        self.restore_zip_btn.setToolTip(tr("Turn a Full firmware backup into a zip you can flash in AERA Recovery"))
+        self.restore_zip_btn.setToolTip(tr("Turn a Full firmware backup into a zip you can flash in AERA, OrangeFox or TWRP"))
         self.restore_zip_btn.clicked.connect(self.make_restore_zip)
         for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
             btn_row.addWidget(b)
@@ -421,6 +420,17 @@ class MainWindow(QMainWindow):
         self.update_btn.clicked.connect(self.check_updates)
         log_bar.addWidget(self.export_log_btn)
         log_bar.addWidget(self.update_btn)
+        from opx import i18n
+
+        self.lang_combo = QComboBox()
+        self.lang_combo.setToolTip(tr("Language (applies after restarting the app)"))
+        for code, name in i18n.available().items():
+            self.lang_combo.addItem(name, code)
+        current = self.lang_combo.findData(i18n.language())
+        self.lang_combo.setCurrentIndex(max(current, 0))
+        self.lang_combo.currentIndexChanged.connect(self.change_language)
+        self.lang_combo.setVisible(self.lang_combo.count() > 1)  # only once a translation exists
+        log_bar.addWidget(self.lang_combo)
         log_layout.addLayout(log_bar)
         log_layout.addWidget(self.log)
         body = QSplitter(Qt.Vertical)
@@ -1012,20 +1022,50 @@ class MainWindow(QMainWindow):
         self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn,
                      "Restore full ROM")
 
-    def make_restore_zip(self) -> None:
+    def change_language(self, index: int) -> None:
+        from opx import settings
+
+        code = self.lang_combo.itemData(index)
+        try:
+            settings.put("language", code)
+        except OSError as e:
+            self.say(f"Couldn't save the language: {e}")
+            return
+        self.say(f"Language set to {self.lang_combo.itemText(index)}. Restart OPxFlasher to apply it.")
+        QMessageBox.information(self, tr("Language"), tr("Restart OPxFlasher to use the new language."))
+
+    def ask_recovery(self) -> str | None:
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Make recovery zip"))
+        box.setText(tr("Which recovery will you flash it in?"))
+        box.setInformativeText(tr(
+            "AERA: AERA's own image-zip install (it checks the model and anti-rollback).\n"
+            "OrangeFox / TWRP: a normal flashable zip. It checks this is the same phone, the same "
+            "slot and unchanged bootloader firmware, verifies every file, then restores."))
+        aera = box.addButton("AERA", QMessageBox.AcceptRole)
+        ofox = box.addButton(tr("OrangeFox / TWRP"), QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        return {aera: "aera", ofox: "orangefox"}.get(box.clickedButton())
+
+    def make_restore_zip(self, recovery: str | None = None) -> None:
         from opx import restore_zip as rz
 
+        recovery = recovery if isinstance(recovery, str) else self.ask_recovery()
+        if not recovery:
+            return
         folder = QFileDialog.getExistingDirectory(self, "Choose a Full firmware backup",
                                                   str(self.last_folder or self.out_edit.text()))
         if not folder:
             return
+        self.zip_recovery = recovery
         self.zip_cancel = threading.Event()
         self._set_busy(True)
         self.cancel_btn.setEnabled(True)
         self.item_label.setText("Making the recovery zip...")
         self.overall_bar.setValue(0)
         job = Job(lambda emit=None: rz.build(Path(folder), Path(folder).parent, progress=lambda w, d, t: emit((w, d, t)),
-                                             cancel=self.zip_cancel.is_set))
+                                             cancel=self.zip_cancel.is_set, recovery=recovery))
         job.kwargs["emit"] = job.signals.event.emit
         self.run_job(job, self._zip_done, self._zip_failed, self._zip_progress)
 
@@ -1039,11 +1079,13 @@ class MainWindow(QMainWindow):
         self.overall_bar.setValue(100)
         self.item_label.setText("Recovery zip ready")
         self.say(f"Recovery zip saved: {path}")
+        from opx import restore_zip as rz
+
+        where = rz.RECOVERIES.get(getattr(self, "zip_recovery", "aera"), "AERA Recovery")
         QMessageBox.information(
             self, "Recovery zip",
-            f"Saved {path.name} next to the backup.\n\nFlash it in AERA Recovery (Install). "
-            "It's ONLY for the phone this backup came from; AERA checks the phone model and "
-            "anti-rollback before writing.")
+            f"Saved {path.name} next to the backup.\n\nFlash it in {where} (Install). "
+            "It's ONLY for the phone this backup came from, and it checks that before writing.")
 
     def _zip_failed(self, exc: BaseException) -> None:
         self._set_busy(False)

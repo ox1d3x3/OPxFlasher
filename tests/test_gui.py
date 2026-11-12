@@ -451,10 +451,32 @@ def test_gui_make_recovery_zip(window, monkeypatch, tmp_path):
     monkeypatch.setattr(gui.QFileDialog, "getExistingDirectory", lambda *a, **k: str(folder))
     shown = []
     monkeypatch.setattr(gui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    monkeypatch.setattr(win, "ask_recovery", lambda: None)
+    win.make_restore_zip()  # cancelled at the question
+    settle(app, 50)
+    assert not shown
+    monkeypatch.setattr(win, "ask_recovery", lambda: "orangefox")
     win.make_restore_zip()
     settle(app, 200)
-    assert shown and "ONLY for the phone" in shown[0]
-    assert len(list((tmp_path / "b").glob("OPxFlasher-restore-*.zip"))) == 1
+    assert shown and "ONLY for the phone" in shown[0] and "OrangeFox / TWRP" in shown[0]
+    assert len(list((tmp_path / "b").glob("OPxFlasher-restore-*-orangefox.zip"))) == 1
+    win.make_restore_zip("aera")
+    settle(app, 200)
+    assert "AERA Recovery" in shown[-1]
+
+
+def test_gui_language_picker(window, monkeypatch, tmp_path):
+    from opx import settings
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setattr(settings, "path", lambda: tmp_path / "settings.json")
+    assert win.lang_combo.count() == 1 and not win.lang_combo.isVisible()  # English only for now
+    shown = []
+    monkeypatch.setattr(gui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    win.lang_combo.addItem("Deutsch", "de")
+    win.lang_combo.setCurrentIndex(1)
+    assert settings.get("language") == "de" and "Restart" in shown[0]
 
 
 def test_gui_dashboard_export_and_updates(window, monkeypatch, tmp_path):

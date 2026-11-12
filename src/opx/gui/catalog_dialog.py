@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from opx.i18n import tr
-
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from opx.i18n import tr
 from opx import catalog
 
 COLUMNS = ("Version", "Region", "Model", "Security patch", "Built", "Size", "")

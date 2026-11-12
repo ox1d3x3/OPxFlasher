@@ -258,13 +258,21 @@ Identity partitions and your data are never written.
 
 ### Restore without a PC: recovery zip
 
-OPxFlasher can turn a Full firmware backup into a zip you flash in
-[AERA Recovery](https://aera-recovery.com) (OnePlus 13: *dodge*):
+OPxFlasher can turn a Full firmware backup into a zip you flash in recovery, for
+[AERA Recovery](https://aera-recovery.com) (OnePlus 13: *dodge*) or for OrangeFox / TWRP:
 
-- **App:** Backup tab → **Make recovery zip...** → choose the backup.
-- **Command line:** `opx restore-zip <backup-folder> --out <folder>` (`--compress` for a smaller file).
+- **App:** Backup tab → **Make recovery zip...** → pick the recovery → choose the backup.
+- **Command line:** `opx restore-zip <backup-folder> --out <folder> [--recovery aera|orangefox]`
+  (`--compress` for a smaller file).
 
-The zip uses the standard image-zip layout AERA installs natively: `android-info.txt`
+**OrangeFox / TWRP zip:** a normal flashable zip with its own installer. Before writing anything
+it checks the phone's board, **serial number** and active slot match the backup, that no system
+update is half-applied, and that the bootloader firmware (`xbl_config`, `abl`) hasn't changed
+since the backup, so an older backup can't trip anti-rollback. Then it verifies every file in the
+zip, writes the firmware images to the current slot and the whole backed-up `super` partition, and
+reads it all back. If a check fails, nothing is written.
+
+**AERA zip:** uses the standard image-zip layout AERA installs natively: `android-info.txt`
 (phone board), the backup's firmware and boot images, one image per partition inside
 `super` (system, vendor, my_region, ...) and `super_empty.img`. AERA refuses it on another
 phone model, checks every image, rebuilds only the current slot inside `super`, and compares

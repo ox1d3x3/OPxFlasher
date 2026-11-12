@@ -7,7 +7,8 @@ profiles) named after the language, e.g. ``de.json`` or ``pt_BR.json``:
     {"language": "Deutsch", "strings": {"Backup": "Sicherung", ...}}
 
 Missing entries fall back to English, so a partial translation is fine.
-The language comes from OPX_LANG, else the system locale. ``{name}`` fields
+The language comes from OPX_LANG, else the app's Language setting, else the
+system locale. ``{name}`` fields
 are kept: ``tr("Saved {n} files").format(n=3)``.
 """
 
@@ -48,7 +49,12 @@ def available() -> dict[str, str]:
 
 
 def system_language() -> str:
+    """OPX_LANG, else the language picked in the app, else the system's."""
     code = os.environ.get("OPX_LANG", "").strip()
+    if not code:
+        from opx import settings
+
+        code = str(settings.get("language") or "").strip()
     if not code:
         try:
             code = locale.getlocale()[0] or ""

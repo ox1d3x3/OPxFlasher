@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from opx.i18n import tr
-
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from opx.i18n import tr
 from opx import flash as fl
 from opx import plan as pn
 from opx import root as rt
