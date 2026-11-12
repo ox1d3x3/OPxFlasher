@@ -243,33 +243,37 @@ def extract(payload: Payload, name: str, out_path: Path, progress: Callable[[int
     out_path = Path(out_path)
     partial = out_path.with_suffix(out_path.suffix + ".part")
     ops = part.operations()
-    with open(partial, "wb") as fh:
-        fh.truncate(part.size)
-        for i, op in enumerate(ops, 1):
-            total_blocks = sum(n for _, n in op.dst_extents)
-            if op.type in (ZERO, DISCARD):
-                for start, num in op.dst_extents:
-                    fh.seek(start * bs)
-                    fh.write(b"\0" * (num * bs))
-            else:
-                raw = payload.source.read_at(payload.data_start + op.data_offset, op.data_length)
-                if op.data_sha256 and hashlib.sha256(raw).digest() != op.data_sha256:
-                    partial.unlink(missing_ok=True)
-                    raise PayloadError(f"{name}: operation {i} data is corrupt (hash mismatch)")
-                data = _decompress(op.type, raw)
-                if len(data) != total_blocks * bs:
-                    partial.unlink(missing_ok=True)
-                    raise PayloadError(f"{name}: operation {i} produced {len(data)} bytes, expected {total_blocks * bs}")
-                pos = 0
-                for start, num in op.dst_extents:
-                    if (start + num) * bs > part.size:
-                        partial.unlink(missing_ok=True)
-                        raise PayloadError(f"{name}: operation {i} writes past the end of the partition")
-                    fh.seek(start * bs)
-                    fh.write(data[pos : pos + num * bs])
-                    pos += num * bs
-            if progress:
-                progress(i, len(ops))
+    try:
+        # Any failure closes the file before it is removed: Windows can't
+        # delete a file that is still open.
+        with open(partial, "wb") as fh:
+            fh.truncate(part.size)
+            for i, op in enumerate(ops, 1):
+                total_blocks = sum(n for _, n in op.dst_extents)
+                if op.type in (ZERO, DISCARD):
+                    for start, num in op.dst_extents:
+                        fh.seek(start * bs)
+                        fh.write(b"\0" * (num * bs))
+                else:
+                    raw = payload.source.read_at(payload.data_start + op.data_offset, op.data_length)
+                    if op.data_sha256 and hashlib.sha256(raw).digest() != op.data_sha256:
+                        raise PayloadError(f"{name}: operation {i} data is corrupt (hash mismatch)")
+                    data = _decompress(op.type, raw)
+                    if len(data) != total_blocks * bs:
+                        raise PayloadError(
+                            f"{name}: operation {i} produced {len(data)} bytes, expected {total_blocks * bs}")
+                    pos = 0
+                    for start, num in op.dst_extents:
+                        if (start + num) * bs > part.size:
+                            raise PayloadError(f"{name}: operation {i} writes past the end of the partition")
+                        fh.seek(start * bs)
+                        fh.write(data[pos : pos + num * bs])
+                        pos += num * bs
+                if progress:
+                    progress(i, len(ops))
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
 
     if part.sha256:
         h = hashlib.sha256()

@@ -43,6 +43,7 @@ def test_corrupt_payload_is_rejected(tmp_path):
     with pytest.raises(pl.PayloadError, match="corrupt"):
         pl.extract(payload, "boot", tmp_path / "boot.img")
     assert not (tmp_path / "boot.img").exists()
+    assert not (tmp_path / "boot.img.part").exists()  # cleaned up, also on Windows
 
 
 def test_incremental_payload(tmp_path):
