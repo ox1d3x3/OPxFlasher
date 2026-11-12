@@ -68,6 +68,7 @@ class Profile:
     conditional: list[str] = field(default_factory=list)
     avb_images: list[str] = field(default_factory=list)
     variants: dict[str, str] = field(default_factory=dict)  # model number -> region name
+    recovery_boards: list[str] = field(default_factory=list)  # names custom recoveries report (restore zip)
     qcom_arb_images: list[str] = field(default_factory=list)
     qcom_arb_validated: bool = False
 
@@ -128,6 +129,7 @@ def load(profile_id: str) -> Profile:
         conditional=raw.get("conditional", []),
         avb_images=raw.get("avb_images", ["vbmeta"]),
         variants=raw.get("variants", {}),
+        recovery_boards=raw.get("recovery_boards", []),
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
     )

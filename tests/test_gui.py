@@ -433,3 +433,25 @@ def test_gui_restore_full_rom(window, monkeypatch, tmp_path, fb_state):
     settle(app, 400)
     assert seen["title"] == "Restore full ROM" and "Flash super.img" in seen["preview"]
     assert (phone / "by-name" / "boot_a").read_bytes() == good, win.log.toPlainText()[-600:]
+
+
+def test_gui_make_recovery_zip(window, monkeypatch, tmp_path):
+    import os
+    from pathlib import Path
+
+    from opx import cli
+    from opx.gui import app as gui
+    from test_restore_zip import REGION, SYSTEM, make_super
+
+    app, win = window
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    (phone / "by-name" / "super").write_bytes(make_super({"system": SYSTEM, "my_region": REGION}, 131072))
+    assert cli.main(["backup", "--mode", "full", "--out", str(tmp_path / "b")]) == 0
+    folder = next((tmp_path / "b").iterdir())
+    monkeypatch.setattr(gui.QFileDialog, "getExistingDirectory", lambda *a, **k: str(folder))
+    shown = []
+    monkeypatch.setattr(gui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    win.make_restore_zip()
+    settle(app, 200)
+    assert shown and "ONLY for the phone" in shown[0]
+    assert len(list((tmp_path / "b").glob("OPxFlasher-restore-*.zip"))) == 1

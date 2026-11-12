@@ -727,6 +727,28 @@ def cmd_restore_rom(args) -> int:
     return 0
 
 
+def cmd_restore_zip(args) -> int:
+    from opx import restore as rs
+    from opx import restore_zip as rz
+
+    last = [-1]
+
+    def show(what, done, total):
+        pct = int(done * 100 / total) if total else 100
+        if pct != last[0]:
+            last[0] = pct
+            print(f"\r  {pct:3d}%  {what:<24}", end="", flush=True)
+
+    try:
+        out = rz.build(Path(args.backup), Path(args.out), compress=args.compress, progress=show)
+    except rs.RestoreError as e:
+        print(f"\n{e}")
+        return 2
+    print(f"\nSaved {out}")
+    print("Flash it in AERA Recovery (Install -> the zip). It's ONLY for the phone this backup came from.")
+    return 0
+
+
 def cmd_flash_image(args) -> int:
     from opx import flash as fl
     from opx import single as sg
@@ -865,6 +887,12 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--work", default="opx-work", help="folder for the journal")
     rr.add_argument("-s", "--serial")
     rr.set_defaults(fn=cmd_restore_rom)
+
+    rz_ = sub.add_parser("restore-zip", help="make a recovery-flashable restore zip from a Full firmware backup")
+    rz_.add_argument("backup", help="the Full firmware backup folder")
+    rz_.add_argument("--out", default=".", help="folder to save the zip in")
+    rz_.add_argument("--compress", action="store_true", help="smaller zip, slower to make")
+    rz_.set_defaults(fn=cmd_restore_zip)
 
     fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")
     fi.add_argument("partition", help="partition name without slot suffix, e.g. boot, recovery, vbmeta")

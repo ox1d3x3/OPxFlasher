@@ -221,6 +221,23 @@ Identity partitions and your data are never written.
   (`--not-updated`). Restoring older firmware over a newer anti-rollback version can
   hard-brick a phone.
 
+### Restore without a PC: recovery zip
+
+OPxFlasher can turn a Full firmware backup into a zip you flash in
+[AERA Recovery](https://aera-recovery.com) (OnePlus 13: *dodge*):
+
+- **App:** Backup tab → **Make recovery zip...** → choose the backup.
+- **Command line:** `opx restore-zip <backup-folder> --out <folder>` (`--compress` for a smaller file).
+
+The zip uses the standard image-zip layout AERA installs natively: `android-info.txt`
+(phone board), the backup's firmware and boot images, one image per partition inside
+`super` (system, vendor, my_region, ...) and `super_empty.img`. AERA refuses it on another
+phone model, checks every image, rebuilds only the current slot inside `super`, and compares
+anti-rollback with the phone before writing.
+
+**It's only for the phone the backup came from.** AERA can't check the serial number, so the
+zip's name includes it. Identity partitions and your data are never in the zip.
+
 ## Reboot and flash one image
 
 **Reboot buttons** (phone panel) and `opx reboot system|bootloader|fastbootd|recovery`

@@ -29,5 +29,8 @@
     "CPH2653": "EU",
     "CPH2655": "NA",
     "CPH2649": "India"
-  }
+  },
+  "recovery_boards": [
+    "dodge"
+  ]
 }

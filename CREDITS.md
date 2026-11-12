@@ -15,6 +15,9 @@ understood, and they deserve the credit for that groundwork.
 - The **OnePlus / OPPO modding community** on XDA and Telegram, for documenting
   partitions, region files and recovery paths
 
+- **AERA Recovery Project** (https://github.com/AERA-Recovery): OPxFlasher's restore zips
+  follow the image-zip layout AERA installs natively. No AERA code is included.
+
 ## Third-party software
 
 - **Android SDK Platform-Tools** (adb, fastboot) – Google. Not bundled;

@@ -261,11 +261,15 @@ class MainWindow(QMainWindow):
         self.restore_rom_btn = QPushButton("Restore full ROM...")
         self.restore_rom_btn.setToolTip("Put the whole OS back from a Full firmware backup of this phone")
         self.restore_rom_btn.clicked.connect(self.restore_full_rom)
+        self.restore_zip_btn = QPushButton("Make recovery zip...")
+        self.restore_zip_btn.setToolTip("Turn a Full firmware backup into a zip you can flash in AERA Recovery")
+        self.restore_zip_btn.clicked.connect(self.make_restore_zip)
         for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
             btn_row.addWidget(b)
         btn_row.addStretch(1)
         btn_row.addWidget(self.verify_btn)
         btn_row.addWidget(self.restore_rom_btn)
+        btn_row.addWidget(self.restore_zip_btn)
         opt_layout.addLayout(btn_row)
         backup_layout.addWidget(opt_box)
 
@@ -437,6 +441,7 @@ class MainWindow(QMainWindow):
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
         self.restore_rom_btn.setEnabled(not self.busy)
+        self.restore_zip_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
         if hasattr(self, "root_tab"):
@@ -664,6 +669,8 @@ class MainWindow(QMainWindow):
 
     def cancel(self) -> None:
         self.cancel_flag.set()
+        if getattr(self, "zip_cancel", None) is not None:
+            self.zip_cancel.set()
         self.say("Cancelling...")
 
     def _row_of(self, name: str) -> int:
@@ -912,6 +919,45 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.rom_tab)  # progress shows under the ROM check
         self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn,
                      "Restore full ROM")
+
+    def make_restore_zip(self) -> None:
+        from opx import restore_zip as rz
+
+        folder = QFileDialog.getExistingDirectory(self, "Choose a Full firmware backup",
+                                                  str(self.last_folder or self.out_edit.text()))
+        if not folder:
+            return
+        self.zip_cancel = threading.Event()
+        self._set_busy(True)
+        self.cancel_btn.setEnabled(True)
+        self.item_label.setText("Making the recovery zip...")
+        self.overall_bar.setValue(0)
+        job = Job(lambda emit=None: rz.build(Path(folder), Path(folder).parent, progress=lambda w, d, t: emit((w, d, t)),
+                                             cancel=self.zip_cancel.is_set))
+        job.kwargs["emit"] = job.signals.event.emit
+        self.run_job(job, self._zip_done, self._zip_failed, self._zip_progress)
+
+    def _zip_progress(self, ev) -> None:
+        what, done, total = ev
+        self.item_label.setText(f"Recovery zip: {what}")
+        self.overall_bar.setValue(int(done * 100 / total) if total else 100)
+
+    def _zip_done(self, path) -> None:
+        self._set_busy(False)
+        self.overall_bar.setValue(100)
+        self.item_label.setText("Recovery zip ready")
+        self.say(f"Recovery zip saved: {path}")
+        QMessageBox.information(
+            self, "Recovery zip",
+            f"Saved {path.name} next to the backup.\n\nFlash it in AERA Recovery (Install). "
+            "It's ONLY for the phone this backup came from; AERA checks the phone model and "
+            "anti-rollback before writing.")
+
+    def _zip_failed(self, exc: BaseException) -> None:
+        self._set_busy(False)
+        self.item_label.setText("Idle")
+        self.say(f"Recovery zip not made: {exc}")
+        QMessageBox.warning(self, "Recovery zip", str(exc))
 
     def _launch(self, runner, journal, label, bar, stop_btn, what: str) -> None:
         """Run a flash/restore Runner off the UI thread, showing progress in the given widgets."""
