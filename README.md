@@ -168,6 +168,10 @@ Download from the [latest release](https://github.com/ox1d3x3/OPxFlasher/release
 
 The command-line tool `opx` isn't in these files; install with pip (below) for that.
 
+Every update is published as a **release candidate** (`v0.7.0-rc.1`, `-rc.2`, ...),
+marked pre-release on GitHub; the app's title shows the exact build. Final releases
+are published when a version is ready.
+
 ### macOS (and any system with Python)
 
 Requires Python 3.10+ and [pipx](https://pipx.pypa.io) (`brew install pipx`):

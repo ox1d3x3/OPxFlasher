@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opxflasher"
-version = "0.6.0"
+version = "0.7.0"
 description = "AIO tool for OnePlus / OPPO devices: backup, ROM check, flashing, signal restore and root"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }

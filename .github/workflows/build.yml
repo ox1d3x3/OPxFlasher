@@ -2,10 +2,14 @@ name: Portable builds
 
 # One-file apps: OPxFlasher-<ver>-windows-x64.exe and OPxFlasher-<ver>-linux-x86_64.AppImage.
 # Built and smoke-tested on every PR (downloadable from the run's artifacts).
-# Released automatically: when main has a version (pyproject.toml) that has no
-# v<version> release yet, the files are attached to a new pre-release and the
-# tag is created. Bumping the version in a PR = publishing it once merged.
-# Pushing a v* tag by hand also works.
+#
+# Releases:
+#   - Every push to main publishes a release candidate, v<version>-rc.<n>, as a
+#     GitHub pre-release (n counts up per version). <version> is pyproject.toml's;
+#     if that version is already released, the next patch version is used.
+#   - Final release: Actions -> Portable builds -> Run workflow on main with
+#     "final" ticked publishes v<version> as a normal release. Pushing a v* tag
+#     also works (a tag with a "-" is published as a pre-release).
 
 on:
   pull_request:
@@ -13,6 +17,11 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      final:
+        description: "Publish the final release v<version> (not a release candidate)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,29 +36,47 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
+      label: ${{ steps.v.outputs.label }}
       release: ${{ steps.v.outputs.release }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v6
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
+          FINAL: ${{ inputs.final }}
         run: |
           ver=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          tag="v$ver"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          release=false
-          if [ "$GITHUB_REF" = "refs/tags/$tag" ]; then
-            release=true
-          elif [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              release=true
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 500 --json tagName --jq '.[].tagName')
+          release=false; prerelease=true; tag=""
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"; release=true
+            case "$tag" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          elif [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$FINAL" = "true" ]; then
+            tag="v$ver"
+            if echo "$tags" | grep -qx "$tag"; then
+              echo "::error::$tag is already released. Bump the version in pyproject.toml first."; exit 1
             fi
+            release=true; prerelease=false
+          elif [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            base="$ver"
+            if echo "$tags" | grep -qx "v$ver"; then
+              base=$(echo "$ver" | awk -F. '{print $1"."$2"."$3+1}')
+              echo "::notice::v$ver is already released; release candidates are for $base. Bump pyproject.toml when you plan the next version."
+            fi
+            n=$(echo "$tags" | grep -c "^v$base-rc\." || true)
+            tag="v$base-rc.$((n + 1))"; release=true
           fi
-          echo "release=$release" >> "$GITHUB_OUTPUT"
-          echo "version $ver, tag $tag, release now: $release"
+          label="${tag#v}"
+          {
+            echo "tag=$tag"; echo "label=$label"
+            echo "release=$release"; echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "version $ver -> tag '${tag:-none}', release: $release, pre-release: $prerelease"
 
   windows:
     name: Windows .exe
+    needs: version
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -60,6 +87,8 @@ jobs:
       - name: Install
         run: python -m pip install ".[gui,zstd]" "pyinstaller>=6.10"
       - name: Build and smoke test
+        env:
+          OPX_VERSION_LABEL: ${{ needs.version.outputs.label }}
         run: python packaging/build.py --smoke
       - uses: actions/upload-artifact@v4
         with:
@@ -69,6 +98,7 @@ jobs:
 
   linux:
     name: Linux AppImage
+    needs: version
     # Built on the oldest supported runner so the AppImage runs on older distributions too.
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -85,6 +115,8 @@ jobs:
       - name: Install
         run: python -m pip install ".[gui,zstd]" "pyinstaller>=6.10"
       - name: Build and smoke test
+        env:
+          OPX_VERSION_LABEL: ${{ needs.version.outputs.label }}
         run: python packaging/build.py --smoke
       - uses: actions/upload-artifact@v4
         with:
@@ -110,10 +142,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          PRE: ${{ needs.version.outputs.prerelease }}
         run: |
+          flags=""
+          if [ "$PRE" = "true" ]; then flags="--prerelease"; else flags="--latest"; fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
           else
+            title="OPxFlasher $TAG"
+            case "$TAG" in *-rc.*) title="OPxFlasher $TAG (release candidate)" ;; esac
             gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --title "OPxFlasher $TAG" --generate-notes --prerelease
+              --target "$GITHUB_SHA" --title "$title" --generate-notes $flags
           fi

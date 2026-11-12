@@ -39,7 +39,17 @@ EXCLUDES = [
 ]
 
 
+BUILD_INFO = ROOT / "src" / "opx" / "_build.py"
+
+
 def version() -> str:
+    """OPX_VERSION_LABEL (set by the release workflow, e.g. 0.7.0-rc.3) or the package version.
+    The label is written into the app so its title shows the exact build."""
+    label = os.environ.get("OPX_VERSION_LABEL", "").strip()
+    if label:
+        BUILD_INFO.write_text(f'VERSION = "{label}"\n', encoding="utf-8")
+        return label
+    BUILD_INFO.unlink(missing_ok=True)
     sys.path.insert(0, str(ROOT / "src"))
     from opx import __version__
 

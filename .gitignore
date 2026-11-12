@@ -12,3 +12,4 @@ platform-tools/
 backups/
 *.img
 *.part
+src/opx/_build.py
