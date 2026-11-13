@@ -186,6 +186,13 @@ Bug reports, device profiles, translations and debloat lists are all welcome. Wh
 problem, attach the zip from **Export log...** (serial numbers are hidden). See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup.
 
+## Developer
+
+OPxFlasher is developed by **Mahabub Subhany** ([@ox1d3x3](https://github.com/ox1d3x3)).
+If it saved your phone (or your weekend), you can support development on
+[Ko-fi](https://ko-fi.com/mahabubsubhany) or [PayPal](https://paypal.me/mason7gg).
+**Help → About OPxFlasher** in the app (or `opx about`) shows the exact version and build.
+
 ## Credits
 
 OPxFlasher is an independent, clean-room project, built on the groundwork of the OnePlus / OPPO

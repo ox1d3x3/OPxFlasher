@@ -9,7 +9,7 @@ from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -89,6 +89,14 @@ QScrollBar:vertical, QScrollBar:horizontal { background: #1c1f26; border: none; 
 QScrollBar::handle { background: #3a3f4b; border-radius: 4px; min-height: 24px; min-width: 24px; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+QMenuBar { background: #15171c; border-bottom: 1px solid #2c3039; }
+QMenuBar::item { padding: 4px 10px; background: transparent; }
+QMenuBar::item:selected { background: #262a33; border-radius: 4px; }
+QMenu { background: #1c1f26; border: 1px solid #2c3039; padding: 4px; }
+QMenu::item { padding: 5px 24px 5px 20px; border-radius: 4px; }
+QMenu::item:selected { background: #2f3440; }
+QMenu::item:disabled { color: #6b7280; }
+QMenu::separator { height: 1px; background: #2c3039; margin: 4px 8px; }
 """
 
 
@@ -154,6 +162,7 @@ class MainWindow(QMainWindow):
         self.cancel_flag = threading.Event()
         self.last_folder: Path | None = None
         self.busy = False
+        self.cancellable = False  # True only while a backup or recovery zip runs
         self._build_ui()
         self._update_buttons()
 
@@ -164,11 +173,22 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setSpacing(10)
 
+        from opx import about
+
+        head = QHBoxLayout()
         title = QLabel(tr("OPxFlasher"))
         title.setObjectName("title")
-        subtitle = QLabel(tr("AIO tool for OnePlus / OPPO devices: backup, ROM check, flashing, signal restore and root."))
+        head.addWidget(title)
+        head.addStretch(1)
+        self.version_label = QLabel(
+            f'<span style="color:#9aa3b5">v{escape(__version__)} · {escape(tr("by"))} '
+            f'<a href="{about.DEVELOPER_URL}" style="color:#9aa3b5">{about.DEVELOPER} ({about.shown(about.HANDLE)})</a></span>')
+        self.version_label.setOpenExternalLinks(True)
+        self.version_label.setToolTip(tr("Help > About OPxFlasher for details"))
+        head.addWidget(self.version_label, 0, Qt.AlignBottom)
+        subtitle = QLabel(tr("AIO tool for OnePlus / OPPO devices: backup, check, flash, restore and rescue."))
         subtitle.setStyleSheet("color:#9aa3b5")
-        layout.addWidget(title)
+        layout.addLayout(head)
         layout.addWidget(subtitle)
 
         # device
@@ -177,6 +197,7 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         self.device_combo = QComboBox()
         self.device_combo.setMinimumWidth(180)
+        self.device_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.device_combo.currentIndexChanged.connect(self._device_selected)
         self.refresh_btn = QPushButton(tr("Refresh"))
         self.refresh_btn.clicked.connect(self.refresh_devices)
@@ -188,38 +209,43 @@ class MainWindow(QMainWindow):
         self.tools_btn.clicked.connect(self.download_tools)
         self.tools_btn.hide()
         dev_layout.addWidget(self.tools_btn)
-        self.usb_btn = QPushButton(tr("Phone not showing up?"))
-        self.usb_btn.setToolTip(tr("Check USB drivers (Windows) or permissions (Linux)"))
+        help_row = QHBoxLayout()
+        self.usb_btn = QPushButton(tr("Not showing up?"))
+        self.usb_btn.setToolTip(tr("Phone not showing up? Check USB drivers (Windows) or permissions (Linux)"))
         self.usb_btn.clicked.connect(self.usb_check)
-        dev_layout.addWidget(self.usb_btn)
-        self.rescue_btn = QPushButton(tr("Phone won't start?"))
-        self.rescue_btn.setToolTip(tr("See what state the phone is in (fastboot, recovery, 9008, ...) and what to try"))
+        self.rescue_btn = QPushButton(tr("Won't start?"))
+        self.rescue_btn.setToolTip(tr("Phone won't start? See what state it's in (fastboot, recovery, 9008, ...) "
+                                      "and what to try"))
         self.rescue_btn.clicked.connect(self.open_rescue)
-        dev_layout.addWidget(self.rescue_btn)
+        help_row.addWidget(self.usb_btn)
+        help_row.addWidget(self.rescue_btn)
+        dev_layout.addLayout(help_row)
         dev_layout.addWidget(QLabel(tr("Reboot to:")))
-        reboot_grid = QGridLayout()
+        reboot_row = QGridLayout()
+        reboot_row.setHorizontalSpacing(4)
         self.reboot_btns: dict[str, QPushButton] = {}
-        for i, (target, text) in enumerate((("system", "Android"), ("bootloader", "Bootloader"),
-                                            ("fastbootd", "Fastbootd"), ("recovery", "Recovery"))):
+        for i, (target, text) in enumerate((("system", tr("Android")), ("bootloader", tr("Bootloader")),
+                                            ("fastbootd", tr("Fastbootd")), ("recovery", tr("Recovery")))):
             btn = QPushButton(text)
+            btn.setStyleSheet("padding: 6px 4px")
             btn.clicked.connect(lambda _c=False, t=target: self.reboot_to(t))
             self.reboot_btns[target] = btn
-            reboot_grid.addWidget(btn, i // 2, i % 2)
-        dev_layout.addLayout(reboot_grid)
+            reboot_row.addWidget(btn, 0, i)
+        dev_layout.addLayout(reboot_row)
 
         self.info_labels: dict[str, QLabel] = {}
         form = QFormLayout()
         for key, text in (
-            ("model", "Model"),
-            ("variant", "Variant"),
-            ("build", "Build"),
-            ("android", "Android"),
-            ("security_patch", "Security patch"),
-            ("slot_suffix", "Active slot"),
-            ("bootloader", "Bootloader"),
-            ("access", "Root access"),
-            ("last_backup", "Last backup"),
-            ("profile", "Profile"),
+            ("model", tr("Model")),
+            ("variant", tr("Variant")),
+            ("build", tr("Build")),
+            ("android", tr("Android")),
+            ("security_patch", tr("Security patch")),
+            ("slot_suffix", tr("Active slot")),
+            ("bootloader", tr("Bootloader")),
+            ("access", tr("Root access")),
+            ("last_backup", tr("Last backup")),
+            ("profile", tr("Profile")),
         ):
             lbl = QLabel(tr("-"))
             lbl.setWordWrap(True)
@@ -429,21 +455,7 @@ class MainWindow(QMainWindow):
         self.export_log_btn = QPushButton(tr("Export log..."))
         self.export_log_btn.setToolTip(tr("Save the log and phone details as a zip for a bug report (serials hidden)"))
         self.export_log_btn.clicked.connect(self.export_log)
-        self.update_btn = QPushButton(tr("Check for updates"))
-        self.update_btn.clicked.connect(self.check_updates)
         log_bar.addWidget(self.export_log_btn)
-        log_bar.addWidget(self.update_btn)
-        from opx import i18n
-
-        self.lang_combo = QComboBox()
-        self.lang_combo.setToolTip(tr("Language (applies after restarting the app)"))
-        for code, name in i18n.available().items():
-            self.lang_combo.addItem(name, code)
-        current = self.lang_combo.findData(i18n.language())
-        self.lang_combo.setCurrentIndex(max(current, 0))
-        self.lang_combo.currentIndexChanged.connect(self.change_language)
-        self.lang_combo.setVisible(self.lang_combo.count() > 1)  # only once a translation exists
-        log_bar.addWidget(self.lang_combo)
         log_layout.addLayout(log_bar)
         log_layout.addWidget(self.log)
         body = QSplitter(Qt.Vertical)
@@ -453,6 +465,82 @@ class MainWindow(QMainWindow):
         layout.addWidget(body, 1)
 
         self.setCentralWidget(root)
+        self._build_menus()
+
+    def _build_menus(self) -> None:
+        from opx import about, i18n
+
+        bar = self.menuBar()
+
+        def act(menu, text, slot, shortcut=None, tip=None):
+            a = QAction(text, self)
+            a.triggered.connect(lambda _c=False: slot())
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            if tip:
+                a.setStatusTip(tip)
+                a.setToolTip(tip)
+            menu.addAction(a)
+            return a
+
+        def web(url):
+            return lambda: QDesktopServices.openUrl(QUrl(url))
+
+        file_menu = bar.addMenu(tr("&File"))
+        act(file_menu, tr("Open backups folder"), self._open_backups_root)
+        act(file_menu, tr("Verify a backup..."), self.verify_existing)
+        file_menu.addSeparator()
+        act(file_menu, tr("Export log..."), self.export_log, tip=tr("Save the log for a bug report (serials hidden)"))
+        file_menu.addSeparator()
+        act(file_menu, tr("Quit"), self.close, QKeySequence.Quit)
+
+        phone = bar.addMenu(tr("&Phone"))
+        self.refresh_act = act(phone, tr("Refresh"), self.refresh_devices, "F5")
+        reboot_menu = phone.addMenu(tr("Reboot to"))
+        self.reboot_acts = {}
+        for target, text in (("system", tr("Android")), ("bootloader", tr("Bootloader")),
+                             ("fastbootd", tr("Fastbootd")), ("recovery", tr("Recovery"))):
+            self.reboot_acts[target] = act(reboot_menu, text, lambda t=target: self.reboot_to(t))
+        phone.addSeparator()
+        act(phone, tr("Phone not showing up?"), self.usb_check)
+        act(phone, tr("Phone won't start?"), self.open_rescue)
+
+        tools = bar.addMenu(tr("&Tools"))
+        act(tools, tr("Download adb and fastboot"), self.download_tools)
+        act(tools, tr("Official ROMs..."), self.open_catalog)
+        act(tools, tr("Read a logs zip..."), lambda: self.diag_tab.read_logs())
+        tools.addSeparator()
+        lang = tools.addMenu(tr("Language"))
+        self.lang_group = QActionGroup(self)
+        self.lang_actions: dict[str, QAction] = {}
+        for code, name in i18n.available().items():
+            a = QAction(name, self, checkable=True)
+            a.setChecked(code == i18n.language())
+            a.triggered.connect(lambda _c=False, c=code, n=name: self.change_language(c, n))
+            self.lang_group.addAction(a)
+            lang.addAction(a)
+            self.lang_actions[code] = a
+
+        help_menu = bar.addMenu(tr("&Help"))
+        act(help_menu, tr("User guide"), web(about.GUIDE_URL), QKeySequence.HelpContents)
+        act(help_menu, tr("Command-line reference"), web(about.CLI_URL))
+        act(help_menu, tr("Report a problem"), web(about.ISSUES_URL))
+        help_menu.addSeparator()
+        self.update_act = act(help_menu, tr("Check for updates"), self.check_updates)
+        act(help_menu, tr("Releases page"), web(about.RELEASES_URL))
+        help_menu.addSeparator()
+        act(help_menu, tr("About OPxFlasher"), self.show_about)
+
+    def show_about(self) -> None:
+        from opx.gui.about_dialog import AboutDialog
+
+        self.about_dialog = AboutDialog(self)
+        self.about_dialog.open()
+
+    def _open_backups_root(self) -> None:
+        folder = Path(self.out_edit.text()).expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     # --- helpers ----------------------------------------------------------
 
@@ -521,12 +609,12 @@ class MainWindow(QMainWindow):
         self.say(f"Log saved to {out} (serial numbers hidden). Attach it to a GitHub issue.")
 
     def check_updates(self) -> None:
-        self.update_btn.setEnabled(False)
+        self.update_act.setEnabled(False)
         self.say("Checking GitHub for a newer release...")
         self.run_job(Job(support.check_for_update), self._update_checked, self._update_failed)
 
     def _update_checked(self, update) -> None:
-        self.update_btn.setEnabled(True)
+        self.update_act.setEnabled(True)
         if update is None:
             self.say(f"You have the newest version ({__version__}).")
             return
@@ -539,7 +627,7 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl(update.url))
 
     def _update_failed(self, exc: BaseException) -> None:
-        self.update_btn.setEnabled(True)
+        self.update_act.setEnabled(True)
         self.say(str(exc))
 
     def mode(self) -> str:
@@ -559,17 +647,20 @@ class MainWindow(QMainWindow):
         self.say(f"Error: {exc}")
         QMessageBox.warning(self, "OPxFlasher", str(exc))
 
-    def _set_busy(self, busy: bool) -> None:
+    def _set_busy(self, busy: bool, cancellable: bool = False) -> None:
         self.busy = busy
+        self.cancellable = busy and cancellable
         self._update_buttons()
 
     def _update_buttons(self) -> None:
         ready = self.session is not None and self.session.access.usable
         self.refresh_btn.setEnabled(not self.busy)
+        if hasattr(self, "refresh_act"):
+            self.refresh_act.setEnabled(not self.busy)
         self.device_combo.setEnabled(not self.busy)
         self.preview_btn.setEnabled(ready and not self.busy)
         self.start_btn.setEnabled(ready and not self.busy)
-        self.cancel_btn.setEnabled(self.busy)
+        self.cancel_btn.setEnabled(self.cancellable)
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
         self.restore_rom_btn.setEnabled(not self.busy)
@@ -589,6 +680,9 @@ class MainWindow(QMainWindow):
                 btn = self.reboot_btns[c.target]
                 btn.setEnabled(not self.busy and c.allowed)
                 btn.setToolTip(c.reason or f"Reboot the phone to {c.label.lower()}")
+                if hasattr(self, "reboot_acts"):  # the same rules for Phone > Reboot to
+                    self.reboot_acts[c.target].setEnabled(btn.isEnabled())
+                    self.reboot_acts[c.target].setToolTip(btn.toolTip())
         if hasattr(self, "restore_btn"):
             ready = bool(self.sig_plan and self.sig_plan.ok) and self.sig_confirm.text().strip() == "RESTORE"
             self.restore_btn.setEnabled(not self.busy and ready)
@@ -660,6 +754,7 @@ class MainWindow(QMainWindow):
         self.device_combo.clear()
         for d in self.devices:
             self.device_combo.addItem(d.label)
+            self.device_combo.setItemData(self.device_combo.count() - 1, d.label, Qt.ToolTipRole)
         self.device_combo.blockSignals(False)
         if not self.devices:
             self.session = None
@@ -865,7 +960,7 @@ class MainWindow(QMainWindow):
             return
         out = Path(self.out_edit.text()).expanduser()
         self.cancel_flag = threading.Event()
-        self._set_busy(True)
+        self._set_busy(True, cancellable=True)
         self.overall_bar.setValue(0)
         self.item_bar.setValue(0)
         job = Job(
@@ -1144,16 +1239,15 @@ class MainWindow(QMainWindow):
         self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn,
                      "Restore full ROM")
 
-    def change_language(self, index: int) -> None:
+    def change_language(self, code: str, name: str = "") -> None:
         from opx import settings
 
-        code = self.lang_combo.itemData(index)
         try:
             settings.put("language", code)
         except OSError as e:
             self.say(f"Couldn't save the language: {e}")
             return
-        self.say(f"Language set to {self.lang_combo.itemText(index)}. Restart OPxFlasher to apply it.")
+        self.say(f"Language set to {name or code}. Restart OPxFlasher to apply it.")
         QMessageBox.information(self, tr("Language"), tr("Restart OPxFlasher to use the new language."))
 
     def ask_recovery(self) -> str | None:
@@ -1182,8 +1276,7 @@ class MainWindow(QMainWindow):
             return
         self.zip_recovery = recovery
         self.zip_cancel = threading.Event()
-        self._set_busy(True)
-        self.cancel_btn.setEnabled(True)
+        self._set_busy(True, cancellable=True)
         self.item_label.setText("Making the recovery zip...")
         self.overall_bar.setValue(0)
         job = Job(lambda emit=None: rz.build(Path(folder), Path(folder).parent, progress=lambda w, d, t: emit((w, d, t)),

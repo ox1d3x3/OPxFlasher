@@ -281,6 +281,13 @@ profile can lock more (`keep_apps`).
 
 ## Everyday helpers
 
+- **Menus:** *File* (backups folder, verify a backup, export log, quit), *Phone* (refresh with F5,
+  reboot to Android / bootloader / fastbootd / recovery, phone not showing up, phone won't start),
+  *Tools* (download adb and fastboot, official ROMs, read a logs zip, language) and *Help* (user
+  guide with F1, command-line reference, report a problem, check for updates, releases, About).
+- **About** (*Help → About OPxFlasher*, or `opx about`): version and build, developer, project
+  links, support links, licence and credits. **Copy details** copies the version and system details
+  for a bug report.
 - **Tool check at start-up:** OPxFlasher looks for adb and fastboot every time it starts. If they're
   missing it asks to download Google's official platform-tools (about 10 MB, saved for your user
   only). **Download** fetches them with a progress bar and then looks for your phone; **Decline**

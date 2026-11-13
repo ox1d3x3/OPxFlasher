@@ -476,13 +476,11 @@ def test_gui_language_picker(window, monkeypatch, tmp_path):
 
     app, win = window
     monkeypatch.setattr(settings, "path", lambda: tmp_path / "settings.json")
-    assert win.lang_combo.count() == 1 and not win.lang_combo.isVisible()  # English only for now
+    assert list(win.lang_actions) == ["en"] and win.lang_actions["en"].isChecked()
     shown = []
     monkeypatch.setattr(gui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
-    win.lang_combo.addItem("Deutsch", "de")
-    win.lang_combo.setCurrentIndex(1)
+    win.change_language("de", "Deutsch")
     assert settings.get("language") == "de" and "Restart" in shown[0]
-
 
 def test_gui_dashboard_export_and_updates(window, monkeypatch, tmp_path):
     import zipfile
@@ -727,3 +725,38 @@ def test_gui_startup_tools_missing_download_and_failure(window, monkeypatch):
     assert warned and "no internet" in warned[0]
     assert "Download failed." in win.banner.text() and "Click here to download" in win.banner.text()
     assert not win.busy
+
+
+def test_gui_about_and_menus(window, monkeypatch):
+    from opx import about
+    from opx.gui import about_dialog
+
+    app, win = window
+    menus = [a.text().replace("&", "") for a in win.menuBar().actions()]
+    assert menus == ["File", "Phone", "Tools", "Help"]
+    assert about.DEVELOPER in win.version_label.text() and "v" in win.version_label.text()
+    win.show_about()
+    settle(app)
+    dlg = win.about_dialog
+    text = " ".join(lbl.text() for lbl in dlg.findChildren(about_dialog.QLabel))
+    for needle in (about.DEVELOPER, about.REPO_URL, about.DEVELOPER_URL, "ko-fi.com", about.LICENSE_NAME):
+        assert needle in text, needle
+    copied = []
+    monkeypatch.setattr(about_dialog.QGuiApplication, "clipboard",
+                        lambda: type("C", (), {"setText": lambda self, t: copied.append(t)})())
+    dlg.copy_btn.click()
+    assert copied and "Version:" in copied[0] and dlg.copy_btn.text() == "Copied"
+    dlg.close()
+    # menu reboot actions follow the same rules as the buttons
+    for target, btn in win.reboot_btns.items():
+        assert win.reboot_acts[target].isEnabled() == btn.isEnabled()
+
+
+def test_gui_cancel_only_for_cancellable_jobs(window):
+    app, win = window
+    win._set_busy(True)  # e.g. downloading tools, removing apps
+    assert not win.cancel_btn.isEnabled()
+    win._set_busy(True, cancellable=True)  # a backup or recovery zip
+    assert win.cancel_btn.isEnabled()
+    win._set_busy(False)
+    assert not win.cancel_btn.isEnabled() and not win.cancellable

@@ -871,6 +871,16 @@ def cmd_edl_info(args) -> int:
     return 0
 
 
+def cmd_about(args) -> int:
+    from opx import about
+
+    print(about.text())
+    print(f"Releases: {about.RELEASES_URL}")
+    print(f"Report a problem: {about.ISSUES_URL}")
+    print("Support: " + ", ".join(f"{name} {url}" for name, url in about.SUPPORT))
+    return 0
+
+
 def cmd_usb_check(args) -> int:
     from opx import usbcheck
 
@@ -1110,6 +1120,9 @@ def build_parser() -> argparse.ArgumentParser:
     ei = sub.add_parser("edl-info", help="identify a phone in 9008 (EDL) mode (read-only, writes nothing)")
     ei.add_argument("--port", help="serial port (default: the first 9008 port found)")
     ei.set_defaults(fn=cmd_edl_info)
+
+    ab = sub.add_parser("about", help="version, developer and links")
+    ab.set_defaults(fn=cmd_about)
 
     us = sub.add_parser("usb-check", help="phone not showing up? check USB drivers / permissions")
     us.set_defaults(fn=cmd_usb_check)

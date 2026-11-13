@@ -100,3 +100,16 @@ def test_update_check_offline():
         raise urllib.error.URLError("no network")
     with pytest.raises(OSError, match="Couldn't reach GitHub"):
         sp.check_for_update("0.7.0", opener=boom)
+
+
+def test_about_details_and_cli(capsys):
+    from opx import about, cli
+
+    assert about.build_kind("0.7.0-rc.16") == "release candidate"
+    assert about.build_kind("0.7.0") == "release"
+    assert about.build_kind("0.7.0.dev3") == "development build"
+    d = about.details("6.9.0")
+    assert d["Qt"] == "6.9.0" and "Ox1d3x3" in d["Developer"] and d["Project"] == about.REPO_URL
+    assert cli.main(["about"]) == 0
+    out = capsys.readouterr().out
+    assert "Mahabub Subhany" in out and "github.com/ox1d3x3/OPxFlasher" in out and "Ko-fi" in out

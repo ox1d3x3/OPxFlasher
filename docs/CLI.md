@@ -18,6 +18,7 @@ opx usb-check                        # phone not showing up? drivers / permissio
 opx rescue                           # phone won't start? state + what to try
 opx edl-info [--port COM5]           # identify a phone in 9008 (EDL) mode, read-only
 opx tools fetch | where              # download / locate adb and fastboot
+opx about                            # version, build, developer and links
 ```
 
 ## Backup
