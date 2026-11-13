@@ -191,6 +191,10 @@ class MainWindow(QMainWindow):
         self.usb_btn.setToolTip(tr("Check USB drivers (Windows) or permissions (Linux)"))
         self.usb_btn.clicked.connect(self.usb_check)
         dev_layout.addWidget(self.usb_btn)
+        self.rescue_btn = QPushButton(tr("Phone won't start?"))
+        self.rescue_btn.setToolTip(tr("See what state the phone is in (fastboot, recovery, 9008, ...) and what to try"))
+        self.rescue_btn.clicked.connect(self.open_rescue)
+        dev_layout.addWidget(self.rescue_btn)
         dev_layout.addWidget(QLabel(tr("Reboot to:")))
         reboot_grid = QGridLayout()
         self.reboot_btns: dict[str, QPushButton] = {}
@@ -451,6 +455,13 @@ class MainWindow(QMainWindow):
 
     def say(self, text: str) -> None:
         self.log.appendPlainText(text)
+
+    def open_rescue(self) -> None:
+        from opx.gui.rescue_dialog import RescueDialog
+
+        self.rescue_dialog = RescueDialog(self)
+        self.rescue_dialog.show()
+        self.rescue_dialog.check()
 
     def usb_check(self) -> None:
         from opx import usbcheck
@@ -888,11 +899,15 @@ class MainWindow(QMainWindow):
     def open_catalog(self) -> None:
         model = self.session.props.get("ro.product.model", "") if self.session else ""
         if not model:
-            QMessageBox.information(
-                self, "OPxFlasher",
-                "Connect your phone with USB debugging first, so OPxFlasher knows which ROMs fit it. "
-                "Or use opx ota list --model <model> on the command line.")
-            return
+            from PySide6.QtWidgets import QInputDialog
+
+            # phone not in Android (fastboot, boot loop): ask for the model number
+            text, ok = QInputDialog.getText(
+                self, tr("Official ROMs"),
+                tr("Phone model number (Settings > About phone, or the box), e.g. PJZ110 or CPH2653:"))
+            model = text.strip().upper() if ok else ""
+            if not model:
+                return
         dlg = CatalogDialog(self, self._dialog_job, model)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.downloaded:
             self.rom_edit.setText(str(dlg.downloaded))

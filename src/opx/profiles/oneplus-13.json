@@ -10,7 +10,7 @@
       "CPH2649"
     ]
   },
-  "notes": "PJZ110 = China (ColorOS), CPH2653 = EU, CPH2655 = NA, CPH2649 = India (to confirm). Network/region files are oplusstanvbk (physical) and my_region (logical, inside super).",
+  "notes": "PJZ110 = China (ColorOS), CPH2653 = EU, CPH2655 = NA, CPH2649 = India (to confirm). Network/region files are oplusstanvbk (physical) and my_region (logical, inside super). From ColorOS 16.0.3.501 the bootloader has a hardware anti-rollback fuse: installing an older build bricks the phone beyond EDL repair (reported Jan 2026 for OnePlus 13, 13T, 15).",
   "known_issues": [
     {
       "match": {
@@ -32,5 +32,6 @@
   },
   "recovery_boards": [
     "dodge"
-  ]
+  ],
+  "rollback_fuse": "16.0.3.501"
 }

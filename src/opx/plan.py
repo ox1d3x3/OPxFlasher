@@ -10,6 +10,7 @@ Fail closed: any check that can't be answered blocks the plan.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -197,6 +198,57 @@ def _avb_index(data: bytes | None) -> int | None:
         return None
 
 
+_OS_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)\.(\d+)")
+
+
+def os_version(text: str) -> tuple[int, ...] | None:
+    """'PJZ110_16.0.3.501(CN01)' -> (16, 0, 3, 501)."""
+    m = _OS_VERSION.search(text or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def _int(text: str) -> int | None:
+    try:
+        return int(str(text).strip())
+    except ValueError:
+        return None
+
+
+def rollback_fuse_check(rom: RomInfo, dev: DeviceState) -> Check | None:
+    """Phones whose bootloader burns a fuse when an older build is installed
+    (OnePlus 13 / 13T / 15 from ColorOS 16.0.3.501): never allow going back."""
+    since = os_version(dev.profile.rollback_fuse)
+    if since is None or dev.source == "none":
+        return None
+    name = "Rollback fuse"
+    shown = ".".join(map(str, since))
+    pv, rv = os_version(dev.facts.get("build", "")), os_version(rom.metadata.get("post-display-id", ""))
+    if pv is not None and pv < since:
+        if rv is not None and rv >= since:
+            return Check(name, WARN, f"This ROM ({'.'.join(map(str, rv))}) turns on {dev.profile.name}'s "
+                                     f"anti-rollback fuse: afterwards, builds older than it can never be installed.")
+        return Check(name, INFO, f"Installed build is older than {shown}, so the fuse isn't active yet.")
+    older, how = None, ""
+    if pv is not None and rv is not None:
+        older = rv < pv
+        how = f"ROM {'.'.join(map(str, rv))}, installed {'.'.join(map(str, pv))}"
+    else:
+        rts, pts = _int(rom.metadata.get("post-timestamp", "")), _int(dev.props.get("ro.build.date.utc", "")
+                                                                         or dev.facts.get("build_date", ""))
+        if rts is not None and pts is not None:
+            older = rts < pts
+            how = "by build date: ROM " + ("older" if older else "same or newer") + " than the installed build"
+    if older is None:
+        return Check(name, BLOCK, f"{dev.profile.name} on {shown} or later blows a hardware fuse if an older "
+                                  "build is installed, and OPxFlasher can't tell this ROM's age (no version or "
+                                  "build date). Use a full OTA or a backup taken on this build.")
+    if older:
+        return Check(name, BLOCK, f"Older than the installed build ({how}). On {dev.profile.name} from {shown}, "
+                                  "installing an older build blows an anti-rollback fuse and the phone can't be "
+                                  "recovered, not even over EDL. Only the same or a newer build can be flashed.")
+    return Check(name, PASS, f"Not older than the installed build ({how}).")
+
+
 def _qcom_arb(data: bytes | None) -> qcom.QcomArb | None:
     if not data:
         return None
@@ -304,6 +356,11 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
             add(f"Qualcomm ARB {name}", BLOCK, f"ROM ARB is lower than the phone's ({values}): this would hard-brick.")
         else:
             add(f"Qualcomm ARB {name}", PASS, values)
+
+    # 6b. hardware rollback fuse (OnePlus 13 / 13T / 15 from 16.0.3.501)
+    fuse = rollback_fuse_check(rom, dev)
+    if fuse:
+        checks.append(fuse)
 
     # 7. plan items and sizes
     items: list[PlanItem] = []

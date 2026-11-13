@@ -76,6 +76,7 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 | Known issue | the phone's current firmware is known to be dangerous (e.g. ColorOS 17 CN fastbootd) |
 | AVB rollback | the ROM's `vbmeta` rollback index is lower than the phone's |
 | Qualcomm ARB | the ROM's anti-rollback version is lower than the phone's, **or the reader isn't validated yet** |
+| Rollback fuse | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501 or later: the ROM (or backup) is **older than the installed build**, or its age can't be told. Installing an older build there blows a hardware fuse that nothing repairs, so this can't be overridden |
 | Sizes | an image is bigger than its partition, or the dynamic groups don't fit in `super` |
 
 `persist`, `modemst*`, `fsg`, `ocdt`, `devinfo`, `oplusreserve*`, `userdata`,
@@ -220,6 +221,21 @@ With the portable files you can also put Google's `platform-tools` folder next t
   OnePlus / OPPO phone with a missing or broken USB driver and says how to fix it; on Linux
   it checks your user may open the phone (udev rules / `plugdev`). It also spots a phone
   stuck in Qualcomm 9008 (EDL) mode. It only looks; nothing is installed.
+
+## Phone won't start?
+
+**Phone won't start?** (phone panel, or `opx rescue`) looks at what's connected and works out
+the phone's state: fastboot, fastbootd, recovery, Android stuck while starting, ADB not
+allowed, Qualcomm 9008 (EDL), or nothing at all. It then lists what to try, in order, each
+with a button: restart, recovery, restore the full ROM from your backup, make a recovery zip,
+download the official ROM, save logs, USB check.
+
+**9008 (EDL) identify** (`opx edl-info`): a phone stuck in 9008 is only running the chip's
+emergency loader. OPxFlasher can read its chip serial, hardware ID, OEM key hash and boot ROM
+version over Qualcomm's Sahara protocol. That's read-only: no loader is sent and nothing is
+written. EDL *flashing* isn't included. On OnePlus / OPPO it needs OnePlus's signed loader
+and their authorisation, which only authorised service centres have. Windows needs the
+"Qualcomm HS-USB QDLoader 9008" driver for this; on Linux add yourself to the `dialout` group.
 
 ## Apps (debloat)
 

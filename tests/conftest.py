@@ -26,6 +26,7 @@ PROPS = {
     "ro.product.device": "testdevice",
     "ro.product.name": "PJZ110",
     "ro.build.display.id": "PJZ110_16.0.3.501(CN01)",
+    "ro.build.date.utc": "1780000000",
     "ro.build.fingerprint": "OnePlus/PJZ110/testdevice:16/test:user/release-keys",
     "ro.build.version.security_patch": "2026-09-01",
     "ro.build.version.release": "16",

@@ -834,6 +834,34 @@ def cmd_logs(args) -> int:
     return 0
 
 
+def cmd_rescue(args) -> int:
+    from opx import rescue
+
+    a = rescue.gather([Path(p) for p in args.backups])
+    print(f"{a.title}\n{a.summary}\n")
+    commands = {"usb-check": "opx usb-check", "identify-9008": "opx edl-info", "save-logs": "opx logs",
+                "restore-rom": "opx restore-rom <backup folder>", "restore-zip": "opx restore-zip <backup folder>",
+                "official-roms": "opx ota", "check-again": "opx rescue"}
+    for i, step in enumerate(a.steps, 1):
+        how = commands.get(step.action) or (f"opx reboot {step.action.split(':', 1)[1]}"
+                                            if step.action.startswith("reboot:") else "")
+        print(f"  {i}. {step.text}" + (f"\n     -> {how}" if how else ""))
+    return 0
+
+
+def cmd_edl_info(args) -> int:
+    from opx import sahara
+
+    try:
+        info = sahara.identify_port(args.port) if args.port else sahara.identify_first()
+    except sahara.SaharaError as e:
+        print(e)
+        return 2
+    for line in info.lines():
+        print(f"  {line}")
+    return 0
+
+
 def cmd_usb_check(args) -> int:
     from opx import usbcheck
 
@@ -1063,6 +1091,15 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("-s", "--serial")
     lg.add_argument("--out", default=".", help="folder to save the zip in")
     lg.set_defaults(fn=cmd_logs)
+
+    rs_ = sub.add_parser("rescue", help="phone won't start? see what state it's in and what to try")
+    rs_.add_argument("--backups", nargs="*", default=["backups", str(Path.home() / "OPxFlasher-backups")],
+                     help="folders with your backups (to offer a restore)")
+    rs_.set_defaults(fn=cmd_rescue)
+
+    ei = sub.add_parser("edl-info", help="identify a phone in 9008 (EDL) mode (read-only, writes nothing)")
+    ei.add_argument("--port", help="serial port (default: the first 9008 port found)")
+    ei.set_defaults(fn=cmd_edl_info)
 
     us = sub.add_parser("usb-check", help="phone not showing up? check USB drivers / permissions")
     us.set_defaults(fn=cmd_usb_check)

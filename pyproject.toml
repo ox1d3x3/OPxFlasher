@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Mahabub Subhany (Ox1d3x3)" }]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["pyserial>=3.5"]  # 9008 identify (read-only)
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: Microsoft :: Windows",

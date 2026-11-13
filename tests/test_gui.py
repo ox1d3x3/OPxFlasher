@@ -593,3 +593,36 @@ def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
     assert len(zips) == 1 and shown and "hidden" in shown[0]
     with zipfile.ZipFile(zips[0]) as z:
         assert "logcat.txt" in z.namelist()
+
+
+def test_gui_rescue_dialog(window, monkeypatch, fb_state):
+    from opx import rescue, sahara
+    from opx.gui import rescue_dialog
+    from test_sahara import FakeBootRom
+
+    import sys
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+
+    app, win = window
+    monkeypatch.setattr(sahara, "find_ports", lambda: [])
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    fb_state(mode="bootloader")
+    win.open_rescue()
+    settle(app)
+    dlg = win.rescue_dialog
+    assert dlg.assessment.state == "bootloader"
+    assert "reboot:system" in dlg.buttons and "official-roms" in dlg.buttons
+
+    # a phone in 9008: identify shows its details
+    monkeypatch.setattr(rescue, "gather", lambda roots: rescue.assess([], True, False))
+    dlg.check()
+    settle(app)
+    assert dlg.assessment.state == "edl" and "identify-9008" in dlg.buttons
+    shown = []
+    monkeypatch.setattr(rescue_dialog.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    monkeypatch.setattr(sahara, "identify_first", lambda: sahara.identify(FakeBootRom(), "COM5"))
+    dlg.buttons["identify-9008"].click()
+    settle(app)
+    assert shown and "Chip serial: 0x1a2b3c4d" in shown[0]
+    dlg.close()

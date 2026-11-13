@@ -69,6 +69,7 @@ def pyinstaller(onefile: bool, icon: Path) -> Path:
         "--icon", icon,
         "--paths", ROOT / "src",
         "--collect-data", "opx",
+        "--hidden-import", "serial.tools.list_ports",
         "--distpath", WORK / "dist", "--workpath", WORK / "work", "--specpath", WORK,
     ]
     for mod in EXCLUDES:

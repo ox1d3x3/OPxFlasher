@@ -72,6 +72,7 @@ class Profile:
     variants: dict[str, str] = field(default_factory=dict)  # model number -> region name
     recovery_boards: list[str] = field(default_factory=list)  # names custom recoveries report (restore zip)
     keep_apps: list[str] = field(default_factory=list)  # packages debloat never removes ("pkg" or "prefix*")
+    rollback_fuse: str = ""  # OS version (e.g. "16.0.3.501") from which installing an older build blows a fuse
     qcom_arb_images: list[str] = field(default_factory=list)
     qcom_arb_validated: bool = False
 
@@ -106,7 +107,7 @@ GENERIC = "oplus-generic"
 ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
-              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images", "keep_apps",
+              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
               "qcom_arb_validated"}
 
 
@@ -185,6 +186,9 @@ def validate(raw: dict, builtin: bool = False) -> list[str]:
     boards = raw.get("recovery_boards", [])
     if not isinstance(boards, list) or not all(isinstance(b, str) and b for b in boards):
         errors.append("recovery_boards must be a list of names")
+    fuse = raw.get("rollback_fuse", "")
+    if fuse and not (isinstance(fuse, str) and re.fullmatch(r"\d+\.\d+\.\d+\.\d+", fuse)):
+        errors.append('rollback_fuse must be an OS version like "16.0.3.501"')
     keep = raw.get("keep_apps", [])
     if not isinstance(keep, list) or not all(isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_.]+\*?", k) for k in keep):
         errors.append("keep_apps must be a list of package names (a trailing * matches a prefix)")
@@ -244,6 +248,7 @@ def _build(raw: dict) -> Profile:
         variants=raw.get("variants", {}),
         recovery_boards=raw.get("recovery_boards", []),
         keep_apps=raw.get("keep_apps", []),
+        rollback_fuse=raw.get("rollback_fuse", ""),
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
     )

@@ -78,7 +78,10 @@ def backup_as_rom(folder: Path) -> RomInfo:
         "pre-device": facts.get("codename", ""),
         "post-build": facts.get("fingerprint", ""),
         "post-security-patch-level": facts.get("security_patch", ""),
+        "post-display-id": facts.get("build", ""),
     }
+    if facts.get("build_date"):
+        info.metadata["post-timestamp"] = facts["build_date"]
     info.notes.append(f"Full backup of {facts.get('model', '?')} {facts.get('build', '')}, "
                       f"taken {manifest.get('created_utc', '?')} from slot {slot.lstrip('_') or '?'}.")
     return info
@@ -112,7 +115,9 @@ def restore_checks(folder: Path, device: DeviceState, live: bool, wipe: bool) ->
             "Current firmware", BLOCK,
             "OPxFlasher can't read the phone's current firmware (it isn't running Android), so it can't "
             "compare anti-rollback versions. If you installed an update after this backup, restoring it "
-            "can hard-brick the phone. Only continue if you haven't updated since the backup."))
+            "can hard-brick the phone. Only continue if you haven't updated since the backup."
+            + (f" On {device.profile.name} an older build also blows an anti-rollback fuse that "
+               "can't be repaired, not even over EDL." if device.profile.rollback_fuse else "")))
     return checks
 
 

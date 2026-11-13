@@ -30,6 +30,7 @@ PROP_KEYS = {
     "codename": "ro.product.device",
     "product": "ro.product.name",
     "build": "ro.build.display.id",
+    "build_date": "ro.build.date.utc",
     "fingerprint": "ro.build.fingerprint",
     "security_patch": "ro.build.version.security_patch",
     "android": "ro.build.version.release",
