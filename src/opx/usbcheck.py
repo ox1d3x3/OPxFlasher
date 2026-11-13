@@ -6,7 +6,9 @@ adb / fastboot can't use, and say how to fix it.
 - Linux: looks at /sys/bus/usb for phones and checks the user may open them
   (udev rules / plugdev group).
 - Every OS: a phone in Qualcomm 9008 (EDL) mode is recognised and explained.
-Read-only; nothing is installed or changed.
+Read-only; nothing is installed or changed. For a missing Windows driver it
+offers ways to get one (Google's download page, Windows Update, Device
+Manager); installing it is up to the user, and only that step needs admin.
 """
 
 from __future__ import annotations
@@ -21,6 +23,9 @@ from pathlib import Path
 VENDORS = {"22D9": "OPPO / OnePlus", "2A70": "OnePlus", "18D1": "Android (fastboot)"}
 QUALCOMM, EDL_PID = "05C6", "9008"
 GOOGLE_DRIVER = "https://developer.android.com/studio/run/win-usb"
+WINDOWS_UPDATE_OPTIONAL = "ms-settings:windowsupdate-optionalupdates"
+WINDOWS_UPDATE = "ms-settings:windowsupdate"
+DRIVER_ACTIONS = ("driver-page", "windows-update", "device-manager")
 
 EDL_TEXT = ("A phone is in Qualcomm 9008 (EDL) mode. Neither adb nor fastboot can reach it, and "
             "OPxFlasher doesn't do EDL flashing. Try holding Power + Volume Up + Volume Down for "
@@ -32,6 +37,7 @@ EDL_TEXT = ("A phone is in Qualcomm 9008 (EDL) mode. Neither adb nor fastboot ca
 class Finding:
     level: str  # "ok", "warning", "problem"
     message: str
+    actions: tuple[str, ...] = ()  # offered fixes, see DRIVER_ACTIONS
 
 
 def _ids(instance: str) -> tuple[str, str]:
@@ -70,12 +76,16 @@ def check_windows(devices: list[dict]) -> list[Finding]:
     for d in broken:
         name = d.get("FriendlyName") or "Android device"
         mode = "fastboot / bootloader" if "bootloader" in name.lower() or _ids(d["InstanceId"])[0] == "18D1" else "adb"
+        entry = "Android Bootloader Interface" if mode.startswith("fastboot") else "Android ADB Interface"
         found.append(Finding("problem", (
             f"'{name}' is plugged in but has no working driver (status: {d.get('Status') or 'unknown'}), "
-            f"so {mode} can't see it. Install the Google USB Driver ({GOOGLE_DRIVER}) or the OnePlus / OPPO "
-            "USB driver, then in Device Manager right-click the device -> Update driver -> Browse -> "
-            "Let me pick -> 'Android ADB Interface' (Android) or 'Android Bootloader Interface' (fastboot). "
-            "Unplug and plug the phone back in.")))
+            f"so {mode} can't see it. Two ways to fix it:\n"
+            "1. Windows Update: Settings > Windows Update > Advanced options > Optional updates > Driver "
+            "updates. Tick the Android / Google / OnePlus driver and install it.\n"
+            f"2. Or download the Google USB Driver ({GOOGLE_DRIVER}), then in Device Manager right-click the "
+            f"phone > Update driver > Browse my computer > Let me pick > '{entry}'.\n"
+            "Then unplug the phone and plug it back in. Windows asks for administrator approval to install "
+            "a driver; OPxFlasher itself never needs it."), DRIVER_ACTIONS))
     if phones and not broken:
         found.append(Finding("ok", "Windows has working drivers for the connected phone."))
     return found
@@ -129,3 +139,33 @@ def check() -> list[Finding]:
             "computer itself, unlock the phone, turn on USB debugging (Developer options), and accept the "
             "'Allow USB debugging' prompt. In fastboot, the phone should show the fastboot screen.")))
     return found
+
+
+# --- fixes the user can open (Windows) --------------------------------------------------
+
+
+def open_windows_update(start=None) -> bool:
+    """Windows Update's optional (driver) updates page."""
+    start = start or getattr(os, "startfile", None)
+    if start is None:
+        return False
+    for target in (WINDOWS_UPDATE_OPTIONAL, WINDOWS_UPDATE):
+        try:
+            start(target)
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def open_device_manager(shell_execute=None) -> bool:
+    """Device Manager, elevated (Windows asks for approval), since changing a driver needs admin."""
+    if shell_execute is None:
+        if not sys.platform.startswith("win"):
+            return False
+        import ctypes
+
+        shell_execute = ctypes.windll.shell32.ShellExecuteW  # type: ignore[attr-defined]
+    # ShellExecute returns a value > 32 on success; declining the prompt returns <= 32
+    return shell_execute(None, "runas", "mmc.exe", "devmgmt.msc", None, 1) > 32
+

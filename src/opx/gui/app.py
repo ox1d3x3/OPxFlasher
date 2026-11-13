@@ -473,10 +473,38 @@ class MainWindow(QMainWindow):
         for f in findings:
             self.say(f"USB check: {f.message}")
         text = "\n\n".join(f.message for f in findings)
-        if any(f.level == "problem" for f in findings):
-            QMessageBox.warning(self, "USB check", text)
-        else:
-            QMessageBox.information(self, "USB check", text)
+        actions = [a for f in findings for a in f.actions]
+        if not actions:
+            if any(f.level == "problem" for f in findings):
+                QMessageBox.warning(self, "USB check", text)
+            else:
+                QMessageBox.information(self, "USB check", text)
+            return
+        labels = {"driver-page": tr("Get the driver"), "windows-update": tr("Windows Update"),
+                  "device-manager": tr("Open Device Manager")}
+        box = QMessageBox(QMessageBox.Warning, tr("USB check"), text, parent=self)
+        buttons = {box.addButton(labels[a], QMessageBox.ActionRole): a for a in dict.fromkeys(actions)}
+        box.addButton(QMessageBox.Close)
+        self.usb_box = box
+        while True:  # stays open so several fixes can be tried; Close ends it
+            box.exec()
+            action = buttons.get(box.clickedButton())
+            if not action:
+                break
+            self.usb_action(action)
+
+    def usb_action(self, action: str) -> None:
+        from opx import usbcheck
+
+        if action == "driver-page":
+            QDesktopServices.openUrl(QUrl(usbcheck.GOOGLE_DRIVER))
+            self.say(f"Opened {usbcheck.GOOGLE_DRIVER}")
+        elif action == "windows-update":
+            if not usbcheck.open_windows_update():
+                self.say("Couldn't open Windows Update: open Settings > Windows Update > Optional updates.")
+        elif action == "device-manager":
+            if not usbcheck.open_device_manager():
+                self.say("Device Manager wasn't opened (the approval was declined or this isn't Windows).")
 
     def _usb_failed(self, exc: BaseException) -> None:
         self.usb_btn.setEnabled(True)

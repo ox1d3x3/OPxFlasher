@@ -81,3 +81,28 @@ def test_cli_usb_check(monkeypatch, capsys):
     monkeypatch.setattr(uc, "check", lambda: [uc.Finding("problem", "fix the driver")])
     assert cli.main(["usb-check"]) == 1
     assert "[FIX ] fix the driver" in capsys.readouterr().out
+
+
+def test_missing_driver_offers_fixes():
+    f = uc.check_windows([NO_DRIVER])[0]
+    assert f.actions == uc.DRIVER_ACTIONS
+    assert "Windows Update" in f.message and "administrator" in f.message
+    assert "Android ADB Interface" in f.message
+    assert "Android Bootloader Interface" in uc.check_windows([FASTBOOT_NO_DRIVER])[0].message
+    assert uc.check_windows([OK_PHONE])[0].actions == ()
+
+
+def test_open_windows_update_and_device_manager():
+    opened = []
+    assert uc.open_windows_update(start=opened.append) and opened == [uc.WINDOWS_UPDATE_OPTIONAL]
+
+    def old_windows(target):
+        if target == uc.WINDOWS_UPDATE_OPTIONAL:
+            raise OSError("unknown page")
+        opened.append(target)
+    assert uc.open_windows_update(start=old_windows) and opened[-1] == uc.WINDOWS_UPDATE
+
+    calls = []
+    assert uc.open_device_manager(lambda *a: calls.append(a) or 42)
+    assert calls[0][1:4] == ("runas", "mmc.exe", "devmgmt.msc")
+    assert not uc.open_device_manager(lambda *a: 5)  # approval declined

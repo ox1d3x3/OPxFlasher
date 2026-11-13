@@ -116,6 +116,24 @@ changed since. Alternatively, compare its SHA-256 with `SHA256SUMS.txt` in the r
 
 The full walkthrough of every feature is in the **[user guide](docs/USER_GUIDE.md)**.
 
+## FAQ
+
+**Does it need administrator / root rights on my computer?** No. OPxFlasher runs as a normal user
+on Windows, Linux and macOS. The only time Windows asks for approval is if you install a USB driver.
+On Linux, phone access comes from udev rules (the app tells you if they're missing).
+
+**Do I need USB drivers?** Linux and macOS: no. Windows: usually the Google USB driver for adb and
+fastboot. If the phone doesn't show up, press **Phone not showing up?**: it finds the problem and
+links straight to the official driver, Windows Update and Device Manager. Drivers aren't bundled,
+because they can't be redistributed.
+
+**Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU or APatch,
+or a custom recovery). Every flash needs a backup of the phone, so root is needed at least once to
+make it. Reboots, debloat, Android logs and ROM checks against an existing backup work without root.
+
+**Will it touch my photos and apps?** No. Personal data is never backed up and never flashed. Only
+an explicit factory reset, which you choose and confirm, erases it.
+
 ## Supported phones
 
 | Phone | Models | Status |
