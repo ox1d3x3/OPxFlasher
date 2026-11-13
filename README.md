@@ -133,9 +133,9 @@ Defender still removes it, use the `.zip` version, and report the false positive
 detected*). Please don't turn your antivirus off.
 
 **Do I need USB drivers?** Linux and macOS: no. Windows: usually the Google USB driver for adb and
-fastboot. If the phone doesn't show up, press **Phone not showing up?**: it finds the problem and
-links straight to the official driver, Windows Update and Device Manager. Drivers aren't bundled,
-because they can't be redistributed.
+fastboot. If the phone doesn't show up, press **Phone not showing up?**: it finds the problem,
+links to the official driver and explains the Windows Update / Device Manager steps. Drivers aren't
+bundled, because they can't be redistributed.
 
 **Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU or APatch,
 or a custom recovery). Every flash needs a backup of the phone, so root is needed at least once to

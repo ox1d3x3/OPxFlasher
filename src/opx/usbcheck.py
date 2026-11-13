@@ -7,8 +7,10 @@ adb / fastboot can't use, and say how to fix it.
   (udev rules / plugdev group).
 - Every OS: a phone in Qualcomm 9008 (EDL) mode is recognised and explained.
 Read-only; nothing is installed or changed. For a missing Windows driver it
-offers ways to get one (Google's download page, Windows Update, Device
-Manager); installing it is up to the user, and only that step needs admin.
+links to Google's driver page and explains the Windows Update / Device
+Manager steps. It never opens Windows settings or asks for admin itself
+(Defender's behaviour monitoring flagged a build that did, as a "settings
+modifier"); installing a driver is up to the user.
 """
 
 from __future__ import annotations
@@ -23,9 +25,7 @@ from pathlib import Path
 VENDORS = {"22D9": "OPPO / OnePlus", "2A70": "OnePlus", "18D1": "Android (fastboot)"}
 QUALCOMM, EDL_PID = "05C6", "9008"
 GOOGLE_DRIVER = "https://developer.android.com/studio/run/win-usb"
-WINDOWS_UPDATE_OPTIONAL = "ms-settings:windowsupdate-optionalupdates"
-WINDOWS_UPDATE = "ms-settings:windowsupdate"
-DRIVER_ACTIONS = ("driver-page", "windows-update", "device-manager")
+DRIVER_ACTIONS = ("driver-page",)
 
 EDL_TEXT = ("A phone is in Qualcomm 9008 (EDL) mode. Neither adb nor fastboot can reach it, and "
             "OPxFlasher doesn't do EDL flashing. Try holding Power + Volume Up + Volume Down for "
@@ -80,10 +80,11 @@ def check_windows(devices: list[dict]) -> list[Finding]:
         found.append(Finding("problem", (
             f"'{name}' is plugged in but has no working driver (status: {d.get('Status') or 'unknown'}), "
             f"so {mode} can't see it. Two ways to fix it:\n"
-            "1. Windows Update: Settings > Windows Update > Advanced options > Optional updates > Driver "
-            "updates. Tick the Android / Google / OnePlus driver and install it.\n"
-            f"2. Or download the Google USB Driver ({GOOGLE_DRIVER}), then in Device Manager right-click the "
-            f"phone > Update driver > Browse my computer > Let me pick > '{entry}'.\n"
+            "1. Windows Update: open Settings > Windows Update > Advanced options > Optional updates > "
+            "Driver updates. Tick the Android / Google / OnePlus driver and install it.\n"
+            f"2. Or download the Google USB Driver ({GOOGLE_DRIVER}), then open Device Manager (right-click "
+            f"the Start button > Device Manager), right-click the phone > Update driver > Browse my computer "
+            f"> Let me pick > '{entry}'.\n"
             "Then unplug the phone and plug it back in. Windows asks for administrator approval to install "
             "a driver; OPxFlasher itself never needs it."), DRIVER_ACTIONS))
     if phones and not broken:
@@ -139,33 +140,3 @@ def check() -> list[Finding]:
             "computer itself, unlock the phone, turn on USB debugging (Developer options), and accept the "
             "'Allow USB debugging' prompt. In fastboot, the phone should show the fastboot screen.")))
     return found
-
-
-# --- fixes the user can open (Windows) --------------------------------------------------
-
-
-def open_windows_update(start=None) -> bool:
-    """Windows Update's optional (driver) updates page."""
-    start = start or getattr(os, "startfile", None)
-    if start is None:
-        return False
-    for target in (WINDOWS_UPDATE_OPTIONAL, WINDOWS_UPDATE):
-        try:
-            start(target)
-            return True
-        except OSError:
-            continue
-    return False
-
-
-def open_device_manager(start=None) -> bool:
-    """Device Manager, elevated (Windows asks for approval), since changing a driver needs admin."""
-    start = start or getattr(os, "startfile", None)
-    if start is None:
-        return False
-    try:
-        start("mmc.exe", "runas", "devmgmt.msc")  # os.startfile(path, operation, arguments)
-    except OSError:  # approval declined, or no Device Manager
-        return False
-    return True
-
