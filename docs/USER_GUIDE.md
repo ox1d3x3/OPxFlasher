@@ -271,10 +271,13 @@ install from a custom recovery, keeping your data:
   missing, and which partitions are never written (identity and personal data are always left out).
 - **Recovery zip** (`<name>-fullrom.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
   flash it. Before writing anything the installer checks:
-  - it's the phone the ROM is for, and the **same variant** (it never changes region, which would
-    need a data wipe),
-  - the ROM is **not older than the installed Android** (from the installed system's own build
-    date): installing older software can blow the OnePlus 13 / 13T / 15 anti-rollback fuse,
+  - it's the phone the ROM is for (its device codename; the chip platform name, shared by many
+    phones, never counts), and the **same variant** (it never changes region, which would need a
+    data wipe). The installed model and build are read from `my_manifest`, `odm`, `vendor`,
+    `product`, `system_ext` and `system`,
+  - the ROM is **not older than the installed Android** (the newest build date of the installed
+    partitions; reinstalling the exact installed build is fine): installing older software can blow
+    the OnePlus 13 / 13T / 15 anti-rollback fuse,
   - no system update is half-applied,
   - every partition exists and is big enough, and `lptools` is available (for system, vendor, odm...),
   - **every file in the zip** matches its SHA-256.
@@ -286,7 +289,8 @@ install from a custom recovery, keeping your data:
   OPxFlasher. **Use in ROM check** loads the result, so OPxFlasher checks it against your phone
   before flashing, with all the usual safety checks.
 - A ROM that doesn't say which phone it's for, or how new it is (some image kits), only gets an
-  image folder: a recovery couldn't check it safely.
+  image folder: a recovery couldn't check it safely. Image kits often only carry the chip platform's
+  build (for example `qti/canoe/canoe`), which many phones share, so that never counts as the phone.
 
 AERA's own "image zip" format isn't used for converted ROMs, because it can't check for a
 downgrade. AERA installs the recovery zip like any flashable zip.

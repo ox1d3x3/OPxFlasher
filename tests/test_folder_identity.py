@@ -34,7 +34,7 @@ def test_folder_identity_from_avb(tmp_path):
     assert rom.kind == "folder" and rom.codename == "OP5D55L1" and rom.product == "PKJ110"
     assert rom.android == "16" and rom.security_patch == "2026-08-01"
     assert rom.build_incremental == "V.R4T2.123456"
-    assert any("signed AVB data in vbmeta_system" in n for n in rom.notes)
+    assert any("signed AVB data in vbmeta_vendor" in n for n in rom.notes)  # the phone's own build first
     assert not any("can't be confirmed" in n for n in rom.notes)
 
 
@@ -84,3 +84,38 @@ def test_report_device_match_for_folder(tmp_path):
     dev.facts["codename"] = "dodge"
     match = next(c for c in pn.build_report(rom, dev).checks if c.name == "Device match")
     assert match.status == pn.BLOCK and "OP5D55L1" in match.detail
+
+
+def test_chip_platform_build_is_not_an_identity(tmp_path):
+    """OPPO kits: vbmeta_system carries Qualcomm's platform build (qti/canoe/canoe), shared by
+    many phones. It must never become the ROM's identity."""
+    d = tmp_path / "kit"
+    d.mkdir()
+    (d / "boot.img").write_bytes(b"\0" * 4096)
+    platform = "qti/canoe/canoe:16/BP2A.250605.015/1785253342920:user/release-keys"
+    (d / "vbmeta_system.img").write_bytes(rf.build_vbmeta(1, props={
+        "com.android.build.system.fingerprint": platform, "com.android.build.system.security_patch": "2026-08-01"}))
+    rom = open_rom(d)
+    assert rom.codename == "" and rom.product == "" and rom.fingerprint == ""
+    assert any("only names the chip platform (canoe)" in n for n in rom.notes)
+
+    # with the phone's own build next to it, that one is used
+    (d / "vbmeta_vendor.img").write_bytes(rf.build_vbmeta(1, props={
+        "com.android.build.vendor.fingerprint": FP_VENDOR, "com.android.build.vendor.security_patch": "2026-08-05"}))
+    rom = open_rom(d)
+    assert rom.codename == "OP5D55L1" and rom.product == "PKJ110" and rom.security_patch == "2026-08-05"
+    assert any("vbmeta_vendor" in n for n in rom.notes)
+
+
+def test_platform_only_kit_converts_to_a_folder_only(tmp_path):
+    from opx import convert as cv
+
+    d = tmp_path / "kit"
+    d.mkdir()
+    (d / "boot.img").write_bytes(b"\0" * 4096)
+    (d / "vbmeta_system.img").write_bytes(rf.build_vbmeta(1, props={
+        "com.android.build.system.fingerprint": "qti/canoe/canoe:16/X/1:user/release-keys",
+        "com.android.build.system.security_patch": "2026-08-01"}))
+    with pytest.raises(cv.ConvertError, match="doesn't say which phone"):
+        cv.convert(open_rom(d), tmp_path / "out")
+    assert (cv.convert(open_rom(d), tmp_path / "out", make_zip=False, make_folder=True)["folder"] / "boot.img").exists()

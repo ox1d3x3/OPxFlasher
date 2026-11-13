@@ -406,7 +406,8 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
     skipped = [i.partition for i in items if i.action == "skip"]
     if skipped:
         add("Protected partitions", INFO, "Will never be flashed: " + ", ".join(skipped))
-    for note in rom.notes:
-        add("ROM", WARN, note)
+    for note in rom.notes:  # facts about the package; problems among them are warnings
+        worry = any(w in note.lower() for w in ("can't", "incremental", "damaged", "more than one"))
+        add("ROM", WARN if worry else INFO, note)
 
     return Report(rom=rom_summary(rom), device=dict(dev.facts), checks=checks, items=items)

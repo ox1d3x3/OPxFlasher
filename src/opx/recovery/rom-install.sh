@@ -94,8 +94,10 @@ ROM_FP=$(value fingerprint)
 ui "ROM: $PRODUCT $BUILD"
 
 # --- 1. right phone ------------------------------------------------------------
+# Device codenames only: ro.product.board is the chip platform (sun, canoe ...),
+# shared by many phones, so it never counts.
 ok=""
-for p in ro.product.device ro.build.product ro.product.board ro.product.vendor.device; do
+for p in ro.product.device ro.build.product ro.product.vendor.device ro.product.odm.device; do
   have=$(prop "$p")
   [ -n "$have" ] || continue
   for b in $(sed -n 's/^board //p' "$TMP/list"); do
@@ -115,45 +117,57 @@ if [ -d "$METADATA/ota/snapshots" ] && [ -n "$(ls -A "$METADATA/ota/snapshots" 2
 fi
 
 # --- 3. what's installed: same variant, not newer than this ROM -------------------------
+# OPPO keeps the phone's own model and build in my_manifest / odm / vendor; system
+# often carries the chip platform's generic build, so all of them are read.
+: > "$TMP/installed.prop"
 if [ -n "$OPX_SYSTEM_PROP" ]; then
   cat "$OPX_SYSTEM_PROP" > "$TMP/installed.prop" 2>/dev/null
 else
   mkdir -p "$TMP/sys"
-  for dev in "$MAPPER/system$slot" "$BLOCK/system$slot"; do
-    [ -e "$dev" ] || continue
-    mount -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 \
-      || mount -t erofs -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 \
-      || mount -t ext4 -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 || continue
-    for f in "$TMP/sys/system/build.prop" "$TMP/sys/build.prop"; do
-      [ -f "$f" ] && { cat "$f" > "$TMP/installed.prop"; break; }
+  for part in my_manifest odm vendor product system_ext system; do
+    for dev in "$MAPPER/$part$slot" "$BLOCK/$part$slot"; do
+      [ -e "$dev" ] || continue
+      mount -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 \
+        || mount -t erofs -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 \
+        || mount -t ext4 -o ro "$dev" "$TMP/sys" >/dev/null 2>&1 || continue
+      for f in "$TMP/sys/build.prop" "$TMP/sys/etc/build.prop" "$TMP/sys/system/build.prop"; do
+        [ -f "$f" ] && cat "$f" >> "$TMP/installed.prop"
+      done
+      umount "$TMP/sys" >/dev/null 2>&1
+      break
     done
-    umount "$TMP/sys" >/dev/null 2>&1
-    [ -s "$TMP/installed.prop" ] && break
   done
 fi
-[ -s "$TMP/installed.prop" ] || abort "Can't read the installed Android's build (system$slot), so a downgrade can't be ruled out. Flash from the PC with OPxFlasher instead."
+[ -s "$TMP/installed.prop" ] || abort "Can't read the installed Android's build, so a downgrade can't be ruled out. Flash from the PC with OPxFlasher instead."
 
-HAVE_FP=$(bprop ro.system.build.fingerprint)
-[ -n "$HAVE_FP" ] || HAVE_FP=$(bprop ro.build.fingerprint)
-HAVE_TS=$(bprop ro.system.build.date.utc)
-[ -n "$HAVE_TS" ] || HAVE_TS=$(bprop ro.build.date.utc)
-HAVE_PATCH=$(bprop ro.build.version.security_patch)
-HAVE_PRODUCT=$(echo "$HAVE_FP" | cut -d/ -f2)
-[ -n "$HAVE_PRODUCT" ] || abort "Can't read the installed Android's model, so a region change can't be ruled out."
-[ "$HAVE_PRODUCT" = "$PRODUCT" ] || abort "This ROM is for $PRODUCT but the phone runs $HAVE_PRODUCT. Changing region needs a data wipe; use OPxFlasher on the PC."
+generic() { case "$(echo "$1" | cut -d/ -f1 | tr 'A-Z' 'a-z')" in qti|qcom|android|generic|mediatek|mtk|unisoc|sprd|aosp|"") return 0 ;; esac; return 1; }
+
+same_product=""; other=""; same_build=""
+for fp in $(sed -n 's/^ro\.\([a-z_]*\.\)\{0,1\}build\.fingerprint=//p' "$TMP/installed.prop"); do
+  generic "$fp" && continue
+  prod=$(echo "$fp" | cut -d/ -f2)
+  if [ "$prod" = "$PRODUCT" ]; then same_product=1; else other=$prod; fi
+  [ -n "$ROM_FP" ] && [ "$fp" = "$ROM_FP" ] && same_build=1
+done
+for key in ro.product.model ro.product.vendor.model ro.product.odm.model ro.product.product.model; do
+  [ "$(bprop "$key")" = "$PRODUCT" ] && same_product=1
+done
+[ -z "$other" ] || abort "This ROM is for $PRODUCT but the phone runs $other. Changing region needs a data wipe; use OPxFlasher on the PC."
+[ -n "$same_product" ] || abort "Can't confirm the phone runs $PRODUCT (its build data doesn't say), so a region change can't be ruled out. Use OPxFlasher on the PC."
 ui "- Same variant: $PRODUCT"
 
 num() { echo "$1" | tr -cd '0-9'; }
+# newest build date of any installed partition
+HAVE_TS=$(sed -n 's/^ro\.\([a-z_]*\.\)\{0,1\}build\.date\.utc=//p' "$TMP/installed.prop" | tr -cd '0-9\n' | sort -n | tail -n 1)
+HAVE_PATCH=$(sed -n 's/^ro\.\([a-z_]*\.\)\{0,1\}build\.version\.security_patch=//p' "$TMP/installed.prop" | tr -cd '0-9\n' | sort -n | tail -n 1)
 newer=""
-if [ -n "$ROM_TS" ] && [ -n "$(num "$HAVE_TS")" ]; then
-  [ "$(num "$ROM_TS")" -ge "$(num "$HAVE_TS")" ] && newer=1
+if [ -n "$same_build" ]; then
+  newer=1  # reinstalling the build that's installed
+elif [ -n "$ROM_TS" ] && [ -n "$HAVE_TS" ]; then
+  [ "$(num "$ROM_TS")" -ge "$HAVE_TS" ] && newer=1
   [ -n "$newer" ] || abort "This ROM is OLDER than the installed Android. Installing older software can blow the anti-rollback fuse and brick the phone for good. Stopped."
-elif [ -n "$ROM_PATCH" ] && [ -n "$(num "$HAVE_PATCH")" ]; then
-  if [ "$(num "$ROM_PATCH")" -gt "$(num "$HAVE_PATCH")" ]; then
-    newer=1
-  elif [ "$(num "$ROM_PATCH")" -eq "$(num "$HAVE_PATCH")" ] && [ -n "$ROM_FP" ] && [ "$ROM_FP" = "$HAVE_FP" ]; then
-    newer=1
-  fi
+elif [ -n "$ROM_PATCH" ] && [ -n "$HAVE_PATCH" ]; then
+  [ "$(num "$ROM_PATCH")" -gt "$HAVE_PATCH" ] && newer=1
   [ -n "$newer" ] || abort "Can't confirm this ROM is not older than the installed Android (anti-rollback fuse). Flash from the PC with OPxFlasher instead."
 else
   abort "Can't compare this ROM's age with the installed Android (anti-rollback fuse). Flash from the PC with OPxFlasher instead."

@@ -470,6 +470,14 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# brands of chip-platform (not phone) builds; their device field is the SoC platform (sun, canoe ...)
+GENERIC_BRANDS = {"qti", "qcom", "android", "generic", "mediatek", "mtk", "unisoc", "sprd", "aosp"}
+
+
+def is_generic_fingerprint(fp: str) -> bool:
+    return fp.split("/", 1)[0].strip().lower() in GENERIC_BRANDS
+
+
 # AVB properties the build system writes, e.g. com.android.build.system.fingerprint
 _AVB_PROP = re.compile(r"com\.android\.build\.(\w+)\.(fingerprint|security_patch)")
 
@@ -481,6 +489,7 @@ def _identity_from_avb(info: RomInfo) -> None:
     from opx.rom import avb
 
     found: dict[str, dict[str, str]] = {"fingerprint": {}, "security_patch": {}}
+    sources: dict[str, set[str]] = {}
     source = ""
     for name in ("vbmeta_system", "vbmeta_vendor", "vbmeta"):
         img = info.image(name)
@@ -495,22 +504,34 @@ def _identity_from_avb(info: RomInfo) -> None:
             if m and value:
                 found[m.group(2)].setdefault(m.group(1), value)
                 source = source or name
+                sources.setdefault(name, set()).add(m.group(1))
     fps = found["fingerprint"]
     if not fps:
         return
-    devices = {_fingerprint_part(fp, "device") for fp in fps.values()} - {""}
+    # chip-platform builds (qti/canoe/canoe...) are shared by many phones: never an identity
+    oem = {part: fp for part, fp in fps.items() if not is_generic_fingerprint(fp)}
+    if not oem:
+        platforms = sorted({_fingerprint_part(fp, "device") for fp in fps.values()} - {""})
+        info.notes.append(f"The images' signed build data only names the chip platform ({', '.join(platforms)}), "
+                          "which many phones share, so the phone and build can't be confirmed from the ROM.")
+        return
+    devices = {_fingerprint_part(fp, "device") for fp in oem.values()} - {""}
     if len(devices) != 1:
         info.notes.append("The images' signed build data names more than one device "
                           f"({', '.join(sorted(devices)) or 'none'}), so the device can't be confirmed.")
         return
-    fp = fps.get("system") or fps.get("vendor") or next(iter(fps.values()))
+    fps = oem
+    source = next((n for n in ("vbmeta_vendor", "vbmeta_system", "vbmeta") if n in sources and sources[n] & set(oem)),
+                  source)
+    fp = next((oem[k] for k in ("vendor", "odm", "product", "system") if k in oem), next(iter(oem.values())))
     info.metadata["post-build"] = fp
     # brand/product/device:release/id/incremental:type/tags
     incremental = fp.split(":")[1].split("/")[-1] if fp.count(":") >= 2 else ""
     if incremental:
         info.metadata["post-build-incremental"] = incremental
     patches = found["security_patch"]
-    patch = patches.get("system") or patches.get("vendor") or next(iter(patches.values()), "")
+    patch = next((patches[k] for k in ("vendor", "odm", "product", "system") if k in patches and k in fps),
+                 next((v for k, v in patches.items() if k in fps), ""))
     if patch:
         info.metadata["post-security-patch-level"] = patch
     info.notes.append(f"No OTA metadata: device and build read from the signed AVB data in {source} ({fp}).")

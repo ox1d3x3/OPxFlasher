@@ -33,7 +33,15 @@ from pathlib import Path
 
 from opx import __version__, lp
 from opx.flash import AVB_ORDER_LAST
-from opx.rom.ota import FULLROM_JSON, RomError, RomImage, RomInfo, materialize, sha256_file
+from opx.rom.ota import (
+    FULLROM_JSON,
+    RomError,
+    RomImage,
+    RomInfo,
+    is_generic_fingerprint,
+    materialize,
+    sha256_file,
+)
 
 CHUNK = 1 << 30
 FORMAT = "opxflasher-fullrom"
@@ -129,7 +137,7 @@ def plan(rom: RomInfo) -> Plan:
     p = Plan(items, skipped)
     p.boards = list(dict.fromkeys(b for b in [rom.codename, *prof.recovery_boards] if b))
     meta = rom.metadata
-    if not (rom.codename and rom.product):
+    if not (rom.codename and rom.product) or is_generic_fingerprint(rom.fingerprint):
         p.recovery_ok, p.recovery_problem = False, (
             "the ROM doesn't say which phone it's for, so a recovery couldn't check it")
     elif not (meta.get("post-timestamp", "").isdigit() or rom.security_patch):

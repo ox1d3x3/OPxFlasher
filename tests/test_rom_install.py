@@ -185,7 +185,7 @@ def test_security_patch_comparison_when_no_dates(tmp_path):
 
     for installed, ok in ((("2026-07-01", "other"), True), (("2026-08-01", fp), True),
                           (("2026-08-01", "OnePlus/PJZ110/dodge:16/X/U.0:user/release-keys"), False),
-                          (("2026-09-01", fp), False)):
+                          (("2026-09-01", "other"), False)):  # a newer, different build is installed
         case = tmp_path / f"case-{installed[0]}-{ok}-{len(installed[1])}"
         case.mkdir()
         fp_installed = installed[1] if "/" in installed[1] else "OnePlus/PJZ110/dodge:16/X/U.0:user/release-keys"
@@ -197,3 +197,45 @@ def test_security_patch_comparison_when_no_dates(tmp_path):
         if ok:  # 'auto' images: boot found as a physical partition, my_region inside super
             assert "resize my_region_a 4096" in phone.log.read_text()
             assert (phone.block / "boot_a").read_bytes().startswith((src / "boot.img").read_bytes())
+
+
+# --- OPPO's real layout: system carries the chip platform's generic build ------------------
+
+ROM_FP = "OnePlus/PJZ110/dodge:16/BP2A.250605.015/U.1:user/release-keys"
+GENERIC = {"ro.system.build.fingerprint": "qti/sun/sun:16/BP2A.250605.015/1:user/release-keys",
+           "ro.system.build.date.utc": "1780000000"}
+
+
+@pytest.mark.parametrize("installed, ok, message", [
+    # my_manifest / odm say which phone it is
+    ({**GENERIC, "ro.build.fingerprint": "OnePlus/PJZ110/dodge:16/X/U.0:user/release-keys"}, True, None),
+    ({**GENERIC, "ro.product.model": "PJZ110"}, True, None),
+    # only the chip platform: can't tell the variant
+    (GENERIC, False, "Can't confirm the phone runs PJZ110"),
+    # another variant anywhere -> no
+    ({**GENERIC, "ro.product.model": "PJZ110", "ro.odm.build.fingerprint": "OnePlus/CPH2653/x:16/X/U:user/k"},
+     False, "the phone runs CPH2653"),
+    # newest installed partition decides the age
+    ({**GENERIC, "ro.product.model": "PJZ110", "ro.vendor.build.date.utc": "1795000000"},
+     False, "OLDER than the installed Android"),
+    # the same build again, even with a partition dated after the ROM's own date
+    ({**GENERIC, "ro.build.fingerprint": ROM_FP, "ro.vendor.build.date.utc": "1795000000"}, True, None),
+])
+def test_oppo_layout(rom_zip, tmp_path, installed, ok, message):
+    z, parts = rom_zip
+    base = {k: None for k in INSTALLED}
+    phone = Phone(tmp_path, parts, installed={**base, **installed})
+    before = phone.snapshot()
+    code, out = phone.install(z)
+    assert (code == 0) == ok, out
+    if not ok:
+        assert message in out and "Nothing was written." in out
+        assert phone.snapshot() == before
+
+
+def test_chip_platform_board_is_not_the_phone(rom_zip, tmp_path):
+    z, parts = rom_zip
+    # a different phone with the same chip: only ro.product.board would have matched
+    phone = Phone(tmp_path, parts, props={"ro.product.device": "OP5D2BL1", "ro.product.board": "dodge"})
+    code, out = phone.install(z)
+    assert code == 1 and "this phone is 'OP5D2BL1'" in out
