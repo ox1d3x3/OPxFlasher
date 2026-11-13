@@ -1,0 +1,23 @@
+name: Phone support
+description: Ask for (or help add) support for another OnePlus / OPPO phone
+labels: [device]
+body:
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and model numbers
+      placeholder: OnePlus 12 — PJD110 (China), CPH2581 (EU) ...
+    validations:
+      required: true
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `opx info` and `opx partitions --all`
+      description: Remove the serial number first.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help test?
+      options:
+        - label: I can run backups and ROM checks on this phone
+        - label: I can share an official full OTA link for it

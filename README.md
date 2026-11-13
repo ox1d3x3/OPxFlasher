@@ -6,450 +6,165 @@
 </h1>
 
 <p align="center">
-  <b>AIO tool for OnePlus / OPPO devices.</b><br>
-  Backup, ROM check, flashing, signal restore and root. Windows, Linux and macOS; GUI and command line.
+  <b>AIO tool for OnePlus / OPPO devices</b><br>
+  Back up, check, flash, restore and rescue your phone, with checks that stop a bad flash before it starts.
 </p>
 
 <p align="center">
-  <a href="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/ci.yml"><img src="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ox1d3x3/OPxFlasher/releases"><img src="https://img.shields.io/github/v/release/ox1d3x3/OPxFlasher?include_prereleases&sort=semver&label=latest&color=D6322C" alt="Latest release"></a>
+  <a href="https://github.com/ox1d3x3/OPxFlasher/releases"><img src="https://img.shields.io/github/downloads/ox1d3x3/OPxFlasher/total?label=downloads&color=2ea44f" alt="Downloads"></a>
+  <a href="https://github.com/ox1d3x3/OPxFlasher/releases"><img src="https://img.shields.io/github/release-date-pre/ox1d3x3/OPxFlasher?label=released" alt="Release date"></a>
+  <a href="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ox1d3x3/OPxFlasher/ci.yml?branch=main&label=tests" alt="Tests"></a>
+  <a href="https://github.com/ox1d3x3/OPxFlasher/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ox1d3x3/OPxFlasher/build.yml?branch=main&label=build" alt="Build"></a>
+  <br>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-1C1F26" alt="Platforms">
+  <img src="https://img.shields.io/badge/python-3.10%2B-1C1F26" alt="Python 3.10+">
+  <a href="#verify-your-download"><img src="https://img.shields.io/badge/builds-signed%20(Sigstore)-1C1F26" alt="Signed builds"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ox1d3x3/OPxFlasher?color=1C1F26" alt="Licence"></a>
 </p>
 
-> Status: **all five phases** – backup, ROM check, guarded flashing, region conversion / signal restore, root assistant.
-> Tested against a simulated phone only so far. Treat flashing as experimental until it has been run on real hardware.
+<p align="center">
+  <a href="#download"><b>Download</b></a> ·
+  <a href="docs/USER_GUIDE.md"><b>User guide</b></a> ·
+  <a href="docs/CLI.md"><b>Command line</b></a> ·
+  <a href="#supported-phones"><b>Supported phones</b></a> ·
+  <a href="https://github.com/ox1d3x3/OPxFlasher/issues"><b>Report a problem</b></a>
+</p>
 
-OPxFlasher was born after a OnePlus 13 (CN) got stuck on a ColorOS 17 release
-candidate and needed an EDL reflash. The goal is a flasher that refuses to do
-anything it cannot prove is safe, and that makes a verified backup of the
-partitions you can never get back before anything else happens.
+<p align="center">
+  <img src="assets/screenshots/backup.png" alt="OPxFlasher: the Backup tab with a connected OnePlus 13" width="860">
+</p>
 
-## Principles
+---
 
-- **Fail closed.** If a check can't confirm something is safe, the tool stops.
-- **Read-only by design.** The backup module can only run a small allow-list of
-  read-only commands on the phone (`getprop`, `ls`, `blockdev --getsize64`,
-  `sha256sum`, `dd if=` with no `of=`). Anything else is rejected before it is sent.
-- **Verify everything.** Each image is hashed on the PC while it downloads and
-  compared with `sha256sum` run on the phone.
-- **Warn about known-bad firmware**, e.g. ColorOS 17 CN builds where rebooting to
-  fastboot has bricked phones.
+## Why OPxFlasher
 
-## Phase 1: Backup
+Flashing a OnePlus or OPPO phone usually means a folder of scripts, a ROM you hope is the
+right one, and no way back if it isn't. OPxFlasher puts every step in one app, from backup
+and ROM checks to flashing and recovery. Before anything is written, it checks that the
+firmware fits **your** phone and that you have a verified backup to return to.
 
-| Mode | What it reads |
+- **Fail closed.** If a check can't confirm something is safe, OPxFlasher stops and tells you why.
+- **Your data stays yours.** `userdata`, its encryption metadata and the Google account lock are
+  never backed up and never flashed. Identity partitions (IMEI, calibration) are never written.
+- **Verified end to end.** Every image is hashed on the phone and on the PC, and re-checked right
+  before it's written.
+- **Nothing in the background.** No telemetry; the app only goes online when you ask it to.
+
+## Features
+
+| | |
 |---|---|
-| **Network essentials** | `oplusstanvbk_a/b`, `my_region` – the files that carry region / signal setup |
-| **Critical** (default) | Network + `persist*`, `modemst1/2`, `fsg`, `fsc`, `ocdt`, `devinfo`, `oplusreserve*` – IMEI, calibration and device identity |
-| **Full firmware** | The whole Android OS: every physical partition (`super` includes all logical partitions), **none of your personal data** |
+| **Backup** | Network essentials, Critical (identity and calibration) or the whole OS. Hash-verified, with empty space stored as holes so Full backups stay small. |
+| **ROM check** | Dry run of any full OTA, `payload.bin` or image folder against the phone: device, variant, known-bad firmware, AVB and Qualcomm anti-rollback, partition sizes. |
+| **Guarded flashing** | Flashes only when every check passes, with a verified backup selected. Resumable journal; `super.img` from the bootloader where fastbootd is unsafe. |
+| **Anti-rollback fuse guard** | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501+: never flashes a build older than the one installed, because that blows a hardware fuse. |
+| **Full ROM restore** | Put a Full backup back from the PC, or make a recovery zip for **AERA** or **OrangeFox / TWRP**. |
+| **Region & signal** | Convert regions and restore the phone's own signal files from its backup. |
+| **Root assistant** | Magisk, KernelSU or APatch: matching stock image, patch on the phone, checked flash, unroot. |
+| **Everyday tools** | Reboot buttons, single-image flashing, official ROM downloads, debloat (reversible), logs with problem hints, partition explorer. |
+| **Rescue** | *Phone won't start?* works out the phone's state (fastboot, recovery, boot loop, 9008 ...) and walks you through what to try. |
 
-Empty space isn't stored: runs of zeros (a lot of `super`) are left as holes in the image
-files, so a Full backup takes far less disk than the phone's partitions add up to, while
-every file still reads back byte-for-byte (and hashes) the same. A Full backup is refused
-while an OTA update is still being applied or merged, because `super` is half old, half new
-until it finishes.
+<p align="center">
+  <img src="assets/screenshots/apps.png" alt="Apps tab: reversible debloat" width="49%">
+  <img src="assets/screenshots/diagnostics.png" alt="Diagnostics tab: logs and partition explorer" width="49%">
+</p>
+<p align="center"><sub>Screenshots taken with OPxFlasher's built-in phone simulator.</sub></p>
 
-Your personal data is never backed up, in any mode: `userdata` (apps, photos,
-files), `metadata` (its encryption data) and `frp` (Google account lock) are always
-skipped. This is built into the code, so a device profile can't change it.
+## Download
 
-Backups need **root**: either a rooted system (Magisk / KernelSU / APatch, with root
-granted to *Shell*) or a custom recovery with root ADB. Bootloader fastboot cannot
-read partitions, so it is only used for information.
+Get the newest build from the **[Releases page](https://github.com/ox1d3x3/OPxFlasher/releases)**.
 
-Each backup folder contains the `.img` files, a `manifest.json` (device, build,
-slot, sizes, hashes, verification status) and a standard `SHA256SUMS` file.
+| Platform | File | How to run |
+|---|---|---|
+| **Windows 10 / 11** (x64) | `OPxFlasher-<version>-windows-x64.exe` | Double-click. SmartScreen may warn because the file isn't code-signed: *More info → Run anyway*. |
+| **Linux** (x86-64) | `OPxFlasher-<version>-linux-x86_64.AppImage` | `chmod +x OPxFlasher-*.AppImage`, then run it. If FUSE is missing, install `libfuse2`. |
+| **macOS** and any OS with Python | via [pipx](https://pipx.pypa.io) | `pipx install "opxflasher[gui,zstd] @ git+https://github.com/ox1d3x3/OPxFlasher"`, then `opxflasher`. |
 
-## Phase 2: ROM check (dry run)
+Both portable files are single, self-contained programs: no installer, no admin rights.
+The `opx` command-line tool comes with the pipx install.
 
-Point OPxFlasher at a firmware package and it tells you whether it is safe to
-flash on **this** phone, and exactly what would be written where. Nothing is flashed.
+**adb and fastboot:** not bundled. If they aren't already installed, run `opx tools fetch` to
+download Google's platform-tools, or put the `platform-tools` folder next to the app.
+On macOS, `brew install android-platform-tools` also works.
 
-- Reads **full OTA zips**, `payload.bin` and **folders of `.img` files**.
-  Incremental OTAs are refused.
-- Extracts any image from an OTA (hash-verified) – handy for `init_boot` when rooting.
-- Compares the ROM with the **connected phone** (read-only) or a **backup folder**:
+### Verify your download
 
-| Check | Blocks when |
+Every release file is signed by GitHub's build service ([Sigstore](https://www.sigstore.dev)).
+With the [GitHub CLI](https://cli.github.com):
+
+```sh
+gh attestation verify OPxFlasher-<version>-windows-x64.exe --repo ox1d3x3/OPxFlasher
+```
+
+This confirms the file was built from this repository by its release workflow and hasn't been
+changed since. Alternatively, compare its SHA-256 with `SHA256SUMS.txt` in the release
+(Windows: `certutil -hashfile <file> SHA256`, Linux / macOS: `sha256sum <file>`).
+
+## Quick start
+
+1. **Prepare the phone.** Turn on *USB debugging* (Developer options) and connect it. Backups
+   and partition reads need root (Magisk, KernelSU or APatch) or a custom recovery.
+2. **Back up first.** Open the app, choose **Critical** (or **Full firmware** for an offline
+   copy of the whole OS) and press **Start backup**. Every image is verified.
+3. **Check the ROM.** On the **ROM check** tab, pick an OTA zip (or **Official ROMs...** to
+   download one). Nothing is flashed; you see exactly what would be written where.
+4. **Flash.** If every check passes, **Flash...** asks for your backup and for you to type
+   `FLASH`. Each step is journaled, so an interrupted flash can resume.
+5. **If something goes wrong,** press **Phone won't start?**. It tells you which state the
+   phone is in and what to do next, including restoring from your backup.
+
+The full walkthrough of every feature is in the **[user guide](docs/USER_GUIDE.md)**.
+
+## Supported phones
+
+| Phone | Models | Status |
+|---|---|---|
+| **OnePlus 13** | PJZ110 (China), CPH2653 (EU), CPH2655 (NA), CPH2649 (India) | Full profile: backup, ROM check, flashing, restore zips (AERA board `dodge`), fuse guard |
+| **OnePlus 13T / 13s** | PKX110 (China), CPH2723 (India) | New profile: backup, ROM check, fuse guard |
+| **OnePlus 15** | PLK110 (China), CPH2747 (Global) | New profile: backup, ROM check, fuse guard |
+| Other OnePlus / OPPO | — | Generic profile: backup and ROM check |
+
+Until the Qualcomm anti-rollback reader has been validated against real firmware for a phone,
+flashing asks you to confirm the numbers yourself (`ARB CHECKED`). Phones are described by
+small JSON profiles; to add yours, see **[Adding a device](docs/ADDING_A_DEVICE.md)**.
+
+## Project status
+
+OPxFlasher is in the **0.7.0 release-candidate** phase: every update is published as a
+pre-release (`v0.7.0-rc.N`) with signed builds, and the app's title shows the exact build.
+All features are covered by an automated test suite of nearly 300 tests, run on Windows,
+Linux and macOS against a simulated phone and synthetic firmware. Validation on real
+OnePlus 13 hardware comes before the final 0.7.0 release.
+
+## Documentation
+
+| | |
 |---|---|
-| Package | the OTA is incremental, or can't be identified as full |
-| Device match | the ROM's device codename differs from the phone's (e.g. an OnePlus 13 ROM on an OnePlus 15) |
-| Variant | the ROM is for another variant of the same phone (e.g. CN PJZ110 vs EU CPH2653). You can go ahead by confirming it: tick *Yes, I want to flash this other variant* in the app (it starts unticked), or `--accept-variant-change` and typing CHANGE VARIANT on the command line. It's a region change, so a data wipe is required and your own signal files are restored |
-| Known issue | the phone's current firmware is known to be dangerous (e.g. ColorOS 17 CN fastbootd) |
-| AVB rollback | the ROM's `vbmeta` rollback index is lower than the phone's |
-| Qualcomm ARB | the ROM's anti-rollback version is lower than the phone's, **or the reader isn't validated yet** |
-| Rollback fuse | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501 or later: the ROM (or backup) is **older than the installed build**, or its age can't be told. Installing an older build there blows a hardware fuse that nothing repairs, so this can't be overridden |
-| Sizes | an image is bigger than its partition, or the dynamic groups don't fit in `super` |
+| [User guide](docs/USER_GUIDE.md) | Every feature: backup, ROM check, flashing, restore, region, root, rescue, apps, diagnostics |
+| [Command-line reference](docs/CLI.md) | All `opx` commands |
+| [Adding a device](docs/ADDING_A_DEVICE.md) | Write and test a profile for a new phone |
+| [Translating](docs/TRANSLATING.md) | Translate the app into your language |
+| [Contributing](CONTRIBUTING.md) | Development setup, tests and pull requests |
+| [Security](SECURITY.md) | Reporting a vulnerability |
 
-`persist`, `modemst*`, `fsg`, `ocdt`, `devinfo`, `oplusreserve*`, `userdata`,
-`metadata` and `frp` are always skipped. `oplusstanvbk`, `my_region` and `odm` are marked **optional** (region /
-signal files), to be restored from your own backup.
+## Contributing
 
-> **Qualcomm ARB is experimental.** The reader has not been validated against real
-> OnePlus 13 firmware yet, so for now it always blocks and shows the raw numbers.
-> Use `opx rom arb <image>` to compare them with values the community already knows;
-> once confirmed, the profile is switched on.
+Bug reports, device profiles, translations and debloat lists are all welcome. When reporting a
+problem, attach the zip from **Export log...** (serial numbers are hidden). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup.
 
-## Phase 3: Guarded flashing
+## Credits
 
-Flashing only starts when **every** gate passes:
+OPxFlasher is an independent, clean-room project, built on the groundwork of the OnePlus / OPPO
+modding community: koaaN's Flasher_Builder, Daniel Springer's SuperFlasher and OTA catalog,
+docnok63, Jonas Salo, FTH PHONE 1902, Venkayy, the AERA Recovery Project and many more.
+See [CREDITS.md](CREDITS.md).
 
-1. The ROM check has no blocking result. The single exception is the *unvalidated*
-   Qualcomm ARB reader, which you can override only by typing `ARB CHECKED` after
-   checking the numbers yourself. A lower ARB, a lower AVB index, a different
-   device or an incremental OTA can never be overridden.
-2. A verified **Critical or Full backup of this phone** is selected (same serial and model).
-3. The phone's current firmware is not known to break the reboot that is needed.
-   On ColorOS 17 CN, OPxFlasher refuses to reboot to the bootloader or fastbootd at all.
-4. You type `FLASH`.
+## Licence
 
-How it flashes:
+OPxFlasher is free software, released under the [GNU General Public License v3.0 or later](LICENSE).
 
-- Images are extracted and hash-checked **before** the phone is rebooted.
-- Physical partitions go to **both slots** from the bootloader; `vbmeta` is written last.
-- Logical partitions come from a `super.img` (flashed from the bootloader, no fastbootd),
-  or through fastbootd only if you allow it and the firmware isn't flagged.
-- Never-flash partitions are refused again at the moment of writing.
-- Every step is saved to `journal.json`. The run stops at the first error, and
-  `opx flash --resume journal.json` continues without repeating finished steps.
-  **Stop** waits for the current step; a running write is never interrupted.
-- Optional: factory reset (`--wipe`), stay in bootloader (`--no-reboot`),
-  flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
-
-## Phase 4: Region conversion and signal restore
-
-Converting a phone to another region (for example a Chinese OnePlus 13 to an
-Indian OxygenOS build) usually breaks mobile signal, because the new firmware's
-region files don't match the phone's modem setup. OxygenOS updates can break it
-again later by replacing those files.
-
-**Conversion mode.** When the ROM is for a different region/variant of the same
-device, OPxFlasher:
-
-- requires a data wipe (the phone wouldn't boot with the old data),
-- flashes the new firmware, then writes the phone's **own** `oplusstanvbk`
-  (both slots) and `my_region` back **from your backup**, so the modem keeps the
-  setup that works with your SIM.
-
-**Signal restore on its own** (no ROM), for after an update took the signal away:
-the *Signal / region* tab or `opx region restore`.
-
-Rules that always apply:
-
-- Only region files (`oplusstanvbk`, `my_region`, `odm`) can be restored. Identity
-  partitions (`persist`, `modemst*`, `fsg`, `ocdt` ...) never are.
-- The backup must be from this same phone, and **every image is re-hashed against
-  its manifest before anything is written**. One mismatch and nothing is touched.
-- `my_region` lives inside `super`, so restoring it needs fastbootd (which is refused
-  on firmware known to break it).
-- A file can't come from both the ROM and your backup in the same run.
-
-## Phase 5: Root assistant
-
-Patching is done by your root app on the phone (Magisk, KernelSU or APatch), as
-those projects recommend. OPxFlasher handles the error-prone parts around it:
-
-1. **Stock image that matches the running build.** It's taken from a full OTA
-   whose build fingerprint must equal the phone's, or from a Full backup made on
-   the same build. A mismatched `init_boot` is the classic bootloop, so anything
-   else is refused. Magisk and KernelSU use `init_boot`; APatch uses `boot`.
-2. **Sent to the phone** as `Download/opx_stock_<partition>.img` for you to patch.
-3. **Found, pulled and checked**: a valid boot image, same header version as stock,
-   and actually different from stock.
-4. **Flashed to the current slot only**, behind the usual gates (verified backup,
-   known-bad firmware block, typed `ROOT`). The image is re-hashed right before writing.
-5. **Unroot** writes the stock image back the same way (typed `UNROOT`).
-
-After an OTA, run the same steps with the new build's full OTA.
-
-## Install
-
-### Windows and Linux: one file, nothing to install
-
-Download from the [latest release](https://github.com/ox1d3x3/OPxFlasher/releases/latest):
-
-- **Windows:** `OPxFlasher-<version>-windows-x64.exe`. Double-click to run. The file
-  isn't code-signed yet, so Windows SmartScreen may say "Windows protected your PC":
-  choose *More info → Run anyway*.
-- **Linux:** `OPxFlasher-<version>-linux-x86_64.AppImage`. Make it executable once
-  (`chmod +x OPxFlasher-*.AppImage`, or tick "Allow executing" in file properties),
-  then double-click it. Works on most distributions from 2022 onwards. If it says FUSE
-  is missing, install `libfuse2` or run it with `--appimage-extract-and-run`.
-
-The command-line tool `opx` isn't in these files; install with pip (below) for that.
-
-**Check your download.** Release files are signed by GitHub's build service: with the
-[GitHub CLI](https://cli.github.com), `gh attestation verify <file> --repo ox1d3x3/OPxFlasher`
-confirms the file was built from this repository by its release workflow and hasn't been
-changed. Without it, compare the file's SHA-256 with `SHA256SUMS.txt` in the release
-(Windows: `certutil -hashfile <file> SHA256`, Linux: `sha256sum <file>`).
-
-Every update is published as a **release candidate** (`v0.7.0-rc.1`, `-rc.2`, ...),
-marked pre-release on GitHub; the app's title shows the exact build. Final releases
-are published when a version is ready.
-
-### macOS (and any system with Python)
-
-Requires Python 3.10+ and [pipx](https://pipx.pypa.io) (`brew install pipx`):
-
-```sh
-pipx install "opxflasher[gui,zstd] @ git+https://github.com/ox1d3x3/OPxFlasher"
-opxflasher        # the app
-opx --help        # the command line
-```
-
-Update later with `pipx upgrade opxflasher`. On Linux and Windows the same command works
-if you prefer it to the portable files.
-
-From a checkout instead: `python -m pip install ".[gui,zstd]"`.
-
-### adb and fastboot
-
-OPxFlasher doesn't ship Google's platform-tools (adb + fastboot). If they aren't on your
-PATH, download them once:
-
-```sh
-opx tools fetch     # downloads Google's official platform-tools (Google's terms apply)
-opx tools where     # shows which adb/fastboot will be used
-```
-
-With the portable files you can also put Google's `platform-tools` folder next to the
-`.exe` / `.AppImage`. On macOS, `brew install android-platform-tools` works too.
-
-## Everyday helpers
-
-- **Phone panel:** model and variant (e.g. *OnePlus 13 China (PJZ110)*), build, Android,
-  security patch, active slot, bootloader locked/unlocked, root access and this phone's
-  **last backup** (or a reminder to make one before flashing).
-- **Export log...** (under the tabs): saves the log, app/OS versions, phone details and the
-  last flash journals as a zip for a GitHub issue. Serial numbers are hidden.
-- **Check for updates:** asks GitHub for newer releases (including release candidates) only
-  when you click it. OPxFlasher sends nothing on its own.
-- **Phone not showing up?** (phone panel, or `opx usb-check`): on Windows it finds a
-  OnePlus / OPPO phone with a missing or broken USB driver and says how to fix it; on Linux
-  it checks your user may open the phone (udev rules / `plugdev`). It also spots a phone
-  stuck in Qualcomm 9008 (EDL) mode. It only looks; nothing is installed.
-
-## Phone won't start?
-
-**Phone won't start?** (phone panel, or `opx rescue`) looks at what's connected and works out
-the phone's state: fastboot, fastbootd, recovery, Android stuck while starting, ADB not
-allowed, Qualcomm 9008 (EDL), or nothing at all. It then lists what to try, in order, each
-with a button: restart, recovery, restore the full ROM from your backup, make a recovery zip,
-download the official ROM, save logs, USB check.
-
-**9008 (EDL) identify** (`opx edl-info`): a phone stuck in 9008 is only running the chip's
-emergency loader. OPxFlasher can read its chip serial, hardware ID, OEM key hash and boot ROM
-version over Qualcomm's Sahara protocol. That's read-only: no loader is sent and nothing is
-written. EDL *flashing* isn't included. On OnePlus / OPPO it needs OnePlus's signed loader
-and their authorisation, which only authorised service centres have. Windows needs the
-"Qualcomm HS-USB QDLoader 9008" driver for this; on Linux add yourself to the `dialout` group.
-
-## Apps (debloat)
-
-The **Apps** tab (or `opx apps`) removes system apps you don't use, **for your user only**:
-nothing on the system partition changes, **Restore** puts an app back at any time, and a
-factory reset brings everything back. No root needed. Apps Android can't run without
-(System UI, Settings, the phone app, the package installer, ...) are locked, and a device
-profile can lock more (`keep_apps`).
-
-- Remove or restore selected apps; **Restore all I removed** undoes everything OPxFlasher removed on this phone.
-- Share lists: **Save my list...** writes what you removed (one package per line); **Remove from list...** applies someone else's list, skipping anything locked or not on your phone.
-- Command line: `opx apps list [--removed] [--search X]`, `opx apps remove <pkg>... | --from list.txt`,
-  `opx apps restore <pkg>... | --all`, `opx apps export list.txt`.
-
-## Diagnostics
-
-- **Save phone logs...** (`opx logs`): Android log, kernel log and the log of the last crash or
-  unexpected reboot (`/sys/fs/pstore`), plus the phone's properties, in one zip for a bug report.
-  Serial numbers are hidden. Kernel and crash logs need root.
-- **Known problems:** after saving, and with **Read a logs zip...** (`opx logs --read <zip>`) for
-  logs saved earlier, OPxFlasher looks for well-known messages and says what they usually mean:
-  kernel panic, verified boot / dm-verity rejecting a partition, system partitions or `/data`
-  that won't mount, zygote or system_server crash loops, an unfinished update, a modem crash,
-  and the last restart reason. They're hints, not a diagnosis; `findings.txt` in the zip has
-  the matching lines.
-- **List partitions** (`opx partitions --all`, `--csv file`): every partition with its size, slot
-  and role (running slot, other slot, inside super, phone identity, your data). Read-only, needs root.
-
-## Add your phone
-
-Built in: **OnePlus 13** (PJZ110 China, CPH2653 EU, CPH2655 NA, CPH2649 India), **OnePlus 13T /
-13s** (PKX110 China, CPH2723 India) and **OnePlus 15** (PLK110 China, CPH2747 Global). The 13T / 13s
-and 15 profiles are new and untested on real phones: backups, ROM checks and the rollback-fuse guard
-work; as on the OnePlus 13 for now, flashing asks you to confirm the anti-rollback numbers yourself
-(`ARB CHECKED`). Other OnePlus / OPPO phones use a generic profile.
-
-Phones are described by small JSON **device profiles**. To add yours, write a profile,
-check it with `opx profile check my-phone.json`, and install it with
-`opx profile install my-phone.json` (it goes to your own profiles folder; built-in profiles
-can't be replaced). New profiles start in check-only mode until flashing is confirmed on a
-real phone. See [docs/ADDING_A_DEVICE.md](docs/ADDING_A_DEVICE.md), and share working
-profiles in a pull request.
-
-## Translations
-
-All app text can be translated. Copy `src/opx/locales/template.json` to your language code
-(e.g. `de.json`), fill in what you can, and drop it in your `locales` folder or send a pull
-request. Untranslated text stays English. See [docs/TRANSLATING.md](docs/TRANSLATING.md).
-
-## Restore the whole ROM from a backup
-
-A **Full firmware** backup is an offline copy of your phone's whole Android OS (never your
-personal data). If the ROM breaks, put it back:
-
-- **App:** Backup tab → **Restore full ROM...** → choose the backup folder.
-- **Command line:** `opx restore-rom <backup-folder>` (add `--dry-run` to only see the checks).
-
-The backup is checked like any ROM (phone, variant, known bad firmware, anti-rollback,
-sizes), then written from the bootloader: firmware and boot images of the slot that was
-active at backup time, then `super` (system, vendor, my_region, ...), then vbmeta.
-Identity partitions and your data are never written.
-
-- Only restores to **the phone it came from** (serial must match).
-- Going back to an **older build** than the one installed needs a data wipe.
-- If the phone **can't boot**, put it in fastboot. OPxFlasher then can't read the phone's
-  current firmware, so you confirm it hasn't installed an update since the backup
-  (`--not-updated`). Restoring older firmware over a newer anti-rollback version can
-  hard-brick a phone.
-
-### Restore without a PC: recovery zip
-
-OPxFlasher can turn a Full firmware backup into a zip you flash in recovery, for
-[AERA Recovery](https://aera-recovery.com) (OnePlus 13: *dodge*) or for OrangeFox / TWRP:
-
-- **App:** Backup tab → **Make recovery zip...** → pick the recovery → choose the backup.
-- **Command line:** `opx restore-zip <backup-folder> --out <folder> [--recovery aera|orangefox]`
-  (`--compress` for a smaller file).
-
-**OrangeFox / TWRP zip:** a normal flashable zip with its own installer. Before writing anything
-it checks the phone's board, **serial number** and active slot match the backup, that no system
-update is half-applied, and that the bootloader firmware (`xbl_config`, `abl`) hasn't changed
-since the backup, so an older backup can't trip anti-rollback. Then it verifies every file in the
-zip, writes the firmware images to the current slot and the whole backed-up `super` partition, and
-reads it all back. If a check fails, nothing is written.
-
-**AERA zip:** uses the standard image-zip layout AERA installs natively: `android-info.txt`
-(phone board), the backup's firmware and boot images, one image per partition inside
-`super` (system, vendor, my_region, ...) and `super_empty.img`. AERA refuses it on another
-phone model, checks every image, rebuilds only the current slot inside `super`, and compares
-anti-rollback with the phone before writing.
-
-**It's only for the phone the backup came from.** AERA can't check the serial number, so the
-zip's name includes it. Identity partitions and your data are never in the zip.
-
-## Reboot and flash one image
-
-**Reboot buttons** (phone panel) and `opx reboot system|bootloader|fastbootd|recovery`
-work from Android, recovery, the bootloader or fastbootd. On firmware known to brick on
-those reboots (ColorOS 17 CN: fastbootd and the bootloader) the buttons are disabled with
-the reason. From the bootloader OPxFlasher can't see the build, so Fastbootd asks first.
-
-**Flash image** tab and `opx flash-image <partition> <file.img> --backup <folder>`
-flash a single image, such as a recovery, a (patched) boot or init_boot, vendor_boot,
-dtbo or vbmeta, to the current slot, the other slot or both.
-It refuses partitions holding the phone's identity or your data, partitions inside
-`super` (use a full ROM flash), files of the wrong type (e.g. a vbmeta into boot), images
-bigger than the partition, and firmware with a broken bootloader. `--disable-verity`
-(vbmeta only) flashes with verity and verification off. As for every flash, a Critical or
-Full backup of this phone is required, the image is re-hashed right before writing, and
-you confirm by typing FLASH. If the phone is already in fastboot, the backup tells
-OPxFlasher which phone it is.
-
-## Official ROMs
-
-OPxFlasher can find and download official OTA packages for your phone, using the
-public [OTA catalog by Daniel Springer](https://roms.danielspringer.at) (thank you!).
-Packages come straight from OPPO / OnePlus servers; OPxFlasher checks the size and MD5
-(when the catalog has them) and that it's a real zip, then runs the usual ROM check.
-
-- **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
-  own model are listed first; other variants (regions) are marked and ask before
-  downloading, because flashing them changes the region and needs a data wipe.
-- **Command line:**
-  ```sh
-  opx ota list                      # ROMs for the connected phone
-  opx ota list --model PJZ110       # or any model number
-  opx ota download --id <id> --out ~/Downloads
-  ```
-
-Catalog answers are cached, and OPxFlasher only asks the catalog when you open it.
-
-## Use
-
-**GUI:** run `opxflasher` (or `opx gui`). Pick the phone, choose a mode, press
-**Preview** to see exactly what will be read, then **Start backup**.
-
-**Command line:**
-
-```sh
-opx devices                                  # list connected phones
-opx info                                     # model, build, slot, root access, warnings
-opx partitions --mode critical               # preview what a backup would read
-opx backup --mode critical --out backups     # make the backup
-opx backup --mode full --dry-run             # plan only, reads nothing
-opx verify backups/<folder>                  # re-check a backup offline
-
-opx rom inspect ROM.zip                      # device, build, full/incremental, images
-opx rom extract ROM.zip init_boot vbmeta     # pull images out (hash-verified)
-opx rom avb vbmeta.img                       # AVB rollback index and descriptors
-opx rom arb xbl_config.img                   # EXPERIMENTAL Qualcomm anti-rollback
-opx plan ROM.zip                             # check against the connected phone
-opx plan ROM.zip --backup backups/<folder>   # ...or against a backup
-opx plan ROM.zip --json                      # machine-readable report
-
-opx flash ROM.zip --backup backups/<folder> --allow-fastbootd --dry-run   # show the steps
-opx flash ROM.zip --backup backups/<folder> --allow-fastbootd             # flash (asks you to type FLASH)
-opx flash --resume opx-flash-<time>/journal.json                          # continue an interrupted flash
-
-opx region show --backup backups/<folder>                       # region files in a backup, hash-checked
-opx region restore --backup backups/<folder> --allow-fastbootd  # restore signal files (asks you to type RESTORE)
-```
-
-```sh
-opx root prepare --manager magisk --rom FULL_OTA_OF_CURRENT_BUILD.zip    # check + send stock init_boot to the phone
-opx root pull --work opx-root-<model>-<time>                             # after patching in the app
-opx root flash --work opx-root-<model>-<time> --backup backups/<folder>  # asks you to type ROOT
-opx root unroot --work opx-root-<model>-<time> --backup backups/<folder> # asks you to type UNROOT
-```
-
-On a region change, `opx flash` restores your own region files automatically
-(`--no-restore-region` turns that off) and refuses to run without `--wipe`.
-
-Some newer OTAs compress with zstd; install the extra with `pip install ".[zstd]"`.
-
-## Roadmap
-
-1. ✅ Backup + verify (read-only)
-2. ✅ ROM detection, anti-rollback checks, dry-run flash plans (Qualcomm ARB pending validation)
-3. ✅ Guarded flashing: known-bad firmware blocks, `super.img` from the bootloader, journal and resume
-4. ✅ Region conversion and signal restore using **your own** backed-up region files
-5. ✅ Root assistant: matching stock image, patch in the app, checked flash to the current slot, unroot
-
-Partitions that hold device identity (`persist`, `modemst*`, `fsg`, `ocdt`,
-`devinfo`, `oplusreserve*`) or your personal data (`userdata`, `metadata`, `frp`) are
-on a permanent **never-flash** list. A factory reset still erases `userdata` and
-`metadata` when you choose it.
-
-## Development
-
-```sh
-python -m pip install -e ".[dev]"
-python -m pytest
-```
-
-CI also runs `ruff check src tests packaging scripts` (settings in `pyproject.toml`) and
-checks the translation template is current (`python scripts/extract_strings.py --check`).
-
-The tests use a fake `adb` (`tests/fake_adb.py`) that serves partitions from a
-folder, and `tests/romfactory.py` builds synthetic OTAs, vbmeta images and signed
-ELFs, so backup, ROM checks and the GUI all run without a phone or real firmware.
-`tests/fake_fastboot.py` simulates the bootloader and fastbootd (including a
-firmware where rebooting to fastbootd bricks the phone), so every flash path,
-failure and resume is tested end to end.
-
-## Credits and licence
-
-See [CREDITS.md](CREDITS.md). OPxFlasher is free software under the
-[GNU GPL v3.0 or later](LICENSE).
-
-**Disclaimer:** modifying phone firmware can permanently damage your device.
-You use this tool at your own risk.
+> **Disclaimer:** modifying phone firmware can permanently damage your device and may void its
+> warranty. OPxFlasher checks everything it can, but you use it at your own risk. OnePlus and
+> OPPO are trademarks of their respective owners; this project is not affiliated with them.

@@ -1,0 +1,42 @@
+name: Bug report
+description: Something didn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please don't post full serial numbers or IMEIs.
+        A phone that won't start? Try **Phone won't start?** in the app first.
+  - type: input
+    id: build
+    attributes:
+      label: OPxFlasher build
+      description: Shown in the window title, e.g. 0.7.0-rc.12
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer
+      options: [Windows (.exe), Linux (AppImage), macOS (pipx), Other (pip)]
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and build
+      placeholder: PJZ110, PJZ110_16.0.3.501(CN01)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Drag in the zip from **Export log...** (serials are hidden). For boot problems, also the zip from **Diagnostics → Save phone logs...**.

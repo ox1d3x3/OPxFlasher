@@ -23,6 +23,8 @@ understood, and they deserve the credit for that groundwork.
 - **Android SDK Platform-Tools** (adb, fastboot) – Google. Not bundled;
   `opx tools fetch` downloads it from Google under Google's terms.
 - **Qt for Python (PySide6)** – The Qt Company, LGPL-3.0.
+- **pySerial** – Chris Liechti, BSD-3-Clause (talks to a phone in 9008 mode, read-only).
+- **zstandard** (optional) – Gregory Szorc, BSD-3-Clause.
 - **Space Grotesk** – Florian Karsten and the Space Grotesk Project Authors,
   SIL Open Font License 1.1. Used for the "OPxFlasher" wordmark; the text is
   converted to outlines, so the font itself is not shipped.
