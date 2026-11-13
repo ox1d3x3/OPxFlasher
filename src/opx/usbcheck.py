@@ -158,14 +158,14 @@ def open_windows_update(start=None) -> bool:
     return False
 
 
-def open_device_manager(shell_execute=None) -> bool:
+def open_device_manager(start=None) -> bool:
     """Device Manager, elevated (Windows asks for approval), since changing a driver needs admin."""
-    if shell_execute is None:
-        if not sys.platform.startswith("win"):
-            return False
-        import ctypes
-
-        shell_execute = ctypes.windll.shell32.ShellExecuteW  # type: ignore[attr-defined]
-    # ShellExecute returns a value > 32 on success; declining the prompt returns <= 32
-    return shell_execute(None, "runas", "mmc.exe", "devmgmt.msc", None, 1) > 32
+    start = start or getattr(os, "startfile", None)
+    if start is None:
+        return False
+    try:
+        start("mmc.exe", "runas", "devmgmt.msc")  # os.startfile(path, operation, arguments)
+    except OSError:  # approval declined, or no Device Manager
+        return False
+    return True
 

@@ -103,6 +103,9 @@ def test_open_windows_update_and_device_manager():
     assert uc.open_windows_update(start=old_windows) and opened[-1] == uc.WINDOWS_UPDATE
 
     calls = []
-    assert uc.open_device_manager(lambda *a: calls.append(a) or 42)
-    assert calls[0][1:4] == ("runas", "mmc.exe", "devmgmt.msc")
-    assert not uc.open_device_manager(lambda *a: 5)  # approval declined
+    assert uc.open_device_manager(lambda *a: calls.append(a))
+    assert calls == [("mmc.exe", "runas", "devmgmt.msc")]
+
+    def declined(*a):
+        raise OSError("The operation was canceled by the user")
+    assert not uc.open_device_manager(declined)

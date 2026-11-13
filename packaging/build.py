@@ -1,6 +1,7 @@
 """Build the portable, one-file OPxFlasher apps.
 
     python packaging/build.py            # on Windows -> dist/OPxFlasher-<ver>-windows-x64.exe
+                                         #               + dist/OPxFlasher-<ver>-windows-x64.zip (portable folder)
                                          # on Linux   -> dist/OPxFlasher-<ver>-linux-x86_64.AppImage
     python packaging/build.py --smoke    # also start the built app once with --smoke-test
 
@@ -9,12 +10,20 @@ appimagetool from github.com/AppImage/appimagetool unless APPIMAGETOOL points
 to one. Neither build bundles Google's platform-tools: users get them with
 "Download platform-tools" in the app (or `opx tools fetch`), or put a
 platform-tools folder next to the .exe / .AppImage.
+
+Windows antivirus false positives: one-file PyInstaller apps are often flagged
+by machine-learning detection because the stock launcher ("bootloader") is
+shared with malware. The release build therefore compiles PyInstaller's
+bootloader from source (PYINSTALLER_COMPILE_BOOTLOADER=1, see build.yml), never
+packs with UPX, and embeds full Windows version information. The zip (a
+normal folder, nothing unpacked at start) is offered as a fallback.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -61,10 +70,45 @@ def run(cmd: list[str], **kw) -> None:
     subprocess.run([str(c) for c in cmd], check=True, **kw)
 
 
-def pyinstaller(onefile: bool, icon: Path) -> Path:
+def version_numbers(ver: str) -> tuple[int, int, int, int]:
+    """'0.7.0-rc.14' -> (0, 7, 0, 14); a final '0.7.0' -> (0, 7, 0, 0)."""
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?", ver)
+    if not m:
+        return (0, 0, 0, 0)
+    return tuple(int(x or 0) for x in m.groups())  # type: ignore[return-value]
+
+
+def version_info(ver: str) -> str:
+    """PyInstaller --version-file contents: the details Windows shows under Properties > Details."""
+    nums = version_numbers(ver)
+    strings = {
+        "CompanyName": "Mahabub Subhany (Ox1d3x3)",
+        "FileDescription": "OPxFlasher - AIO tool for OnePlus / OPPO devices",
+        "FileVersion": ver,
+        "InternalName": "OPxFlasher",
+        "LegalCopyright": "Copyright (C) 2026 Mahabub Subhany. Free software, GPL-3.0-or-later.",
+        "OriginalFilename": "OPxFlasher.exe",
+        "ProductName": "OPxFlasher",
+        "ProductVersion": ver,
+        "Comments": "https://github.com/ox1d3x3/OPxFlasher",
+    }
+    table = ",\n        ".join(f"StringStruct({k!r}, {v!r})" for k, v in strings.items())
+    return f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={nums}, prodvers={nums}, mask=0x3f, flags=0x0, OS=0x40004,
+                    fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+        {table}])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"""
+
+
+def pyinstaller(onefile: bool, icon: Path, ver: str = "") -> Path:
     cmd = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-        "--name", "OPxFlasher", "--windowed",
+        "--name", "OPxFlasher", "--windowed", "--noupx",
         "--onefile" if onefile else "--onedir",
         "--icon", icon,
         "--paths", ROOT / "src",
@@ -74,18 +118,27 @@ def pyinstaller(onefile: bool, icon: Path) -> Path:
     ]
     for mod in EXCLUDES:
         cmd += ["--exclude-module", mod]
+    if sys.platform.startswith("win"):
+        vfile = WORK / "version_info.txt"
+        vfile.parent.mkdir(parents=True, exist_ok=True)
+        vfile.write_text(version_info(ver or version()), encoding="utf-8")
+        cmd += ["--version-file", vfile]
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(
         filter(None, [str(ROOT / "src"), os.environ.get("PYTHONPATH")])))
     run(cmd + [ROOT / "packaging" / "launcher.py"], env=env)
     return WORK / "dist" / ("OPxFlasher.exe" if onefile else "OPxFlasher")
 
 
-def build_windows(ver: str) -> Path:
-    exe = pyinstaller(True, ROOT / "assets" / "brand" / "opxflasher.ico")
+def build_windows(ver: str) -> list[Path]:
+    icon = ROOT / "assets" / "brand" / "opxflasher.ico"
     DIST.mkdir(exist_ok=True)
     out = DIST / f"OPxFlasher-{ver}-windows-x64.exe"
-    shutil.copy2(exe, out)
-    return out
+    shutil.copy2(pyinstaller(True, icon, ver), out)
+    # fallback: the same app as a normal folder, zipped (nothing is unpacked at start)
+    folder = pyinstaller(False, icon, ver)
+    archive = DIST / f"OPxFlasher-{ver}-windows-x64"
+    zipped = Path(shutil.make_archive(str(archive), "zip", root_dir=folder.parent, base_dir=folder.name))
+    return [out, zipped]
 
 
 def appimagetool() -> Path:
@@ -141,15 +194,19 @@ def main() -> int:
     args = ap.parse_args()
     ver = version()
     if sys.platform.startswith("win"):
-        out = build_windows(ver)
+        outputs = build_windows(ver)
+        to_smoke = [outputs[0], WORK / "dist" / "OPxFlasher" / "OPxFlasher.exe"]  # one file + the zipped folder
     elif sys.platform.startswith("linux"):
-        out = build_linux(ver)
+        outputs = [build_linux(ver)]
+        to_smoke = outputs
     else:
         sys.exit("Portable builds are made on Windows (.exe) and Linux (.AppImage). "
                  "On macOS, install with pipx; see the README.")
-    print(f"built {out} ({out.stat().st_size / 1e6:.1f} MB)", flush=True)
+    for out in outputs:
+        print(f"built {out} ({out.stat().st_size / 1e6:.1f} MB)", flush=True)
     if args.smoke:
-        smoke(out)
+        for app in to_smoke:
+            smoke(app)
     return 0
 
 

@@ -78,10 +78,11 @@ Get the newest build from the **[Releases page](https://github.com/ox1d3x3/OPxFl
 | Platform | File | How to run |
 |---|---|---|
 | **Windows 10 / 11** (x64) | `OPxFlasher-<version>-windows-x64.exe` | Double-click. SmartScreen may warn because the file isn't code-signed: *More info → Run anyway*. |
+| Windows, portable folder | `OPxFlasher-<version>-windows-x64.zip` | Unzip anywhere and run `OPxFlasher.exe` inside. Same app; use it if your antivirus objects to the single `.exe`. |
 | **Linux** (x86-64) | `OPxFlasher-<version>-linux-x86_64.AppImage` | `chmod +x OPxFlasher-*.AppImage`, then run it. If FUSE is missing, install `libfuse2`. |
 | **macOS** and any OS with Python | via [pipx](https://pipx.pypa.io) | `pipx install "opxflasher[gui,zstd] @ git+https://github.com/ox1d3x3/OPxFlasher"`, then `opxflasher`. |
 
-Both portable files are single, self-contained programs: no installer, no admin rights.
+The portable files are self-contained: no installer, no admin rights.
 The `opx` command-line tool comes with the pipx install.
 
 **adb and fastboot:** not bundled. If they aren't already installed, run `opx tools fetch` to
@@ -121,6 +122,15 @@ The full walkthrough of every feature is in the **[user guide](docs/USER_GUIDE.m
 **Does it need administrator / root rights on my computer?** No. OPxFlasher runs as a normal user
 on Windows, Linux and macOS. The only time Windows asks for approval is if you install a USB driver.
 On Linux, phone access comes from udev rules (the app tells you if they're missing).
+
+**Windows Defender says the `.exe` is a virus. Is it?** No. Single-file Python apps built with
+PyInstaller are a well-known false positive for Defender's machine-learning detection, because
+their generic launcher is also used by malware. OPxFlasher's release builds compile their own
+launcher and carry full version details to avoid this, and every file is signed by GitHub's build
+service, so you can [verify it](#verify-your-download) came from this repository unchanged. If
+Defender still removes it, use the `.zip` version, and report the false positive to Microsoft
+([submit a file](https://www.microsoft.com/en-us/wdsi/filesubmission), choose *Incorrectly
+detected*). Please don't turn your antivirus off.
 
 **Do I need USB drivers?** Linux and macOS: no. Windows: usually the Google USB driver for adb and
 fastboot. If the phone doesn't show up, press **Phone not showing up?**: it finds the problem and
