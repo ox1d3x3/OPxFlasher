@@ -4,6 +4,8 @@ It serves partitions from a folder instead of a real phone:
   $FAKE_DEVICE_DIR/by-name/<partition>   physical partitions
   $FAKE_DEVICE_DIR/mapper/<partition>    logical partitions
   $FAKE_DEVICE_DIR/props.json            getprop values
+  $FAKE_DEVICE_DIR/packages.json         system apps {name: {"removed": bool, "disabled": bool}}
+  $FAKE_DEVICE_DIR/pstore/<file>         last-crash logs
 Environment knobs:
   FAKE_ACCESS = su | root-shell | none   how root is obtained
   FAKE_NO_SHA = 1                         phone has no sha256sum
@@ -42,6 +44,53 @@ def local(path: str) -> Path | None:
 
 
 DOWNLOAD = ROOT / "sdcard" / "Download"
+PACKAGES = ROOT / "packages.json"
+DEFAULT_PACKAGES = ["android", "com.android.systemui", "com.android.settings", "com.android.providers.media",
+                    "com.heytap.browser", "com.oplus.games", "com.coloros.weather2", "com.android.chrome"]
+
+
+def packages() -> dict:
+    if PACKAGES.exists():
+        return json.loads(PACKAGES.read_text())
+    return {p: {"removed": False, "disabled": p == "com.coloros.weather2"} for p in DEFAULT_PACKAGES}
+
+
+def run_unprivileged(cmd: str, out) -> int | None:
+    """Commands that work without root (None = not one of them)."""
+    if cmd.startswith("pm list packages"):
+        flags = cmd.split()[3:]
+        for name, st in sorted(packages().items()):
+            if st["removed"] and "-u" not in flags:
+                continue
+            if "-d" in flags and not st["disabled"]:
+                continue
+            out.write(f"package:{name}\n".encode())
+        return 0
+    m = re.fullmatch(r"pm uninstall -k --user 0 (\S+)", cmd)
+    if m:
+        pk = packages()
+        st = pk.get(m.group(1))
+        if not st or st["removed"]:
+            out.write(b"Failure [not installed for 0]\n")
+            return 1
+        st["removed"] = True
+        PACKAGES.write_text(json.dumps(pk))
+        out.write(b"Success\n")
+        return 0
+    m = re.fullmatch(r"cmd package install-existing --user 0 (\S+)", cmd)
+    if m:
+        pk = packages()
+        if m.group(1) not in pk:
+            sys.stderr.write(f"Package {m.group(1)} doesn't exist\n")
+            return 1
+        pk[m.group(1)]["removed"] = False
+        PACKAGES.write_text(json.dumps(pk))
+        out.write(f"Package {m.group(1)} installed for user: 0\n".encode())
+        return 0
+    if cmd == "logcat -d -b all":
+        out.write(b"11-13 08:00:00.000  1000  1000 I ActivityManager: Start proc FAKE0001\n")
+        return 0
+    return None
 
 
 def run(cmd: str, root: bool) -> int:
@@ -54,6 +103,9 @@ def run(cmd: str, root: bool) -> int:
     if cmd == "id -u":
         out.write(b"0\n" if root else b"2000\n")
         return 0
+    handled = run_unprivileged(cmd, out)
+    if handled is not None:
+        return handled
     if cmd == "getprop":
         props = json.loads((ROOT / "props.json").read_text())
         for k, v in props.items():
@@ -61,6 +113,25 @@ def run(cmd: str, root: bool) -> int:
         return 0
     if not root:
         sys.stderr.write("Permission denied\n")
+        return 1
+    if cmd == "dmesg":
+        out.write(b"[    0.000000] Booting Linux on physical CPU 0x0 serial FAKE0001\n")
+        return 0
+    if cmd == "ls -1 /sys/fs/pstore":
+        d = ROOT / "pstore"
+        for name in sorted(os.listdir(d)) if d.is_dir() else []:
+            out.write((name + "\n").encode())
+        return 0
+    m = re.fullmatch(r"cat /sys/fs/pstore/(\S+)", cmd)
+    if m:
+        f = ROOT / "pstore" / m.group(1)
+        if not f.exists():
+            sys.stderr.write("No such file or directory\n")
+            return 1
+        out.write(f.read_bytes())
+        return 0
+    if cmd == "cat /proc/last_kmsg":
+        sys.stderr.write("cat: /proc/last_kmsg: No such file or directory\n")
         return 1
     m = re.fullmatch(r"ls -1 (\S+)", cmd)
     if m:

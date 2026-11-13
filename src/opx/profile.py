@@ -71,6 +71,7 @@ class Profile:
     avb_images: list[str] = field(default_factory=list)
     variants: dict[str, str] = field(default_factory=dict)  # model number -> region name
     recovery_boards: list[str] = field(default_factory=list)  # names custom recoveries report (restore zip)
+    keep_apps: list[str] = field(default_factory=list)  # packages debloat never removes ("pkg" or "prefix*")
     qcom_arb_images: list[str] = field(default_factory=list)
     qcom_arb_validated: bool = False
 
@@ -105,7 +106,7 @@ GENERIC = "oplus-generic"
 ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
-              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images",
+              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images", "keep_apps",
               "qcom_arb_validated"}
 
 
@@ -142,6 +143,7 @@ def _merge(base: dict, raw: dict) -> dict:
     merged["known_issues"] = base.get("known_issues", []) + raw.get("known_issues", [])
     # A child can add never-flash partitions, never remove the parent's.
     merged["never_flash"] = list(dict.fromkeys(base.get("never_flash", []) + raw.get("never_flash", [])))
+    merged["keep_apps"] = list(dict.fromkeys(base.get("keep_apps", []) + raw.get("keep_apps", [])))
     return merged
 
 
@@ -183,6 +185,9 @@ def validate(raw: dict, builtin: bool = False) -> list[str]:
     boards = raw.get("recovery_boards", [])
     if not isinstance(boards, list) or not all(isinstance(b, str) and b for b in boards):
         errors.append("recovery_boards must be a list of names")
+    keep = raw.get("keep_apps", [])
+    if not isinstance(keep, list) or not all(isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_.]+\*?", k) for k in keep):
+        errors.append("keep_apps must be a list of package names (a trailing * matches a prefix)")
     for i, issue in enumerate(raw.get("known_issues", [])):
         if not isinstance(issue, dict) or not isinstance(issue.get("match"), dict) or not issue.get("message"):
             errors.append(f"known_issues[{i}] needs match and message")
@@ -238,6 +243,7 @@ def _build(raw: dict) -> Profile:
         avb_images=raw.get("avb_images", ["vbmeta"]),
         variants=raw.get("variants", {}),
         recovery_boards=raw.get("recovery_boards", []),
+        keep_apps=raw.get("keep_apps", []),
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
     )

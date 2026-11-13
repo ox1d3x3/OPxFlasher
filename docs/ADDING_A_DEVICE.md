@@ -36,6 +36,8 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
   `{"match": {"ro.build.display.id": "CPH2581_15.0.0.1*"}, "severity": "danger", "blocks": ["fastbootd"], "message": "..."}`.
   `blocks` may contain `fastbootd` and `bootloader`.
 - `recovery_boards` (optional): the board name custom recoveries report (for restore zips).
+- `keep_apps` (optional): apps the **Apps** tab must never remove on this phone, e.g.
+  `["com.oplus.battery", "com.oplus.telephony*"]` (a trailing `*` matches a prefix). Only adds to the built-in list.
 - Leave `qcom_arb_validated` out. It's only set after anti-rollback numbers are checked
   against real firmware.
 

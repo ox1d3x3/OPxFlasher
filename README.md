@@ -221,6 +221,27 @@ With the portable files you can also put Google's `platform-tools` folder next t
   it checks your user may open the phone (udev rules / `plugdev`). It also spots a phone
   stuck in Qualcomm 9008 (EDL) mode. It only looks; nothing is installed.
 
+## Apps (debloat)
+
+The **Apps** tab (or `opx apps`) removes system apps you don't use, **for your user only**:
+nothing on the system partition changes, **Restore** puts an app back at any time, and a
+factory reset brings everything back. No root needed. Apps Android can't run without
+(System UI, Settings, the phone app, the package installer, ...) are locked, and a device
+profile can lock more (`keep_apps`).
+
+- Remove or restore selected apps; **Restore all I removed** undoes everything OPxFlasher removed on this phone.
+- Share lists: **Save my list...** writes what you removed (one package per line); **Remove from list...** applies someone else's list, skipping anything locked or not on your phone.
+- Command line: `opx apps list [--removed] [--search X]`, `opx apps remove <pkg>... | --from list.txt`,
+  `opx apps restore <pkg>... | --all`, `opx apps export list.txt`.
+
+## Diagnostics
+
+- **Save phone logs...** (`opx logs`): Android log, kernel log and the log of the last crash or
+  unexpected reboot (`/sys/fs/pstore`), plus the phone's properties, in one zip for a bug report.
+  Serial numbers are hidden. Kernel and crash logs need root.
+- **List partitions** (`opx partitions --all`, `--csv file`): every partition with its size, slot
+  and role (running slot, other slot, inside super, phone identity, your data). Read-only, needs root.
+
 ## Add your phone
 
 Phones are described by small JSON **device profiles**. To add yours, write a profile,

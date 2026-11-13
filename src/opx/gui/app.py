@@ -47,6 +47,8 @@ from opx import flash as fl
 from opx import plan as pn
 from opx.gui.catalog_dialog import CatalogDialog
 from opx.gui.flash_dialog import FlashDialog
+from opx.gui.apps_tab import AppsTab
+from opx.gui.diag_tab import DiagTab
 from opx.gui.image_tab import ImageTab
 from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.root_tab import RootTab
@@ -399,6 +401,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.root_tab, tr("Root"))
         self.image_tab = ImageTab(self)
         self.tabs.addTab(self.image_tab, tr("Flash image"))
+        self.apps_tab = AppsTab(self)
+        self.tabs.addTab(self.apps_tab, tr("Apps"))
+        self.diag_tab = DiagTab(self)
+        self.tabs.addTab(self.diag_tab, tr("Diagnostics"))
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -539,6 +545,10 @@ class MainWindow(QMainWindow):
             self.root_tab.refresh_buttons()
         if hasattr(self, "image_tab"):
             self.image_tab.refresh_buttons()
+        if hasattr(self, "apps_tab"):
+            self.apps_tab.refresh_buttons()
+        if hasattr(self, "diag_tab"):
+            self.diag_tab.refresh_buttons()
         if hasattr(self, "reboot_btns"):
             for c in rb.choices(self.selected_device(), self._blocked_for_reboot()):
                 btn = self.reboot_btns[c.target]

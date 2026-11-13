@@ -511,3 +511,80 @@ def test_gui_dashboard_export_and_updates(window, monkeypatch, tmp_path):
     win.check_updates()
     settle(app)
     assert asked and "v9.0.0" in asked[0]
+
+
+def test_gui_apps_tab(window, monkeypatch, tmp_path):
+    import json
+    import os
+    from pathlib import Path
+
+    from opx import apps as ap
+    from opx.gui import apps_tab
+
+    app, win = window
+    monkeypatch.setattr(ap, "undo_dir", lambda: tmp_path / "debloat")
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    tab = win.apps_tab
+    assert tab.load_btn.isEnabled() and not tab.remove_btn.isEnabled()
+    tab.load()
+    settle(app)
+    names = [tab.table.item(r, 0).text() for r in range(tab.table.rowCount())]
+    assert "com.heytap.browser" in names and "com.android.systemui" in names
+
+    tab.search.setText("systemui")  # locked: can't be removed
+    tab.table.selectRow(0)
+    assert "Locked" in tab.table.item(0, 1).text() and not tab.remove_btn.isEnabled()
+
+    tab.search.setText("heytap")
+    tab.table.selectRow(0)
+    assert tab.remove_btn.isEnabled()
+    monkeypatch.setattr(apps_tab.QMessageBox, "question", lambda *a, **k: apps_tab.QMessageBox.Yes)
+    tab.remove_selected()
+    settle(app)
+    assert json.loads((phone / "packages.json").read_text())["com.heytap.browser"]["removed"]
+    assert "by OPxFlasher" in tab.table.item(0, 1).text()
+    assert tab.restore_all_btn.isEnabled()
+
+    out = tmp_path / "mine.txt"
+    monkeypatch.setattr(apps_tab.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    tab.export_list()
+    assert ap.read_list(out) == ["com.heytap.browser"]
+
+    tab.restore_all()
+    settle(app)
+    assert not json.loads((phone / "packages.json").read_text())["com.heytap.browser"]["removed"]
+
+    lst = tmp_path / "list.txt"
+    lst.write_text("com.oplus.games\ncom.android.settings\ncom.not.here\n")
+    monkeypatch.setattr(apps_tab.QFileDialog, "getOpenFileName", lambda *a, **k: (str(lst), ""))
+    tab.remove_from_list()
+    settle(app)
+    state = json.loads((phone / "packages.json").read_text())
+    assert state["com.oplus.games"]["removed"] and not state["com.android.settings"]["removed"]
+
+
+def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
+    import zipfile
+
+    from opx.gui import diag_tab
+
+    app, win = window
+    tab = win.diag_tab
+    assert tab.logs_btn.isEnabled() and tab.list_btn.isEnabled() and not tab.csv_btn.isEnabled()
+    tab.list_partitions()
+    settle(app)
+    names = [tab.table.item(r, 0).text() for r in range(tab.table.rowCount())]
+    assert "boot_a" in names and "partitions" in tab.summary.text()
+    out = tmp_path / "p.csv"
+    monkeypatch.setattr(diag_tab.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    tab.save_csv()
+    assert out.read_text().startswith("name,size_bytes")
+
+    shown = []
+    monkeypatch.setattr(diag_tab.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    tab.save_logs(folder=str(tmp_path / "logs"))
+    settle(app)
+    zips = list((tmp_path / "logs").glob("OPxFlasher-logs-*.zip"))
+    assert len(zips) == 1 and shown and "hidden" in shown[0]
+    with zipfile.ZipFile(zips[0]) as z:
+        assert "logcat.txt" in z.namelist()

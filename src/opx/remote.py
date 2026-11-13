@@ -5,6 +5,9 @@ set of read-only programs (getprop, id, ls, blockdev, sha256sum and
 ``dd if=`` with no ``of=``). Partition names and paths are validated before
 they are placed into a command string, so nothing from a partition table or
 a profile can inject extra shell syntax.
+
+Log readers (``logcat -d``, ``dmesg``, ``cat`` of /sys/fs/pstore files and
+/proc/last_kmsg) are matched as exact commands.
 """
 
 from __future__ import annotations
@@ -22,6 +25,11 @@ BY_NAME_DIRS = ("/dev/block/by-name", "/dev/block/bootdevice/by-name")
 MAPPER_DIR = "/dev/block/mapper"
 
 DD_BLOCK = 4 * 1024 * 1024
+
+# Read-only log readers, matched exactly
+PSTORE_DIR = "/sys/fs/pstore"
+LOG_COMMANDS = {"logcat": "logcat -d -b all", "dmesg": "dmesg", "last_kmsg": "cat /proc/last_kmsg"}
+PSTORE_CAT_RE = re.compile(r"^cat /sys/fs/pstore/[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
 
 
 class UnsafeCommand(ValueError):
@@ -44,6 +52,8 @@ def _assert_read_only(cmd: str) -> None:
     tokens = cmd.split()
     if not tokens:
         raise UnsafeCommand("empty command")
+    if cmd in LOG_COMMANDS.values() or PSTORE_CAT_RE.match(cmd) or cmd == f"ls -1 {PSTORE_DIR}":
+        return
     allowed = {"getprop", "id", "ls", "blockdev", "sha256sum", "dd", "readlink"}
     if tokens[0] not in allowed:
         raise UnsafeCommand(f"'{tokens[0]}' is not on the read-only allow list")
@@ -147,3 +157,19 @@ class RemoteShell:
             return None
         proc.wait(timeout=60)
         return data if proc.returncode == 0 and data else None
+
+    # --- logs (read-only) ----------------------------------------------------
+
+    def list_pstore(self) -> list[str]:
+        res = self.shell(f"ls -1 {PSTORE_DIR}")
+        if not res.ok:
+            return []
+        return [n.strip() for n in res.stdout.splitlines() if n.strip() and NAME_RE.match(n.strip())]
+
+    def read_log(self, which: str, name: str = "") -> Result:
+        if which == "pstore":
+            check_name(name)
+            cmd = f"cat {PSTORE_DIR}/{name}"
+        else:
+            cmd = LOG_COMMANDS[which]
+        return self.shell(cmd, timeout=120)

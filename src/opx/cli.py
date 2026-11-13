@@ -141,6 +141,22 @@ def cmd_info(args) -> int:
 
 def cmd_partitions(args) -> int:
     s = open_session(_pick_adb_serial(args.serial))
+    if args.all or args.csv:
+        from opx import explorer as ex
+
+        try:
+            rows = ex.explore(s.shell, s.profile, s.props)
+        except ex.ExplorerError as e:
+            print(e)
+            return 2
+        if args.csv:
+            Path(args.csv).write_text(ex.to_csv(rows), "utf-8")
+            print(f"Saved {len(rows)} partitions to {args.csv}")
+            return 0
+        for r in rows:
+            print(f"  {r.name:<28} {_human(r.size):>10}  {r.kind:<9} {r.role}")
+        print(f"\n  {len(rows)} partitions (read-only listing)")
+        return 0
     plan = bk.build_plan(s.shell, s.profile, args.mode, s.props)
     _print_plan(plan)
     return 0
@@ -727,6 +743,97 @@ def cmd_restore_rom(args) -> int:
     return 0
 
 
+def cmd_apps(args) -> int:
+    from opx import apps as ap
+
+    s = open_session(_pick_adb_serial(args.serial))
+    keep = s.profile.keep_apps
+    try:
+        if args.action == "list":
+            mine = set(ap.removed_by_us(s.serial))
+            for a in ap.list_system_apps(s.adb, keep):
+                if args.removed and not a.removed:
+                    continue
+                if args.search and args.search.lower() not in a.package.lower():
+                    continue
+                state = "removed" if a.removed else ("disabled" if a.disabled else "installed")
+                extra = " (by OPxFlasher)" if a.package in mine else ""
+                lock = f"  [keep: {a.keep}]" if a.keep else ""
+                print(f"  {a.package:<52} {state}{extra}{lock}")
+            return 0
+        if args.action == "export":
+            if not args.packages:
+                print("Give the file to write, e.g. opx apps export my-debloat.txt")
+                return 2
+            done = ap.removed_by_us(s.serial)
+            ap.write_list(Path(args.packages[0]), done, f"Removed on {s.props.get('ro.product.model', '')}")
+            print(f"Saved {len(done)} package(s) to {args.packages[0]}")
+            return 0
+
+        packages = list(args.packages)
+        if args.file:
+            packages += ap.read_list(Path(args.file))
+        if args.action == "restore" and args.all:
+            packages += ap.removed_by_us(s.serial)
+        packages = list(dict.fromkeys(packages))
+        if not packages:
+            print("No packages given.")
+            return 2
+        if args.action == "remove":
+            known = {a.package: a for a in ap.list_system_apps(s.adb, keep)}
+            todo, skipped = [], []
+            for p in packages:
+                a = known.get(p)
+                if a is None:
+                    skipped.append(f"{p}: not a system app on this phone")
+                elif a.removed:
+                    skipped.append(f"{p}: already removed")
+                elif a.keep:
+                    skipped.append(f"{p}: kept ({a.keep.lower()})")
+                else:
+                    todo.append(p)
+            for line in skipped:
+                print(f"  skip  {line}")
+            if not todo:
+                print("Nothing to remove.")
+                return 0
+            print("Will remove for your user (undo with 'opx apps restore --all'):")
+            for p in todo:
+                print(f"  - {p}")
+            try:
+                answer = "y" if args.yes else input("Continue? [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() not in ("y", "yes"):
+                print("Cancelled.")
+                return 1
+            packages = todo
+        failed = 0
+        for p in packages:
+            try:
+                if args.action == "remove":
+                    ap.remove(s.adb, s.serial, p, keep)
+                else:
+                    ap.restore(s.adb, s.serial, p)
+                print(f"  ok    {p}")
+            except ap.AppError as e:
+                failed += 1
+                print(f"  fail  {e}")
+        return 1 if failed else 0
+    except ap.AppError as e:
+        print(e)
+        return 2
+
+
+def cmd_logs(args) -> int:
+    from opx import bootlogs
+
+    s = open_session(_pick_adb_serial(args.serial))
+    out = bootlogs.collect(s, Path(args.out), emit=lambda text: print(f"  {text}..."))
+    print(f"Saved {out}")
+    return 0
+
+
 def cmd_usb_check(args) -> int:
     from opx import usbcheck
 
@@ -866,6 +973,8 @@ def build_parser() -> argparse.ArgumentParser:
     parts = sub.add_parser("partitions", help="preview which partitions a backup mode would read")
     parts.add_argument("-s", "--serial")
     parts.add_argument("--mode", choices=MODES, default="critical")
+    parts.add_argument("--all", action="store_true", help="list every partition with its size and role")
+    parts.add_argument("--csv", help="save the full list as a CSV file")
     parts.set_defaults(fn=cmd_partitions)
 
     b = sub.add_parser("backup", help="back up partitions (read-only)")
@@ -938,6 +1047,22 @@ def build_parser() -> argparse.ArgumentParser:
     rr.add_argument("--work", default="opx-work", help="folder for the journal")
     rr.add_argument("-s", "--serial")
     rr.set_defaults(fn=cmd_restore_rom)
+
+    ap_ = sub.add_parser("apps", help="debloat: remove system apps for your user, or put them back")
+    ap_.add_argument("action", choices=["list", "remove", "restore", "export"])
+    ap_.add_argument("packages", nargs="*", help="package names (export: the file to write)")
+    ap_.add_argument("-s", "--serial")
+    ap_.add_argument("--from", dest="file", help="a debloat list file: one package per line")
+    ap_.add_argument("--all", action="store_true", help="restore: everything OPxFlasher removed on this phone")
+    ap_.add_argument("--removed", action="store_true", help="list: only removed apps")
+    ap_.add_argument("--search", help="list: only names containing this")
+    ap_.add_argument("-y", "--yes", action="store_true", help="remove without asking")
+    ap_.set_defaults(fn=cmd_apps)
+
+    lg = sub.add_parser("logs", help="save Android, kernel and last-crash logs as a zip (serials hidden)")
+    lg.add_argument("-s", "--serial")
+    lg.add_argument("--out", default=".", help="folder to save the zip in")
+    lg.set_defaults(fn=cmd_logs)
 
     us = sub.add_parser("usb-check", help="phone not showing up? check USB drivers / permissions")
     us.set_defaults(fn=cmd_usb_check)
