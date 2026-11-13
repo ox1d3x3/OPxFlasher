@@ -59,6 +59,11 @@ Point OPxFlasher at a firmware package and it tells you whether it is safe to
 flash on **this** phone, and exactly what would be written where. Nothing is flashed.
 
 - Reads **full OTA zips**, `payload.bin` and **folders of `.img` files**.
+  A folder of loose images (for example the `OTA_FILES_HERE` folder of a fastboot "flasher"
+  kit) has no OTA metadata, so OPxFlasher reads the phone model and build from the images' signed
+  AVB data (`vbmeta_system`, `vbmeta_vendor`, `vbmeta`) instead. If those disagree about the device,
+  or there's no such data, the device can't be confirmed and the check blocks. A flasher kit's
+  *zip* can't be checked directly: unzip it and choose its images folder.
   Incremental OTAs are refused.
 - Extracts any image from an OTA (hash-verified) – handy for `init_boot` when rooting.
 - Compares the ROM with the **connected phone** (read-only) or a **backup folder**:

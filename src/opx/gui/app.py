@@ -1232,6 +1232,9 @@ class MainWindow(QMainWindow):
             for col, v in enumerate(values):
                 self.plan_table.setItem(row, col, QTableWidgetItem(v))
         self.say(f"ROM check: {report.verdict}")
+        for c in report.checks:  # the reasons, so an exported log explains the verdict
+            if c.status in (pn.BLOCK, pn.WARN):
+                self.say(f"  {c.status.upper()} {c.name}: {c.detail}")
         self._update_buttons()
 
     def _save_report(self) -> None:

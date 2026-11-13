@@ -89,6 +89,8 @@ def test_gui_rom_check_tab(window, adb_env, tmp_path):
     assert checks["Device match"] == "OK" and checks["AVB vbmeta"] == "OK"
     assert win.plan_table.rowCount() == len(win.report.items)
     assert "BLOCKED" in win.verdict.text()
+    log = win.log.toPlainText()  # the reasons are in the log too, for exported logs
+    assert "ROM check: BLOCKED" in log and "BLOCK Qualcomm ARB" in log
 
 
 def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):

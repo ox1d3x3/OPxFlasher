@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
@@ -136,7 +137,7 @@ def open_rom(path: str | Path) -> RomInfo:
             if "META-INF/com/android/metadata" in names:
                 info.metadata = parse_metadata(zf.read("META-INF/com/android/metadata").decode("utf-8", "replace"))
             if "payload.bin" not in names:
-                raise RomError("This zip has no payload.bin; it is not an A/B OTA package.")
+                raise RomError(_not_an_ota(names))
         _from_payload(info, pl.ByteSource.from_zip_member(path, "payload.bin"))
         return info
 
@@ -159,5 +160,67 @@ def open_rom(path: str | Path) -> RomInfo:
         raise RomError("No payload.bin or .img files found in this folder.")
     info.images = [RomImage(name=f.stem, size=f.stat().st_size, logical=None, file=f) for f in files]
     if not info.metadata:
+        _identity_from_avb(info)
+    if not info.metadata:
         info.notes.append("No OTA metadata in this folder, so device and build can't be confirmed from the ROM.")
     return info
+
+
+def _not_an_ota(names: set[str]) -> str:
+    """Explain a zip that isn't an A/B OTA, e.g. a fastboot flasher kit of loose images."""
+    images = [n for n in names if n.lower().endswith(".img") and not n.endswith("/")]
+    if not images:
+        return "This zip has no payload.bin; it is not an A/B OTA package."
+    folders = sorted({n.rsplit("/", 1)[0] for n in images if "/" in n}, key=lambda f: -sum(
+        1 for n in images if n.startswith(f + "/")))
+    where = f"its '{folders[0].split('/')[-1]}' folder" if folders else "the folder you unzip it to"
+    scripts = any(n.lower().endswith((".bat", ".sh")) for n in names)
+    kind = "a fastboot flasher package" if scripts else "a zip of fastboot images"
+    return (f"This is {kind} ({len(images)} images), not an OTA. Unzip it, then choose {where} "
+            "in ROM check; OPxFlasher reads the images from there.")
+
+
+# AVB properties the build system writes, e.g. com.android.build.system.fingerprint
+_AVB_PROP = re.compile(r"com\.android\.build\.(\w+)\.(fingerprint|security_patch)")
+
+
+def _identity_from_avb(info: RomInfo) -> None:
+    """No OTA metadata (loose images): take the device and build from the signed AVB
+    properties in vbmeta_system / vbmeta_vendor / vbmeta. Gives up (fail closed) when
+    they disagree about the device."""
+    from opx.rom import avb
+
+    found: dict[str, dict[str, str]] = {"fingerprint": {}, "security_patch": {}}
+    source = ""
+    for name in ("vbmeta_system", "vbmeta_vendor", "vbmeta"):
+        img = info.image(name)
+        if img is None or img.file is None or img.size > 1 << 20:
+            continue
+        try:
+            vb = avb.parse(img.file.read_bytes())
+        except (OSError, avb.AvbError):
+            continue
+        for key, value in vb.properties.items():
+            m = _AVB_PROP.fullmatch(key)
+            if m and value:
+                found[m.group(2)].setdefault(m.group(1), value)
+                source = source or name
+    fps = found["fingerprint"]
+    if not fps:
+        return
+    devices = {_fingerprint_part(fp, "device") for fp in fps.values()} - {""}
+    if len(devices) != 1:
+        info.notes.append("The images' signed build data names more than one device "
+                          f"({', '.join(sorted(devices)) or 'none'}), so the device can't be confirmed.")
+        return
+    fp = fps.get("system") or fps.get("vendor") or next(iter(fps.values()))
+    info.metadata["post-build"] = fp
+    # brand/product/device:release/id/incremental:type/tags
+    incremental = fp.split(":")[1].split("/")[-1] if fp.count(":") >= 2 else ""
+    if incremental:
+        info.metadata["post-build-incremental"] = incremental
+    patches = found["security_patch"]
+    patch = patches.get("system") or patches.get("vendor") or next(iter(patches.values()), "")
+    if patch:
+        info.metadata["post-security-patch-level"] = patch
+    info.notes.append(f"No OTA metadata: device and build read from the signed AVB data in {source} ({fp}).")
