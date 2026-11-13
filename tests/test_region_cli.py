@@ -1,6 +1,7 @@
-from opx import cli
 from test_flash_cli import answers, ready  # noqa: F401  (fixture)
 from test_region import IN_PARTS, rom_for, simulate_ota_overwrite
+
+from opx import cli
 
 
 def test_region_show(ready, capsys):

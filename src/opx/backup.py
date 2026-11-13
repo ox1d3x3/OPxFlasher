@@ -14,10 +14,10 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from opx import __version__
 from opx.profile import USER_DATA_PARTITIONS, PartitionRule, Profile, is_user_data

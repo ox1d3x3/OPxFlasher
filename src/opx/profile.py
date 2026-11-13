@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import fnmatch
 import json
-from pathlib import Path
 import re
 from dataclasses import dataclass, field
 from importlib import resources
+from pathlib import Path
 
 MODES = ("network", "critical", "full")
 
@@ -221,7 +221,7 @@ def check_file(path: Path) -> list[str]:
     return errors
 
 
-def load_raw_profile(raw: dict) -> "Profile":
+def load_raw_profile(raw: dict) -> Profile:
     """Build a Profile from a dict (with inheritance), for checking a file before installing it."""
     parent = raw.get("inherits")
     return _build(_merge(_load_raw(parent), raw) if parent else raw)

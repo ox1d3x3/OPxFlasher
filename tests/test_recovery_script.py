@@ -7,11 +7,11 @@ import subprocess
 import zipfile
 
 import pytest
+from test_flash import backup_of, phone  # noqa: F401  (fixture)
+from test_restore_zip import REGION, SYSTEM, make_super
 
 from opx import restore as rs
 from opx import restore_zip as rz
-from test_flash import backup_of, phone  # noqa: F401  (fixture)
-from test_restore_zip import REGION, SYSTEM, make_super
 
 MB = 1 << 20
 SH = shutil.which("dash") or shutil.which("sh")

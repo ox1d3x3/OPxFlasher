@@ -23,11 +23,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from opx.flash import OVERRIDE_UNKNOWN_FIRMWARE  # noqa: E402,F401  (re-exported)
 from opx.plan import BLOCK, Check, DeviceState, Report
 from opx.profile import is_user_data
 from opx.rom.ota import RomImage, RomInfo
-
-from opx.flash import OVERRIDE_UNKNOWN_FIRMWARE  # noqa: E402,F401  (re-exported)
 
 
 class RestoreError(ValueError):

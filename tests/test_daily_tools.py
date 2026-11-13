@@ -4,13 +4,13 @@ import json
 import zipfile
 
 import pytest
+from test_flash import phone  # noqa: F401  (fixture)
 
 from opx import apps as ap
 from opx import bootlogs, cli
 from opx import explorer as ex
 from opx.remote import UnsafeCommand
 from opx.session import open_session
-from test_flash import phone  # noqa: F401  (fixture)
 
 
 @pytest.fixture
@@ -142,6 +142,7 @@ def test_logs_with_root(adb, phone, tmp_path):
         for n in names:
             assert "FAKE0001" not in z.read(n).decode(), n  # serial hidden
         assert "FA****01" in z.read("pstore/console-ramoops-0").decode()
+        assert "Kernel panic" not in z.read("findings.txt").decode()  # 'panic on' isn't a kernel panic line
     assert "Kernel log (dmesg)" in seen
 
 

@@ -1,8 +1,8 @@
 import os
 
 import pytest
-
 import romfactory as rf
+
 from opx.rom import avb, qcom
 from opx.rom import payload as pl
 from opx.rom.ota import RomError, open_rom

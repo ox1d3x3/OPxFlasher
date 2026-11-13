@@ -21,10 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import flash as fl
 from opx import plan as pn
 from opx import root as rt
+from opx.i18n import tr
 from opx.rom.ota import open_rom
 from opx.tools import Tool
 

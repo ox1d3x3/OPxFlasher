@@ -4,7 +4,8 @@ import struct
 
 import pytest
 
-from opx import cli, sahara as sh
+from opx import cli
+from opx import sahara as sh
 
 SERIAL, HWID, PK = 0x1A2B3C4D, 0x0022E0E100510000, bytes(range(32))
 

@@ -3,14 +3,14 @@ import os
 from pathlib import Path
 
 import pytest
-
 import romfactory as rf
+from test_flash import ROM_PARTS, backup_of, phone  # noqa: F401  (fixture)
+
 from opx import flash as fl
 from opx import plan as pn
 from opx.profile import load
 from opx.rom.ota import open_rom
 from opx.session import open_session
-from test_flash import ROM_PARTS, backup_of, phone  # noqa: F401  (fixture)
 
 IN_PARTS = {**ROM_PARTS, "oplusstanvbk": b"I" * 4096, "my_region": b"N" * 4096}
 RESTORE = ["oplusstanvbk", "my_region"]

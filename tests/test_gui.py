@@ -94,8 +94,6 @@ def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
     import sys
 
     import romfactory as rf
-    import sys
-
     from conftest import FAKE_FASTBOOT, tool_cmd
     from test_flash import make_rom
     from test_plan import put, sized
@@ -152,8 +150,6 @@ def _gui_phone(adb_env, monkeypatch):
     import sys
 
     import romfactory as rf
-    import sys
-
     from conftest import FAKE_FASTBOOT, tool_cmd
     from test_plan import put, sized
 
@@ -167,8 +163,9 @@ def _gui_phone(adb_env, monkeypatch):
 
 
 def test_gui_signal_restore(adb_env, fb_state, monkeypatch, tmp_path):
-    from opx.gui import app as gui_app
     from test_region import simulate_ota_overwrite
+
+    from opx.gui import app as gui_app
 
     _gui_phone(adb_env, monkeypatch)
     app = QApplication.instance() or QApplication([])
@@ -197,14 +194,15 @@ def test_gui_signal_restore(adb_env, fb_state, monkeypatch, tmp_path):
 
 
 def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
+    from test_region import rom_for
+
     from opx import backup as bk
     from opx import plan as pn
     from opx.gui.flash_dialog import FlashDialog
     from opx.session import open_session
-    from test_region import rom_for
 
     _gui_phone(adb_env, monkeypatch)
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])  # needed before any widget
     s = open_session("FAKE0001")
     folder = bk.run_backup(s.shell, bk.build_plan(s.shell, s.profile, "critical", s.props), tmp_path / "b")
     rom = rom_for(tmp_path)
@@ -229,9 +227,10 @@ def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
 
 
 def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
-    from opx.gui import app as gui_app
     from test_root import STOCK, magisk_patch, rom_with_init_boot
     from test_root_cli import make_rootable
+
+    from opx.gui import app as gui_app
 
     _gui_phone(adb_env, monkeypatch)
     make_rootable(adb_env)
@@ -354,13 +353,12 @@ def test_gui_official_roms_dialog(window, monkeypatch, tmp_path):
 
 def test_gui_flash_image_tab(window, monkeypatch, tmp_path, fb_state):
     import os
+    import sys
     from pathlib import Path
 
     import romfactory as rf
-
-    import sys
-
     from conftest import FAKE_FASTBOOT, tool_cmd
+
     from opx import cli
 
     app, win = window
@@ -413,6 +411,7 @@ def test_gui_restore_full_rom(window, monkeypatch, tmp_path, fb_state):
     from pathlib import Path
 
     from conftest import FAKE_FASTBOOT, tool_cmd
+
     from opx import cli
     from opx.gui import app as gui
 
@@ -444,9 +443,10 @@ def test_gui_make_recovery_zip(window, monkeypatch, tmp_path):
     import os
     from pathlib import Path
 
+    from test_restore_zip import REGION, SYSTEM, make_super
+
     from opx import cli
     from opx.gui import app as gui
-    from test_restore_zip import REGION, SYSTEM, make_super
 
     app, win = window
     phone = Path(os.environ["FAKE_DEVICE_DIR"])
@@ -591,18 +591,29 @@ def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
     settle(app)
     zips = list((tmp_path / "logs").glob("OPxFlasher-logs-*.zip"))
     assert len(zips) == 1 and shown and "hidden" in shown[0]
+    assert "No known problem" in shown[0]
+
+    import zipfile as zf_
+
+    bad = tmp_path / "bad.zip"
+    with zf_.ZipFile(bad, "w") as zf:
+        zf.writestr("dmesg.txt", "Kernel panic - not syncing\n")
+    warned = []
+    monkeypatch.setattr(diag_tab.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    tab.read_logs(path=str(bad))
+    assert warned and "kernel crashed" in warned[0] and tab.last_findings[0].id == "panic"
     with zipfile.ZipFile(zips[0]) as z:
         assert "logcat.txt" in z.namelist()
 
 
 def test_gui_rescue_dialog(window, monkeypatch, fb_state):
-    from opx import rescue, sahara
-    from opx.gui import rescue_dialog
-    from test_sahara import FakeBootRom
-
     import sys
 
     from conftest import FAKE_FASTBOOT, tool_cmd
+    from test_sahara import FakeBootRom
+
+    from opx import rescue, sahara
+    from opx.gui import rescue_dialog
 
     app, win = window
     monkeypatch.setattr(sahara, "find_ports", lambda: [])

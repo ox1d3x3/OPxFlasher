@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal, QTimer
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,31 +31,30 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from opx.i18n import tr
-from opx import __version__
+from opx import __version__, support
 from opx import backup as bk
 from opx import device as dev
-from opx.profile import MODE_TEXT, MODES
 from opx import flash as fl
 from opx import plan as pn
-from opx.gui.catalog_dialog import CatalogDialog
-from opx.gui.flash_dialog import FlashDialog
+from opx import reboot as rb
 from opx.gui.apps_tab import AppsTab
+from opx.gui.catalog_dialog import CatalogDialog
 from opx.gui.diag_tab import DiagTab
-from opx.gui.image_tab import ImageTab
+from opx.gui.flash_dialog import FlashDialog
 from opx.gui.icon import app_icon, set_windows_app_id
+from opx.gui.image_tab import ImageTab
 from opx.gui.root_tab import RootTab
+from opx.i18n import tr
+from opx.profile import MODE_TEXT, MODES
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
-from opx import reboot as rb
-from opx import support
 from opx.tools import Tool, fetch_platform_tools
 
 STYLE = """

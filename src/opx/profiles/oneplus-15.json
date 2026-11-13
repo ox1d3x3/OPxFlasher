@@ -1,0 +1,17 @@
+{
+  "id": "oneplus-15",
+  "name": "OnePlus 15",
+  "inherits": "oplus-generic",
+  "match": {
+    "ro.product.model": [
+      "PLK110",
+      "CPH2747"
+    ]
+  },
+  "variants": {
+    "PLK110": "China",
+    "CPH2747": "Global"
+  },
+  "rollback_fuse": "16.0.3.501",
+  "notes": "PLK110 = China (ColorOS), CPH2747 = Global (OxygenOS; certification listing). Other regional model numbers not confirmed yet. Recovery board name not known yet. Check-only until tested on a real phone (Qualcomm ARB not validated). From ColorOS 16.0.3.501 the bootloader has a hardware anti-rollback fuse: installing an older build bricks the phone beyond EDL repair (reported Jan 2026 for OnePlus 13, 13T, 15). Applied to every variant until OxygenOS is confirmed either way."
+}

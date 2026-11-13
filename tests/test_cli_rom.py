@@ -1,8 +1,9 @@
 import json
 
 import romfactory as rf
-from opx import cli
 from test_plan import put, rom_zip, sized
+
+from opx import cli
 
 
 def test_rom_inspect_extract_avb_arb(tmp_path, capsys):

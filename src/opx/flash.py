@@ -20,22 +20,22 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from opx import __version__
 from opx.fastboot import Fastboot, FastbootError, wait_for_fastboot
-from opx.plan import BLOCK, WARN, DeviceState, Report
+from opx.plan import BLOCK, DeviceState, Report
 from opx.profile import Profile
 from opx.rom import payload as pl
 from opx.rom.ota import RomInfo, open_rom
 from opx.tools import Tool
 
 OVERRIDE_QCOM_UNVALIDATED = "qcom-arb-unvalidated"
-OVERRIDE_VARIANT = "variant-change"
-OVERRIDE_UNKNOWN_FIRMWARE = "restore-phone-not-booted"  # full ROM restore with the phone not in Android  # same phone model, other region: user confirms
+OVERRIDE_VARIANT = "variant-change"  # same phone model, other region: user confirms
+OVERRIDE_UNKNOWN_FIRMWARE = "restore-phone-not-booted"  # full ROM restore with the phone not in Android
 AVB_ORDER_LAST = ("vbmeta_system", "vbmeta_vendor", "vbmeta")
 
 Event = dict

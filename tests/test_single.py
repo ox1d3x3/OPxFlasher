@@ -2,6 +2,7 @@
 
 import pytest
 import romfactory as rf
+from test_flash import backup_of, phone  # noqa: F401  (fixture)
 
 from opx import device as dev
 from opx import flash as fl
@@ -9,7 +10,6 @@ from opx import plan as pn
 from opx import reboot as rb
 from opx import single as sg
 from opx.session import open_session
-from test_flash import backup_of, phone  # noqa: F401  (fixture)
 
 BOOT = rf.build_boot_image(b"my-custom-kernel", header_version=4)
 

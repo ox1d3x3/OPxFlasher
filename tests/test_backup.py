@@ -1,15 +1,15 @@
 import dataclasses
 import hashlib
-from pathlib import Path
 import json
 import threading
+from pathlib import Path
 
 import pytest
 
 from opx import backup as bk
 from opx import profile as profiles
 from opx.profile import PartitionRule
-from opx.remote import RemoteShell, UnsafeCommand, _assert_read_only, check_name, check_path
+from opx.remote import UnsafeCommand, _assert_read_only, check_name, check_path
 from opx.session import open_session
 
 

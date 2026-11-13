@@ -3,15 +3,15 @@ import os
 import time
 
 import pytest
-
 import romfactory as rf
+from test_flash import backup_of, phone  # noqa: F401  (fixture)
+
 from opx import backup as bk
 from opx import flash as fl
 from opx import plan as pn
 from opx import root as rt
 from opx.rom.ota import open_rom
 from opx.session import open_session
-from test_flash import backup_of, phone  # noqa: F401  (fixture)
 
 STOCK = rf.build_boot_image(b"stock-ramdisk")
 FINGERPRINT = "OnePlus/PJZ110/testdevice:16/BP2A.250605.015/U.1:user/release-keys"

@@ -176,6 +176,12 @@ Download from the [latest release](https://github.com/ox1d3x3/OPxFlasher/release
 
 The command-line tool `opx` isn't in these files; install with pip (below) for that.
 
+**Check your download.** Release files are signed by GitHub's build service: with the
+[GitHub CLI](https://cli.github.com), `gh attestation verify <file> --repo ox1d3x3/OPxFlasher`
+confirms the file was built from this repository by its release workflow and hasn't been
+changed. Without it, compare the file's SHA-256 with `SHA256SUMS.txt` in the release
+(Windows: `certutil -hashfile <file> SHA256`, Linux: `sha256sum <file>`).
+
 Every update is published as a **release candidate** (`v0.7.0-rc.1`, `-rc.2`, ...),
 marked pre-release on GitHub; the app's title shows the exact build. Final releases
 are published when a version is ready.
@@ -255,10 +261,22 @@ profile can lock more (`keep_apps`).
 - **Save phone logs...** (`opx logs`): Android log, kernel log and the log of the last crash or
   unexpected reboot (`/sys/fs/pstore`), plus the phone's properties, in one zip for a bug report.
   Serial numbers are hidden. Kernel and crash logs need root.
+- **Known problems:** after saving, and with **Read a logs zip...** (`opx logs --read <zip>`) for
+  logs saved earlier, OPxFlasher looks for well-known messages and says what they usually mean:
+  kernel panic, verified boot / dm-verity rejecting a partition, system partitions or `/data`
+  that won't mount, zygote or system_server crash loops, an unfinished update, a modem crash,
+  and the last restart reason. They're hints, not a diagnosis; `findings.txt` in the zip has
+  the matching lines.
 - **List partitions** (`opx partitions --all`, `--csv file`): every partition with its size, slot
   and role (running slot, other slot, inside super, phone identity, your data). Read-only, needs root.
 
 ## Add your phone
+
+Built in: **OnePlus 13** (PJZ110 China, CPH2653 EU, CPH2655 NA, CPH2649 India), **OnePlus 13T /
+13s** (PKX110 China, CPH2723 India) and **OnePlus 15** (PLK110 China, CPH2747 Global). The 13T / 13s
+and 15 profiles are new and untested on real phones: backups, ROM checks and the rollback-fuse guard
+work; as on the OnePlus 13 for now, flashing asks you to confirm the anti-rollback numbers yourself
+(`ARB CHECKED`). Other OnePlus / OPPO phones use a generic profile.
 
 Phones are described by small JSON **device profiles**. To add yours, write a profile,
 check it with `opx profile check my-phone.json`, and install it with
@@ -417,6 +435,9 @@ on a permanent **never-flash** list. A factory reset still erases `userdata` and
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
+
+CI also runs `ruff check src tests packaging scripts` (settings in `pyproject.toml`) and
+checks the translation template is current (`python scripts/extract_strings.py --check`).
 
 The tests use a fake `adb` (`tests/fake_adb.py`) that serves partitions from a
 folder, and `tests/romfactory.py` builds synthetic OTAs, vbmeta images and signed

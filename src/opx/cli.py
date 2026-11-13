@@ -6,14 +6,15 @@ import argparse
 import json
 import shutil
 import sys
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 from opx import __version__
 from opx import backup as bk
 from opx import device as dev
-from opx.profile import MODE_TEXT, MODES
 from opx import plan as pn
+from opx.profile import MODE_TEXT, MODES
 from opx.rom import avb, qcom
 from opx.rom import payload as pl
 from opx.rom.ota import RomError, open_rom
@@ -826,11 +827,19 @@ def cmd_apps(args) -> int:
 
 
 def cmd_logs(args) -> int:
-    from opx import bootlogs
+    from opx import bootdiag, bootlogs
 
+    if args.read:
+        try:
+            print(bootdiag.report(bootdiag.analyze(bootdiag.read_logs(Path(args.read)))))
+        except (OSError, zipfile.BadZipFile) as e:
+            print(f"Can't read {args.read}: {e}")
+            return 2
+        return 0
     s = open_session(_pick_adb_serial(args.serial))
     out = bootlogs.collect(s, Path(args.out), emit=lambda text: print(f"  {text}..."))
-    print(f"Saved {out}")
+    print(f"Saved {out}\n")
+    print(bootdiag.report(bootdiag.analyze(bootdiag.read_logs(out))))
     return 0
 
 
@@ -1090,6 +1099,7 @@ def build_parser() -> argparse.ArgumentParser:
     lg = sub.add_parser("logs", help="save Android, kernel and last-crash logs as a zip (serials hidden)")
     lg.add_argument("-s", "--serial")
     lg.add_argument("--out", default=".", help="folder to save the zip in")
+    lg.add_argument("--read", metavar="ZIP", help="don't connect: look for known problems in a saved logs zip or folder")
     lg.set_defaults(fn=cmd_logs)
 
     rs_ = sub.add_parser("rescue", help="phone won't start? see what state it's in and what to try")

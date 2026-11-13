@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from opx.i18n import tr
 from opx import catalog
+from opx.i18n import tr
 
 COLUMNS = ("Version", "Region", "Model", "Security patch", "Built", "Size", "")
 

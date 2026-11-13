@@ -99,7 +99,7 @@ class Tool:
         self.serial = serial
         self.prefix = prefix if prefix is not None else find_tool(name)
 
-    def bind(self, serial: str) -> "Tool":
+    def bind(self, serial: str) -> Tool:
         return Tool(self.name, serial, self.prefix)
 
     def argv(self, *args: str) -> list[str]:

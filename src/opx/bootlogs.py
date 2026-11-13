@@ -11,6 +11,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from opx import bootdiag
 from opx.support import mask
 
 
@@ -23,7 +24,13 @@ def collect(session, out_dir: Path, emit=None) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"OPxFlasher-logs-{stamp}.zip"
     notes = []
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+    saved: dict[str, str] = {}
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as raw_zf:
+        class _Zip:  # remembers what was written, for the findings
+            def writestr(self, name, text):
+                saved[name] = text
+                raw_zf.writestr(name, text)
+        zf = _Zip()
         say("Phone properties")
         zf.writestr("getprop.txt", mask("".join(f"[{k}]: [{v}]\n" for k, v in sorted(session.props.items())), serials))
 
@@ -54,5 +61,9 @@ def collect(session, out_dir: Path, emit=None) -> Path:
                 found += 1
             if not found:
                 notes.append("No last-crash log on the phone (it may not have crashed since it last started).")
-        zf.writestr("README.txt", "Logs saved by OPxFlasher. Serial numbers are hidden.\n\n" + "\n".join(notes) + "\n")
+        say("Looking for known problems")
+        zf.writestr("findings.txt", bootdiag.report(bootdiag.analyze(saved)))
+        zf.writestr("README.txt", "Logs saved by OPxFlasher. Serial numbers are hidden.\n"
+                    "findings.txt lists known problem messages found in these logs (hints, not a diagnosis).\n\n"
+                    + "\n".join(notes) + "\n")
     return out

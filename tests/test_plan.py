@@ -1,8 +1,8 @@
 import json
 
 import pytest
-
 import romfactory as rf
+
 from opx import backup as bk
 from opx import plan as pn
 from opx.rom.ota import open_rom

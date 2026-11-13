@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import flash as fl
 from opx import plan as pn
+from opx.i18n import tr
 from opx.rom.ota import RomInfo
 
 

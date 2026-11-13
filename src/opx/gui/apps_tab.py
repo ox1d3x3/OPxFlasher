@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import apps as ap
+from opx.i18n import tr
 
 
 def _change(adb, serial, keep, remove: list[str], restore: list[str]) -> list[str]:

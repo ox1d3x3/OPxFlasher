@@ -6,11 +6,11 @@ import json
 import zipfile
 
 import pytest
+from test_flash import backup_of, phone  # noqa: F401  (fixture)
 
 from opx import lp
 from opx import restore as rs
 from opx import restore_zip as rz
-from test_flash import backup_of, phone  # noqa: F401  (fixture)
 
 SECTOR = lp.SECTOR
 

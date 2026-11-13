@@ -3,13 +3,12 @@ import json
 import sys
 
 import pytest
-
+import romfactory as rf
 from conftest import FAKE_FASTBOOT, tool_cmd
-from opx import cli
 from test_flash import ROM_PARTS, make_rom
 from test_plan import put, sized
 
-import romfactory as rf
+from opx import cli
 
 
 @pytest.fixture

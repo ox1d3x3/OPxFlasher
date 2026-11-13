@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import bootlogs
 from opx import explorer as ex
+from opx.i18n import tr
 
 
 def _human(n: int | None) -> str:
@@ -53,6 +53,10 @@ class DiagTab(QWidget):
         self.logs_btn = QPushButton(tr("Save phone logs..."))
         self.logs_btn.clicked.connect(self.save_logs)
         row.addWidget(self.logs_btn)
+        self.read_btn = QPushButton(tr("Read a logs zip..."))
+        self.read_btn.setToolTip(tr("Look for known problems in logs saved earlier (no phone needed)"))
+        self.read_btn.clicked.connect(self.read_logs)
+        row.addWidget(self.read_btn)
         row.addStretch(1)
         lv.addLayout(row)
         layout.addWidget(logs)
@@ -103,7 +107,34 @@ class DiagTab(QWidget):
     def _logs_saved(self, path) -> None:
         self.win._set_busy(False)
         self.win.say(f"Phone logs saved: {path}")
-        QMessageBox.information(self, tr("Logs"), f"Saved {Path(path).name}.\n\nSerial numbers are hidden.")
+        self.show_findings(Path(path), f"Saved {Path(path).name}. Serial numbers are hidden.\n\n")
+
+    def read_logs(self, _=None, path: str | None = None) -> None:
+        path = path or QFileDialog.getOpenFileName(self, tr("Choose a logs zip"), str(Path.home()),
+                                                   "Zip (*.zip)")[0]
+        if path:
+            self.show_findings(Path(path), "")
+
+    def show_findings(self, path: Path, head: str) -> None:
+        import zipfile
+
+        from opx import bootdiag
+
+        try:
+            findings = bootdiag.analyze(bootdiag.read_logs(path))
+        except (OSError, zipfile.BadZipFile) as e:
+            QMessageBox.warning(self, tr("Logs"), f"Can't read {path.name}: {e}")
+            return
+        self.last_findings = findings
+        for f in findings:
+            self.win.say(f"Logs: {f.title}")
+        summary = "\n".join(f"- {f.title}" for f in findings[:6])
+        text = head + (f"Worth a look:\n{summary}" if findings else "No known problem messages found.")
+        text += "\n\nDetails are in findings.txt inside the zip."
+        if any(f.severity == "problem" for f in findings):
+            QMessageBox.warning(self, tr("Logs"), text)
+        else:
+            QMessageBox.information(self, tr("Logs"), text)
 
     def _failed(self, exc: BaseException) -> None:
         self.win._set_busy(False)

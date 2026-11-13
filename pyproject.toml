@@ -40,3 +40,20 @@ opx = ["profiles/*.json", "locales/*.json", "recovery/*.sh", "gui/assets/*.png",
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+# real bugs and tidiness; line length isn't enforced (no formatter is used)
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures are imported from other test modules and then used as parameters
+"tests/*" = ["F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["opx"]

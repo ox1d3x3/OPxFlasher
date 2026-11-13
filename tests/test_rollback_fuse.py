@@ -3,13 +3,13 @@
 from pathlib import Path
 
 import pytest
-
 import romfactory as rf
+from test_flash import ROM_PARTS, phone  # noqa: F401  (fixture)
+
 from opx import plan as pn
 from opx import profile as profiles
 from opx.rom.ota import RomInfo, open_rom
 from opx.session import open_session
-from test_flash import ROM_PARTS, phone  # noqa: F401  (fixture)
 
 OP13 = profiles.load("oneplus-13")
 

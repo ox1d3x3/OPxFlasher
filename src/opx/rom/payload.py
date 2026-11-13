@@ -13,9 +13,9 @@ import hashlib
 import lzma
 import struct
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from opx.rom import protobuf as pb
 
@@ -60,7 +60,7 @@ class ByteSource:
         return data
 
     @classmethod
-    def from_zip_member(cls, zip_path: Path, member: str) -> "ByteSource":
+    def from_zip_member(cls, zip_path: Path, member: str) -> ByteSource:
         with zipfile.ZipFile(zip_path) as zf:
             info = zf.getinfo(member)
         if info.compress_type != zipfile.ZIP_STORED:

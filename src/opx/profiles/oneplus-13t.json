@@ -1,0 +1,17 @@
+{
+  "id": "oneplus-13t",
+  "name": "OnePlus 13T / 13s",
+  "inherits": "oplus-generic",
+  "match": {
+    "ro.product.model": [
+      "PKX110",
+      "CPH2723"
+    ]
+  },
+  "variants": {
+    "PKX110": "China",
+    "CPH2723": "India"
+  },
+  "rollback_fuse": "16.0.3.501",
+  "notes": "PKX110 = China (OnePlus 13T, ColorOS), CPH2723 = India (OnePlus 13s, OxygenOS; to confirm). Snapdragon 8 Elite. Recovery board name not known yet. Check-only until tested on a real phone (Qualcomm ARB not validated). From ColorOS 16.0.3.501 the bootloader has a hardware anti-rollback fuse: installing an older build bricks the phone beyond EDL repair (reported Jan 2026 for OnePlus 13, 13T, 15). Applied to every variant until OxygenOS is confirmed either way."
+}

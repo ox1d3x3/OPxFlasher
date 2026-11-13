@@ -1,8 +1,9 @@
 """'My phone won't start' assistant."""
 
+from test_flash import phone  # noqa: F401  (fixture)
+
 from opx import cli, rescue
 from opx.device import Device
-from test_flash import phone  # noqa: F401  (fixture)
 
 
 def actions(a):

@@ -2,15 +2,15 @@ import json
 import threading
 
 import pytest
-
 import romfactory as rf
+from test_plan import put, sized
+
 from opx import backup as bk
 from opx import flash as fl
 from opx import plan as pn
 from opx.fastboot import Fastboot, RefusedPartition
 from opx.rom.ota import open_rom
 from opx.session import open_session
-from test_plan import put, sized
 
 ROM_PARTS = {
     "vbmeta": rf.build_vbmeta(2),

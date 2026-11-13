@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import rescue
+from opx.i18n import tr
 
 
 class RescueDialog(QDialog):

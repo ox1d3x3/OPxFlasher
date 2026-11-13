@@ -1,8 +1,9 @@
 import json
 
-from opx import cli
 from test_flash_cli import answers, ready  # noqa: F401  (fixture)
 from test_root import FINGERPRINT, STOCK, magisk_patch, rom_with_init_boot
+
+from opx import cli
 
 
 def make_rootable(phone):

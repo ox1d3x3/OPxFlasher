@@ -156,7 +156,7 @@ class Outliner:
         b.add_str(text)
         b.guess_segment_properties()
         self.hb.shape(self.hbfont, b, {"kern": True, "liga": True})
-        return list(zip(b.glyph_infos, b.glyph_positions))
+        return list(zip(b.glyph_infos, b.glyph_positions, strict=True))
 
     def width(self, text: str, size: float, tracking_em: float = 0.0) -> float:
         runs = self.shape(text)

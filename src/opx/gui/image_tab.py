@@ -20,10 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from opx.i18n import tr
 from opx import flash as fl
 from opx import plan as pn
 from opx import single as sg
+from opx.i18n import tr
 from opx.tools import Tool
 
 PARTITIONS = ("boot", "init_boot", "recovery", "vendor_boot", "dtbo", "vbmeta", "vbmeta_system", "vbmeta_vendor")

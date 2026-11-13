@@ -73,7 +73,7 @@ class RootSession:
         return path
 
     @classmethod
-    def load(cls, workdir: Path) -> "RootSession":
+    def load(cls, workdir: Path) -> RootSession:
         return cls(**json.loads((Path(workdir) / "root-session.json").read_text("utf-8")))
 
 
