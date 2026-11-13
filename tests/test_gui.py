@@ -24,6 +24,7 @@ def window(adb_env, monkeypatch):
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
+    win.poll_timer.setInterval(10**9)  # no background checks unless a test asks for one
     win.refresh_devices()
     settle(app)
     yield app, win
@@ -760,3 +761,56 @@ def test_gui_cancel_only_for_cancellable_jobs(window):
     assert win.cancel_btn.isEnabled()
     win._set_busy(False)
     assert not win.cancel_btn.isEnabled() and not win.cancellable
+
+
+def test_gui_connection_light(window, monkeypatch):
+    from opx import device as dev
+
+    app, win = window
+    colour = lambda: win.status_dot.styleSheet()  # noqa: E731
+    assert win.connection_state()[0] == "connected"
+    assert "Connected" in win.status_text.text() and "Android" in win.status_text.text()
+    assert win.STATUS_COLOURS["connected"] in colour()
+
+    win.devices = [dev.Device("X1", "adb", "unauthorized")]
+    win._update_status()
+    assert win.connection_state()[0] == "waiting" and "allow USB debugging" in win.status_text.text()
+    assert win.STATUS_COLOURS["waiting"] in colour()
+
+    win.devices = [dev.Device("X1", "fastboot", "bootloader")]
+    assert win.connection_state() == ("connected", "Connected: Bootloader (fastboot)")
+
+    win.devices = []
+    win._update_status()
+    assert "Disconnected" in win.status_text.text() and win.STATUS_COLOURS["disconnected"] in colour()
+    win.tools_ok = False
+    assert "missing" in win.connection_state()[1]
+
+
+def test_gui_poll_notices_plug_and_unplug(window, monkeypatch):
+    from opx import device as dev
+
+    app, win = window
+    refreshed = []
+    monkeypatch.setattr(win, "refresh_devices", lambda: refreshed.append(True))
+    same = dev.presence(win.devices)
+    monkeypatch.setattr(dev, "quick_scan", lambda: same)
+    win.poll_devices()
+    settle(app)
+    assert not refreshed and not win.polling  # nothing changed: stay quiet
+
+    monkeypatch.setattr(dev, "quick_scan", lambda: frozenset())  # unplugged
+    win.poll_devices()
+    settle(app)
+    assert refreshed == [True] and "Phone disconnected." in win.log.toPlainText()
+
+    win._set_busy(True)  # never during a backup / flash
+    win.poll_devices()
+    settle(app)
+    assert refreshed == [True] and not win.polling
+    win._set_busy(False)
+
+    monkeypatch.setattr(dev, "quick_scan", lambda: None)  # adb vanished
+    win.poll_devices()
+    settle(app)
+    assert not win.tools_ok and "missing" in win.status_text.text()

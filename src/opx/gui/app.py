@@ -97,6 +97,7 @@ QMenu::item { padding: 5px 24px 5px 20px; border-radius: 4px; }
 QMenu::item:selected { background: #2f3440; }
 QMenu::item:disabled { color: #6b7280; }
 QMenu::separator { height: 1px; background: #2c3039; margin: 4px 8px; }
+QLabel#statusText { font-weight: 600; }
 """
 
 
@@ -163,6 +164,11 @@ class MainWindow(QMainWindow):
         self.last_folder: Path | None = None
         self.busy = False
         self.cancellable = False  # True only while a backup or recovery zip runs
+        self.tools_ok = True
+        self.polling = False
+        self.poll_timer = QTimer(self)
+        self.poll_timer.setInterval(self.POLL_MS)
+        self.poll_timer.timeout.connect(self.poll_devices)
         self._build_ui()
         self._update_buttons()
 
@@ -209,6 +215,14 @@ class MainWindow(QMainWindow):
         self.tools_btn.clicked.connect(self.download_tools)
         self.tools_btn.hide()
         dev_layout.addWidget(self.tools_btn)
+        status_row = QHBoxLayout()
+        self.status_dot = QLabel("●")
+        self.status_dot.setObjectName("statusDot")
+        self.status_text = QLabel()
+        self.status_text.setObjectName("statusText")
+        status_row.addWidget(self.status_dot)
+        status_row.addWidget(self.status_text, 1)
+        dev_layout.insertLayout(0, status_row)
         help_row = QHBoxLayout()
         self.usb_btn = QPushButton(tr("Not showing up?"))
         self.usb_btn.setToolTip(tr("Phone not showing up? Check USB drivers (Windows) or permissions (Linux)"))
@@ -466,6 +480,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self._build_menus()
+        self._update_status(checking=True)
 
     def _build_menus(self) -> None:
         from opx import about, i18n
@@ -735,6 +750,7 @@ class MainWindow(QMainWindow):
     # --- devices ----------------------------------------------------------
 
     def refresh_devices(self) -> None:
+        self._update_status(checking=True)
         self._set_busy(True)
         self.say("Looking for phones...")
         self.run_job(Job(dev.scan), self._devices_found)
@@ -744,11 +760,16 @@ class MainWindow(QMainWindow):
         for err in scan.errors:
             self.say(err)
         tools_missing = any("not found" in e for e in scan.errors)
+        self.tools_ok = not tools_missing
         self.tools_btn.setVisible(tools_missing)
         if tools_missing and not scan.devices:
+            self.devices = []
+            self._update_status()
             self._show_tools_banner()
             self._update_buttons()
             return
+        if not self.poll_timer.isActive():
+            self.poll_timer.start()
         self.devices = scan.devices
         self.device_combo.blockSignals(True)
         self.device_combo.clear()
@@ -756,6 +777,7 @@ class MainWindow(QMainWindow):
             self.device_combo.addItem(d.label)
             self.device_combo.setItemData(self.device_combo.count() - 1, d.label, Qt.ToolTipRole)
         self.device_combo.blockSignals(False)
+        self._update_status()
         if not self.devices:
             self.session = None
             self._clear_info()
@@ -767,6 +789,55 @@ class MainWindow(QMainWindow):
             return
         self._device_selected(0)
 
+    # --- connection light ----------------------------------------------------
+
+    POLL_MS = 3000
+    STATUS_COLOURS = {"connected": "#3fb950", "waiting": "#d29922", "disconnected": "#f85149",
+                      "checking": "#8b949e"}
+
+    def connection_state(self) -> tuple[str, str]:
+        """("connected" | "waiting" | "disconnected", text) for the light."""
+        if not self.tools_ok:
+            return "disconnected", tr("Disconnected: adb and fastboot are missing")
+        if not self.devices:
+            return "disconnected", tr("Disconnected: no phone found")
+        d = self.selected_device() or self.devices[0]
+        if d.transport == "fastboot" or d.state in ("device", "recovery", "sideload"):
+            more = f" (+{len(self.devices) - 1})" if len(self.devices) > 1 else ""
+            return "connected", f"{tr('Connected')}: {d.mode_text}{more}"
+        if d.state == "unauthorized":
+            return "waiting", tr("Waiting: allow USB debugging on the phone")
+        return "waiting", tr("Waiting: the phone is offline, reconnect the cable")
+
+    def _update_status(self, checking: bool = False) -> None:
+        state, text = ("checking", tr("Looking for phones...")) if checking else self.connection_state()
+        self.status_dot.setStyleSheet(f"color: {self.STATUS_COLOURS[state]}; font-size: 14pt")
+        self.status_text.setText(text)
+        self.status_text.setToolTip(text)
+        self.status_dot.setProperty("state", state)
+
+    def poll_devices(self) -> None:
+        """Every few seconds, quietly: has a phone been plugged in or unplugged?"""
+        if self.busy or self.polling or not self.tools_ok or QApplication.activeModalWidget() is not None:
+            return
+        self.polling = True
+        self.run_job(Job(dev.quick_scan), self._polled, self._poll_failed)
+
+    def _polled(self, seen) -> None:
+        self.polling = False
+        if seen is None:  # adb / fastboot went missing
+            self.tools_ok = False
+            self._update_status()
+            return
+        if seen != dev.presence(self.devices) and not self.busy and QApplication.activeModalWidget() is None:
+            gone = {s for s, *_ in dev.presence(self.devices)} - {s for s, *_ in seen}
+            if gone:
+                self.say("Phone disconnected.")
+            self.refresh_devices()
+
+    def _poll_failed(self, exc: BaseException) -> None:
+        self.polling = False  # a failed quick check is not worth a message; the next one retries
+
     # --- adb / fastboot ------------------------------------------------------
 
     TOOLS_LINK = "download-tools"
@@ -776,6 +847,7 @@ class MainWindow(QMainWindow):
         self._show_banner(tr("Checking tool requirements..."), "info")
         self.say("Checking tool requirements...")
         missing = missing_tools()
+        self.tools_ok = not missing
         if not missing:
             self.say("adb and fastboot found.")
             self._show_banner("", "info")
@@ -787,6 +859,7 @@ class MainWindow(QMainWindow):
         else:
             self.say("Tools not downloaded. Use \"Click here to download\" in the phone panel whenever you're ready.")
             self.tools_btn.show()
+            self._update_status()
             self._show_tools_banner()
             self._update_buttons()
 
@@ -872,6 +945,7 @@ class MainWindow(QMainWindow):
             lbl.setText("-")
 
     def _device_selected(self, index: int) -> None:
+        self._update_status()
         self.session = None
         self._invalidate_plan()
         self._clear_info()

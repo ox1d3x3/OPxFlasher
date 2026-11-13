@@ -67,3 +67,12 @@ def test_cli_rescue(monkeypatch, capsys):
     assert cli.main(["rescue"]) == 0
     out = capsys.readouterr().out
     assert "9008" in out and "opx edl-info" in out
+
+
+def test_quick_scan_with_fake_tools(adb, fastboot, phone, fb_state):
+    from opx import device as dev
+
+    assert dev.quick_scan(adb, fastboot) == frozenset({("FAKE0001", "adb", "device")})
+    fb_state(mode="bootloader")
+    seen = dev.quick_scan(adb, fastboot)
+    assert ("FAKE0001", "fastboot", "fastboot") in seen

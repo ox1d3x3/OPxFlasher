@@ -115,6 +115,26 @@ def scan(adb: Tool | None = None, fastboot: Tool | None = None) -> Scan:
     return result
 
 
+def quick_scan(adb: Tool | None = None, fastboot: Tool | None = None) -> frozenset[tuple[str, str, str]] | None:
+    """Cheap presence check for the connection light: (serial, transport, adb state or
+    "fastboot") for every phone, from `adb devices` and `fastboot devices` only (no getvar).
+    None when adb or fastboot is missing."""
+    try:
+        adb = adb or Tool("adb")
+        fastboot = fastboot or Tool("fastboot")
+        found = {(d.serial, "adb", d.state) for d in parse_adb_devices(adb.run("devices", timeout=10).stdout)}
+        res = fastboot.run("devices", timeout=10)
+        found |= {(s, "fastboot", "fastboot") for s in parse_fastboot_devices(res.stdout + "\n" + res.stderr)}
+    except ToolNotFound:
+        return None
+    return frozenset(found)
+
+
+def presence(devices: list[Device]) -> frozenset[tuple[str, str, str]]:
+    """The quick_scan view of a full scan, to notice plugging in / unplugging."""
+    return frozenset((d.serial, d.transport, d.state if d.transport == "adb" else "fastboot") for d in devices)
+
+
 def _getvar_all(fb: Tool) -> str:
     res = fb.run("getvar", "all", timeout=20)
     # fastboot prints getvar output on stderr

@@ -281,6 +281,11 @@ profile can lock more (`keep_apps`).
 
 ## Everyday helpers
 
+- **Connection light** (top of the phone panel): **green** *Connected* with the mode (Android,
+  recovery, bootloader, fastbootd), **amber** *Waiting* (allow USB debugging on the phone, or it's
+  offline), **red** *Disconnected* (no phone, or adb / fastboot missing). OPxFlasher checks every few
+  seconds and refreshes the phone details by itself when you plug a phone in or unplug it. It pauses
+  while a backup, flash or other job runs, or while a dialog is open.
 - **Menus:** *File* (backups folder, verify a backup, export log, quit), *Phone* (refresh with F5,
   reboot to Android / bootloader / fastbootd / recovery, phone not showing up, phone won't start),
   *Tools* (download adb and fastboot, official ROMs, read a logs zip, language) and *Help* (user
