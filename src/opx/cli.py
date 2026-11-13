@@ -107,12 +107,20 @@ def cmd_ota(args) -> int:
             last[0] = pct
             print(f"\r  {pct:3d}%  {done / 1e6:,.0f} MB", end="", flush=True)
 
+    def step(text):
+        print(f"\n  {text}", flush=True)
+        last[0] = -1
+
     try:
-        path = catalog.download(rel, Path(args.out), progress=show)
+        path = catalog.download(rel, Path(args.out), progress=show, stage=step,
+                                connections=max(1, min(args.connections, 8)))
+    except catalog.DownloadPaused as e:
+        print(f"\n{e}")
+        return 3
     except catalog.CatalogError as e:
         print(f"\n{e}")
         return 1
-    print(f"\nSaved {path}" + (" (MD5 checked)" if rel.md5 else " (the catalog has no MD5 for this one)"))
+    print(f"\nSaved {path}")
     print(f"Next: opx rom inspect {path}")
     return 0
 
@@ -1048,6 +1056,8 @@ def build_parser() -> argparse.ArgumentParser:
     ota.add_argument("--latest", action="store_true", help="only the newest release per region")
     ota.add_argument("--id", help="release id to download (default: the latest)")
     ota.add_argument("--out", default=".", help="folder to save the zip in")
+    ota.add_argument("--connections", type=int, default=4,
+                     help="parallel connections for the download (1-8, default 4); resumes if interrupted")
     ota.add_argument("-s", "--serial")
     ota.set_defaults(fn=cmd_ota)
 

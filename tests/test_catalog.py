@@ -4,12 +4,22 @@ import hashlib
 import io
 import json
 import urllib.error
+import zipfile
 
 import pytest
 
 from opx import catalog
 
-PKG = b"PK\x03\x04" + b"fake ota zip" * 1000
+
+def make_zip(payload: bytes = b"fake ota" * 1000) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("META-INF/com/android/metadata", "ota-type=AB\n")
+        zf.writestr("payload.bin", payload)
+    return buf.getvalue()
+
+
+PKG = make_zip()
 SAMPLE = {
     "api_version": "1",
     "count": 3,
@@ -31,9 +41,14 @@ SAMPLE = {
 
 
 class Resp(io.BytesIO):
-    def __init__(self, body, headers=None):
+    def __init__(self, body, headers=None, status=200, url=""):
         super().__init__(body)
         self.headers = headers or {}
+        self.status = status
+        self.url = url
+
+    def geturl(self):
+        return self.url
 
     def __enter__(self):
         return self
@@ -58,7 +73,7 @@ class Server:
             if req.headers.get("If-none-match") == self.etag:
                 raise urllib.error.HTTPError(url, 304, "Not Modified", {}, None)
             return Resp(json.dumps(SAMPLE).encode(), {"ETag": self.etag})
-        return Resp(self.files[url], {"Content-Length": str(len(self.files[url]))})
+        return Resp(self.files[url], {"Content-Length": str(len(self.files[url]))}, url=url)
 
 
 def test_fetch_parses_and_sends_filters_and_user_agent(tmp_path):
@@ -144,5 +159,5 @@ def test_cli_ota_list_and_download(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "16.0.5.700(CN01)" in out and "(latest)" in out and "Daniel Springer" in out
     assert cli.main(["ota", "download", "--model", "PJZ110", "--id", "bbb222", "--out", str(tmp_path)]) == 0
-    assert "MD5 checked" in capsys.readouterr().out
+    assert "MD5 verified" in capsys.readouterr().out
     assert (tmp_path / rel(1).filename).read_bytes() == PKG

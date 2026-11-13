@@ -9,6 +9,9 @@ understood, and they deserve the credit for that groundwork.
 - **koaaN** – [Flasher_Builder](https://github.com/koaaN/Flasher_Builder), the
   local builder for SuperHybrid / Regional flashers
 - **Daniel Springer** – SuperFlasher and the OnePlus OTA catalog
+- **nirupha** ([oplus-ota](https://github.com/nirupha/oplus-ota)) and the
+  **Oxygen Updater** team – for documenting how OPPO's servers expect the system
+  updater to ask for OTA packages
 - **docnok63** and **Jonas Salo** – OnePlus 13 flasher packaging
 - **FTH PHONE 1902** and **Venkayy** – the original flasher scripts that inspired
   the above

@@ -230,6 +230,21 @@ public [OTA catalog by Daniel Springer](https://roms.danielspringer.at) (thank y
 Packages come straight from OPPO / OnePlus servers; OPxFlasher checks the size and MD5
 (when the catalog has them) and that it's a real zip, then runs the usual ROM check.
 
+How the download works:
+
+- **The way the phone's updater asks.** OPPO's servers refuse downloads from anything
+  that isn't the system updater, so OPxFlasher sends the updater's identity (a `Dalvik`
+  User-Agent with your phone's model and Android version, and the updater's `userId`)
+  and follows the server's redirect to the package. No browser and no extra downloader
+  needed.
+- **Fast and resumable.** Big packages download over 4 connections at once. A dropped
+  connection is retried, and an expired download link (they last about an hour) is renewed
+  automatically. **Cancel** pauses: press **Resume download** later, even after closing the
+  app, and it carries on from where it stopped (the partial file is `<name>.zip.part`).
+- **Checked.** The MD5 comes from the catalog, or from the server when the catalog has none.
+  A package that fails the MD5 or isn't a complete zip is deleted.
+- **Logged.** Every step goes into the app's log, so **Export log...** shows what happened.
+
 - **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.

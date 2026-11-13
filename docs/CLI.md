@@ -34,7 +34,7 @@ opx verify backups/<folder>                  # re-check a backup offline
 
 ```sh
 opx ota list [--model PJZ110]                # official ROMs (Daniel Springer's catalog)
-opx ota download --id <id> --out ~/Downloads
+opx ota download --id <id> --out ~/Downloads [--connections 4]   # resumes if run again
 
 opx rom inspect ROM.zip                      # device, build, full/incremental, images
 opx rom extract ROM.zip init_boot vbmeta     # pull images out (hash-verified)

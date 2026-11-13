@@ -319,7 +319,8 @@ def test_gui_official_roms_dialog(window, monkeypatch, tmp_path):
     monkeypatch.setattr(cd.catalog, "fetch", lambda **kw: releases)
     monkeypatch.setattr(cd.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
 
-    def fake_download(rel, folder, progress=None, cancel=None):
+    def fake_download(rel, folder, progress=None, cancel=None, stage=None, android="", build=""):
+        stage("Asking the official server for the package...")
         progress(len(PKG), len(PKG))
         out = folder / rel.filename
         out.write_bytes(PKG)
@@ -816,3 +817,44 @@ def test_gui_poll_notices_plug_and_unplug(window, monkeypatch):
     win.poll_devices()
     settle(app)
     assert not win.tools_ok and "missing" in win.status_text.text()
+
+
+def test_gui_official_roms_pause_and_resume(window, monkeypatch, tmp_path):
+    from test_catalog import PKG, SAMPLE
+
+    from opx import catalog
+    from opx.gui import catalog_dialog as cd
+
+    app, win = window
+    releases = [catalog.Release.from_json(r) for r in SAMPLE["releases"]]
+    monkeypatch.setattr(cd.catalog, "for_phone", lambda model: [r for r in releases if r.model == model])
+    asked = []
+    monkeypatch.setattr(cd.QFileDialog, "getExistingDirectory", lambda *a, **k: asked.append(1) or str(tmp_path))
+    calls = []
+
+    def fake_download(rel, folder, progress=None, cancel=None, stage=None, android="", build=""):
+        calls.append((folder, android, build))
+        if len(calls) == 1:
+            stage("Downloading over 4 connection(s)...")
+            progress(len(PKG) // 2, len(PKG))
+            (folder / (rel.filename + ".part")).write_bytes(b"half")
+            raise catalog.DownloadPaused("Download paused at 1 of 2 MB. Start it again to resume.")
+        stage("Resuming from 1 MB.")
+        progress(len(PKG), len(PKG))
+        out = folder / rel.filename
+        out.write_bytes(PKG)
+        return out
+
+    monkeypatch.setattr(cd.catalog, "download", fake_download)
+    dlg = cd.CatalogDialog(win, win._dialog_job, "PJZ110", "16", "BP2A.250605.015")
+    settle(app)
+    dlg.download()
+    settle(app)
+    assert dlg.download_btn.text() == "Resume download" and "paused" in dlg.status.text()
+    assert dlg.progress.isVisibleTo(dlg)  # keeps showing how far it got
+    dlg.download()  # resume: same folder, no second folder question
+    settle(app)
+    assert asked == [1] and calls[1][0] == tmp_path and dlg.downloaded == tmp_path / releases[1].filename
+    assert calls[0][1:] == ("16", "BP2A.250605.015")  # the phone's own Android version and build
+    log = win.log.toPlainText()
+    assert "Downloading over 4 connection(s)" in log and "Download paused" in log and "Resuming from" in log

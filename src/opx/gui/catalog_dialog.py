@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,8 +39,11 @@ class CatalogDialog(QDialog):
     window's job runner); with `event`, `fn` gets an `emit` keyword for progress.
     After a successful download, `downloaded` holds the zip."""
 
-    def __init__(self, parent, run_job, model: str):
+    def __init__(self, parent, run_job, model: str, android: str = "", build: str = ""):
         super().__init__(parent)
+        self.android, self.build = android, build
+        self.folder: Path | None = None  # where the last download went (resume goes there too)
+        self.rate: list[tuple[float, int]] = []
         self.setWindowTitle(tr("Official ROMs"))
         self.resize(820, 480)
         self.run_job = run_job
@@ -73,7 +77,9 @@ class CatalogDialog(QDialog):
         layout.addWidget(self.progress)
 
         credit = QLabel(f'<a style="color:#e6e8ee" href="{catalog.SITE}">{catalog.CREDIT}</a>. '
-                        "Packages download from OPPO / OnePlus servers.")
+                        "Packages download straight from OPPO / OnePlus servers, the way the phone's "
+                        "updater gets them; a stopped download resumes.")
+        credit.setWordWrap(True)
         credit.setOpenExternalLinks(True)
         credit.setStyleSheet("color:#9aa3b5")
         layout.addWidget(credit)
@@ -132,9 +138,19 @@ class CatalogDialog(QDialog):
 
     def _failed(self, exc: BaseException) -> None:
         self.busy = False
-        self.progress.hide()
+        paused = isinstance(exc, catalog.DownloadPaused)
+        if not paused:
+            self.progress.hide()
         self.status.setText(str(exc))
+        self.log(("Download paused: " if paused else "Official ROMs: ") + str(exc))
+        self.download_btn.setText(tr("Resume download") if paused else tr("Download and check"))
         self._update_buttons()
+
+    def log(self, text: str) -> None:
+        """Also into the main window's log, so an exported log shows what happened."""
+        say = getattr(self.parent(), "say", None)
+        if say:
+            say(text)
 
     def selected(self) -> catalog.Release | None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
@@ -162,37 +178,63 @@ class CatalogDialog(QDialog):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        folder = QFileDialog.getExistingDirectory(self, "Save the ROM in", str(default_download_dir()))
+        resuming = self.folder is not None and (self.folder / (rel.filename + ".part")).exists()
+        folder = str(self.folder) if resuming else QFileDialog.getExistingDirectory(
+            self, "Save the ROM in", str(default_download_dir()))
         if not folder:
             return
+        self.folder = Path(folder)
         self.cancel.clear()
         self.busy = True
+        self.rate = []
         self.progress.setRange(0, 0)
         self.progress.show()
         self.status.setText(f"Downloading {rel.version} ({rel.size_text}) from the official server...")
+        self.log(f"Official ROMs: downloading {rel.model} {rel.version} to {folder}")
         self._update_buttons()
+        android, build = self.android, self.build
         self.run_job(
-            lambda emit=None: catalog.download(rel, Path(folder), progress=lambda d, t: emit((d, t)),
-                                          cancel=self.cancel.is_set),
-            self._downloaded, self._failed, event=self._progress,
+            lambda emit=None: catalog.download(
+                rel, Path(folder), progress=lambda d, t: emit(("progress", d, t)),
+                stage=lambda s: emit(("stage", s)), cancel=self.cancel.is_set,
+                android=android if rel.model.upper() == self.model.upper() else "",
+                build=build if rel.model.upper() == self.model.upper() else ""),
+            self._downloaded, self._failed, event=self._event,
         )
 
-    def _progress(self, ev) -> None:
-        done, total = ev
+    def _event(self, ev) -> None:
+        if ev[0] == "stage":
+            self.status.setText(ev[1])
+            self.log(ev[1])
+            if ev[1].startswith("Checking"):
+                self.rate = []  # the check re-counts from zero
+            return
+        _, done, total = ev
         if total:
             self.progress.setRange(0, 1000)
             self.progress.setValue(int(done * 1000 / total))
-        self.progress.setFormat(f"{done / 1e6:,.0f} MB" + (f" of {total / 1e6:,.0f} MB" if total else ""))
+        now = time.monotonic()
+        self.rate = [(t, d) for t, d in self.rate if now - t < 8] + [(now, done)]
+        speed = ""
+        if len(self.rate) > 1 and now - self.rate[0][0] > 1:
+            bps = (done - self.rate[0][1]) / (now - self.rate[0][0])
+            if bps > 0:
+                speed = f"  ·  {bps / 1e6:.1f} MB/s"
+                if total and total > done:
+                    left = int((total - done) / bps)
+                    speed += f"  ·  {left // 60} min {left % 60:02d} s left"
+        self.progress.setFormat(f"{done / 1e6:,.0f} MB" + (f" of {total / 1e6:,.0f} MB" if total else "") + speed)
 
     def _downloaded(self, path: Path) -> None:
         self.busy = False
         self.downloaded = path
+        self.download_btn.setText(tr("Download and check"))
         self.accept()
 
     def _close_or_cancel(self) -> None:
         if self.busy and self.progress.isVisible():
             self.cancel.set()
-            self.status.setText("Cancelling...")
+            self.status.setText("Pausing... (the download can be resumed)")
         else:
             self.reject()
 

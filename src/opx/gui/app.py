@@ -1174,7 +1174,9 @@ class MainWindow(QMainWindow):
             model = text.strip().upper() if ok else ""
             if not model:
                 return
-        dlg = CatalogDialog(self, self._dialog_job, model)
+        props = self.session.props if self.session else {}
+        dlg = CatalogDialog(self, self._dialog_job, model, props.get("ro.build.version.release", ""),
+                            props.get("ro.build.id", ""))
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.downloaded:
             self.rom_edit.setText(str(dlg.downloaded))
             self.say(f"Downloaded {dlg.downloaded}")

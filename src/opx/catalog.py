@@ -8,15 +8,14 @@ Be a good guest: responses are cached on disk and revalidated with ETag
 catalog is only asked when the user opens it.
 
 The catalog lists each release's *source* link (an official OPPO/OnePlus
-server). OPxFlasher follows that link's redirects to download the package,
-then checks size and MD5 when the catalog has them, and that it is a zip.
+server). OPxFlasher downloads it the way the phone's updater does (see
+opx.otadl), resumably, and checks size, MD5 and that it is a zip.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from opx import __version__
+from opx import __version__, otadl
 from opx.tools import user_tools_dir
 
 API = "https://roms.danielspringer.at/api/ota.php"
@@ -35,6 +34,10 @@ USER_AGENT = f"OPxFlasher/{__version__} (+https://github.com/ox1d3x3/OPxFlasher)
 
 class CatalogError(RuntimeError):
     pass
+
+
+class DownloadPaused(CatalogError):
+    """Cancelled; the partial download is kept and resumes next time."""
 
 
 @dataclass
@@ -139,40 +142,20 @@ def for_phone(model: str, **kw) -> list[Release]:
 def download(release: Release, dest_dir: Path,
              progress: Callable[[int, int], None] | None = None,
              cancel: Callable[[], bool] | None = None,
-             opener=None) -> Path:
-    """Download a release's full package and check it. Returns the zip path."""
-    opener = opener or urllib.request.urlopen
+             opener=None, stage: Callable[[str], None] | None = None,
+             android: str = "", build: str = "", connections: int = otadl.CONNECTIONS) -> Path:
+    """Download a release's full package the way the phone's updater does, resumably,
+    and check it (size, MD5, zip). Returns the zip path. Raises DownloadPaused when
+    cancelled (the partial file stays for resuming), CatalogError otherwise."""
     if not release.source_url.startswith("https://"):
         raise CatalogError("This release has no secure download link.")
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    out = dest_dir / release.filename
-    partial = out.with_name(out.name + ".part")
-    md5 = hashlib.md5()
-    total = release.size
-    done = 0
     try:
-        with opener(_request(release.source_url), timeout=60) as resp, open(partial, "wb") as fh:
-            total = int(resp.headers.get("Content-Length") or 0) or total
-            first = True
-            while chunk := resp.read(1 << 20):
-                if first and not chunk.startswith(b"PK"):
-                    raise CatalogError(
-                        "The official server didn't send a zip (it may need a fresh link). "
-                        f"Open {release.source_url} in a browser instead.")
-                first = False
-                fh.write(chunk)
-                md5.update(chunk)
-                done += len(chunk)
-                if progress:
-                    progress(done, total)
-                if cancel and cancel():
-                    raise CatalogError("Download cancelled.")
-        if release.size and done != release.size:
-            raise CatalogError(f"Download incomplete: got {done} bytes, expected {release.size}.")
-        if release.md5 and md5.hexdigest().lower() != release.md5.lower():
-            raise CatalogError("Downloaded package doesn't match the catalog's MD5. Deleted it.")
-    except BaseException:
-        partial.unlink(missing_ok=True)
-        raise
-    os.replace(partial, out)
-    return out
+        return otadl.fetch(
+            release.source_url, dest_dir / release.filename,
+            otadl.updater_headers(release.model, android or "16", build),
+            size=release.size, md5=release.md5, connections=connections,
+            progress=progress, stage=stage, cancel=cancel, opener=opener)
+    except otadl.Paused as e:
+        raise DownloadPaused(str(e)) from e
+    except otadl.DownloadError as e:
+        raise CatalogError(str(e)) from e
