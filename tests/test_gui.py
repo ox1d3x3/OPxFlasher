@@ -277,16 +277,16 @@ def test_gui_offers_to_download_adb_and_fastboot(adb_env, monkeypatch, tmp_path)
 
     missing = dev.Scan(errors=["adb not found. Run 'opx tools fetch' to download Google's platform-tools"])
     monkeypatch.setattr(gui.dev, "scan", lambda: missing)
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    _answer(monkeypatch, gui, "Download")
     fetched = []
-    monkeypatch.setattr(gui, "fetch_platform_tools", lambda: fetched.append(1) or tmp_path / "pt")
+    monkeypatch.setattr(gui, "fetch_platform_tools", lambda progress=None: fetched.append(1) or tmp_path / "pt")
 
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
     win.refresh_devices()
     settle(app)
     assert win.tools_btn.isVisibleTo(win)
-    assert "missing" in win.banner.text()
+    assert "Tools not downloaded" in win.banner.text() and "Click here to download" in win.banner.text()
 
     monkeypatch.setattr(gui.dev, "scan", lambda: dev.Scan())  # tools now present, no phone
     win.tools_btn.click()
@@ -664,3 +664,66 @@ def test_gui_usb_driver_help(window, monkeypatch):
     assert opened == [usbcheck.GOOGLE_DRIVER]
     assert "Get the driver" in seen[0] and not any("Device Manager" in b for b in seen[0])
 
+
+
+def test_gui_startup_tools_found_goes_straight_on(window, monkeypatch):
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setattr(gui.QMessageBox, "exec", lambda box: pytest.fail("no prompt expected"))
+    refreshed = []
+    monkeypatch.setattr(win, "refresh_devices", lambda: refreshed.append(True))
+    win.check_tools()
+    assert refreshed and win.banner.isHidden()
+    assert "adb and fastboot found." in win.log.toPlainText()
+
+
+def _answer(monkeypatch, gui, label):
+    """Make the tools prompt click `label` ('Download' or 'Decline')."""
+    def fake_exec(box):
+        box._clicked = next(b for b in box.buttons() if b.text() == label)
+    monkeypatch.setattr(gui.QMessageBox, "exec", fake_exec)
+    monkeypatch.setattr(gui.QMessageBox, "clickedButton", lambda box: box._clicked)
+
+
+def test_gui_startup_tools_missing_decline_then_link(window, monkeypatch, tmp_path):
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setattr(gui, "missing_tools", lambda: ["adb", "fastboot"])
+    _answer(monkeypatch, gui, "Decline")
+    win.check_tools()
+    assert not win.banner.isHidden() and "Tools not downloaded" in win.banner.text()
+    assert "Click here to download" in win.banner.text() and win.tools_btn.isVisibleTo(win)
+
+    # the banner link downloads straight away (no second question), with progress
+    def fake_fetch(progress=None):
+        progress(5, 10)
+        progress(10, 10)
+        return tmp_path / "platform-tools"
+    monkeypatch.setattr(gui, "fetch_platform_tools", fake_fetch)
+    refreshed = []
+    monkeypatch.setattr(win, "refresh_devices", lambda: refreshed.append(True))
+    win.banner.linkActivated.emit(win.TOOLS_LINK)
+    settle(app)
+    assert refreshed and win.banner.isHidden() and win.tools_progress is None
+    assert "platform-tools saved" in win.log.toPlainText()
+
+
+def test_gui_startup_tools_missing_download_and_failure(window, monkeypatch):
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setattr(gui, "missing_tools", lambda: ["adb"])
+    _answer(monkeypatch, gui, "Download")
+
+    def offline(progress=None):
+        raise OSError("no internet")
+    monkeypatch.setattr(gui, "fetch_platform_tools", offline)
+    warned = []
+    monkeypatch.setattr(gui.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    win.check_tools()
+    settle(app)
+    assert warned and "no internet" in warned[0]
+    assert "Download failed." in win.banner.text() and "Click here to download" in win.banner.text()
+    assert not win.busy

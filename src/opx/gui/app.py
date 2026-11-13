@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import threading
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QProgressDialog,
     QPushButton,
     QRadioButton,
     QSplitter,
@@ -55,7 +57,7 @@ from opx.i18n import tr
 from opx.profile import MODE_TEXT, MODES
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
-from opx.tools import Tool, fetch_platform_tools
+from opx.tools import Tool, fetch_platform_tools, missing_tools
 
 STYLE = """
 QMainWindow, QDialog, QMessageBox { background: #15171c; }
@@ -228,6 +230,8 @@ class MainWindow(QMainWindow):
         self.banner = QLabel()
         self.banner.setObjectName("banner")
         self.banner.setWordWrap(True)
+        self.banner.setOpenExternalLinks(False)
+        self.banner.linkActivated.connect(self._banner_link)
         self.banner.hide()
         dev_layout.addWidget(self.banner)
         dev_box.setMinimumWidth(340)
@@ -648,11 +652,7 @@ class MainWindow(QMainWindow):
         tools_missing = any("not found" in e for e in scan.errors)
         self.tools_btn.setVisible(tools_missing)
         if tools_missing and not scan.devices:
-            self._show_banner(
-                "adb and fastboot are missing. Click \"Download adb and fastboot\" to get "
-                "Google's official platform-tools, then plug in your phone.",
-                "warning",
-            )
+            self._show_tools_banner()
             self._update_buttons()
             return
         self.devices = scan.devices
@@ -672,28 +672,105 @@ class MainWindow(QMainWindow):
             return
         self._device_selected(0)
 
+    # --- adb / fastboot ------------------------------------------------------
+
+    TOOLS_LINK = "download-tools"
+
+    def check_tools(self) -> None:
+        """Start-up: are adb and fastboot there? If not, offer to download them."""
+        self._show_banner(tr("Checking tool requirements..."), "info")
+        self.say("Checking tool requirements...")
+        missing = missing_tools()
+        if not missing:
+            self.say("adb and fastboot found.")
+            self._show_banner("", "info")
+            self.refresh_devices()
+            return
+        self.say(f"Not found: {', '.join(missing)}")
+        if self.ask_download_tools(missing):
+            self.start_tools_download()
+        else:
+            self.say("Tools not downloaded. Use \"Click here to download\" in the phone panel whenever you're ready.")
+            self.tools_btn.show()
+            self._show_tools_banner()
+            self._update_buttons()
+
+    def ask_download_tools(self, missing: list[str]) -> bool:
+        box = QMessageBox(QMessageBox.Question, tr("Tool requirements"),
+                          tr("adb and fastboot aren't installed. OPxFlasher needs them to talk to your phone."),
+                          parent=self)
+        box.setInformativeText(tr(
+            "Download Google's official Android platform-tools now? It's about 10 MB, comes straight "
+            "from dl.google.com (Google's terms apply) and is saved for your user only."))
+        download = box.addButton(tr("Download"), QMessageBox.AcceptRole)
+        box.addButton(tr("Decline"), QMessageBox.RejectRole)
+        box.setDefaultButton(download)
+        box.exec()
+        return box.clickedButton() is download
+
+    def _show_tools_banner(self, problem: str = "") -> None:
+        head = problem or tr("Tools not downloaded.")
+        self._show_banner(
+            f"<b>{escape(head)}</b> {escape(tr('adb and fastboot are needed to work with your phone.'))} "
+            f'<a href="{self.TOOLS_LINK}" style="color:#ffd27a">{escape(tr("Click here to download"))}</a>',
+            "danger")
+
+    def _banner_link(self, link: str) -> None:
+        if link == self.TOOLS_LINK:
+            self.start_tools_download()
+
     def download_tools(self) -> None:
-        answer = QMessageBox.question(
-            self, "OPxFlasher",
-            "Download Google's official Android platform-tools (adb and fastboot, about 10 MB)?\n\n"
-            "They come straight from dl.google.com and Google's terms apply.",
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        """The 'Download adb and fastboot' button."""
+        if self.ask_download_tools(missing_tools()):
+            self.start_tools_download()
+
+    def start_tools_download(self) -> None:
+        if self.busy:
             return
         self._set_busy(True)
         self.tools_btn.setEnabled(False)
+        self._show_banner(tr("Downloading adb and fastboot from Google..."), "info")
         self.say("Downloading platform-tools from Google...")
-        self.run_job(Job(fetch_platform_tools), self._tools_downloaded, self._tools_failed)
+        dlg = QProgressDialog(tr("Downloading adb and fastboot from Google..."), "", 0, 100, self)
+        dlg.setWindowTitle(tr("Tool requirements"))
+        dlg.setCancelButton(None)  # the download is small and can't be stopped halfway safely
+        dlg.setMinimumDuration(0)
+        dlg.setValue(0)
+        self.tools_progress = dlg
+        job = Job(fetch_platform_tools)
+        job.kwargs["progress"] = lambda done, total: job.signals.event.emit((done, total))
+        self.run_job(job, self._tools_downloaded, self._tools_failed, self._tools_progress)
+
+    def _tools_progress(self, ev) -> None:
+        done, total = ev
+        if total and getattr(self, "tools_progress", None):
+            self.tools_progress.setValue(min(99, int(done * 100 / total)))
+
+    def _close_tools_progress(self) -> None:
+        dlg = getattr(self, "tools_progress", None)
+        if dlg is not None:
+            dlg.close()
+            self.tools_progress = None
 
     def _tools_downloaded(self, path) -> None:
+        self._close_tools_progress()
+        self._set_busy(False)
         self.tools_btn.setEnabled(True)
         self.tools_btn.hide()
+        self._show_banner("", "info")
         self.say(f"platform-tools saved to {path}")
         self.refresh_devices()
 
     def _tools_failed(self, exc: BaseException) -> None:
+        self._close_tools_progress()
+        self._set_busy(False)
         self.tools_btn.setEnabled(True)
-        self._job_failed(exc)
+        self.tools_btn.show()
+        self.say(f"Download failed: {exc}")
+        self._show_tools_banner(tr("Download failed."))
+        QMessageBox.warning(self, tr("Tool requirements"),
+                            f"{tr('Download failed.')}\n\n{exc}\n\n"
+                            + tr("Check your internet connection and try again."))
 
     def _clear_info(self) -> None:
         for lbl in self.info_labels.values():
@@ -1361,7 +1438,7 @@ def main() -> int:
         print("smoke test", "ok" if ok else "FAILED", flush=True)
         return 0 if ok else 1
     win.show()
-    win.refresh_devices()
+    QTimer.singleShot(0, win.check_tools)  # once the window is on screen
     return app.exec()
 
 

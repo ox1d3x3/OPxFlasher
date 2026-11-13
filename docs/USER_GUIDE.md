@@ -281,6 +281,10 @@ profile can lock more (`keep_apps`).
 
 ## Everyday helpers
 
+- **Tool check at start-up:** OPxFlasher looks for adb and fastboot every time it starts. If they're
+  missing it asks to download Google's official platform-tools (about 10 MB, saved for your user
+  only). **Download** fetches them with a progress bar and then looks for your phone; **Decline**
+  opens the app with a *Tools not downloaded* banner and a **Click here to download** link.
 - **Phone panel:** model and variant (e.g. *OnePlus 13 China (PJZ110)*), build, Android,
   security patch, active slot, bootloader locked/unlocked, root access and this phone's
   **last backup** (or a reminder to make one before flashing).

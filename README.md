@@ -85,9 +85,12 @@ Get the newest build from the **[Releases page](https://github.com/ox1d3x3/OPxFl
 The portable files are self-contained: no installer, no admin rights.
 The `opx` command-line tool comes with the pipx install.
 
-**adb and fastboot:** not bundled. If they aren't already installed, run `opx tools fetch` to
-download Google's platform-tools, or put the `platform-tools` folder next to the app.
-On macOS, `brew install android-platform-tools` also works.
+**adb and fastboot:** checked every time the app starts. If they're missing, OPxFlasher offers to
+download Google's official platform-tools (about 10 MB, a few seconds) and carries on. Decline, and
+a **Click here to download** link waits in the phone panel. They aren't bundled because Google's
+licence doesn't allow redistributing them; the download comes straight from Google. Command line:
+`opx tools fetch`. You can also put a `platform-tools` folder next to the app, or on macOS use
+`brew install android-platform-tools`.
 
 ### Verify your download
 
@@ -104,8 +107,9 @@ changed since. Alternatively, compare its SHA-256 with `SHA256SUMS.txt` in the r
 
 ## Quick start
 
-1. **Prepare the phone.** Turn on *USB debugging* (Developer options) and connect it. Backups
-   and partition reads need root (Magisk, KernelSU or APatch) or a custom recovery.
+1. **Start the app and prepare the phone.** On first start OPxFlasher checks for adb and
+   fastboot and offers to download them. Turn on *USB debugging* (Developer options) and connect
+   the phone. Backups and partition reads need root (Magisk, KernelSU or APatch) or a custom recovery.
 2. **Back up first.** Open the app, choose **Critical** (or **Full firmware** for an offline
    copy of the whole OS) and press **Start backup**. Every image is verified.
 3. **Check the ROM.** On the **ROM check** tab, pick an OTA zip (or **Official ROMs...** to

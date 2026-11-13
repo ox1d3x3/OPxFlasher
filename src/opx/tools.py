@@ -61,6 +61,17 @@ def _candidates(name: str) -> list[Path]:
     return [d / f"{name}{_EXE}" for d in dirs]
 
 
+def missing_tools(names: tuple[str, ...] = ("adb", "fastboot")) -> list[str]:
+    """Which of adb / fastboot can't be found (checked at start-up)."""
+    out = []
+    for name in names:
+        try:
+            find_tool(name)
+        except ToolNotFound:
+            out.append(name)
+    return out
+
+
 def find_tool(name: str) -> list[str]:
     """Return the command prefix for ``adb`` or ``fastboot``."""
     env = os.environ.get(f"OPX_{name.upper()}")
