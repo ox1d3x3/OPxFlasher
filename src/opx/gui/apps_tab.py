@@ -45,6 +45,7 @@ class AppsTab(QWidget):
         super().__init__()
         self.win = win
         self.apps: list[ap.App] = []
+        self.by_name: dict[str, ap.App] = {}
         self.loaded_for = None
         layout = QVBoxLayout(self)
 
@@ -109,7 +110,7 @@ class AppsTab(QWidget):
         live = self._live()
         current = getattr(self.win.session, "serial", None)
         if self.apps and self.loaded_for != current and current is not None:
-            self.apps, self.loaded_for = [], None  # another phone: its list is stale
+            self.apps, self.by_name, self.loaded_for = [], {}, None  # another phone: its list is stale
             self.table.setRowCount(0)
             self.status.setText("")
         loaded = live and self.loaded_for == current
@@ -126,8 +127,9 @@ class AppsTab(QWidget):
         out = []
         for r in sorted({i.row() for i in self.table.selectedIndexes()}):
             item = self.table.item(r, 0)
-            if item is not None:
-                out.append(item.data(Qt.UserRole))
+            app = self.by_name.get(item.text()) if item is not None else None
+            if app is not None:
+                out.append(app)
         return out
 
     def _fill(self) -> None:
@@ -137,8 +139,7 @@ class AppsTab(QWidget):
                  and (not self.only_removed.isChecked() or a.removed)]
         self.table.setRowCount(len(shown))
         for r, a in enumerate(shown):
-            name = QTableWidgetItem(a.package)
-            name.setData(Qt.UserRole, a)
+            name = QTableWidgetItem(a.package)  # plain text only: no Python objects inside Qt items
             if a.keep:
                 name.setToolTip(a.keep)
             state = "Removed" if a.removed else ("Disabled" if a.disabled else "Installed")
@@ -167,6 +168,7 @@ class AppsTab(QWidget):
 
     def _loaded(self, apps) -> None:
         self.apps = apps
+        self.by_name = {a.package: a for a in apps}
         self.loaded_for = self.win.session.serial if self.win.session else None
         removed = sum(a.removed for a in apps)
         self.status.setText(f"{len(apps)} system apps, {removed} removed for your user.")

@@ -26,7 +26,12 @@ def window(adb_env, monkeypatch):
     win = MainWindow()
     win.refresh_devices()
     settle(app)
-    return app, win
+    yield app, win
+    # finish background jobs and free the window while Python is still running
+    QThreadPool.globalInstance().waitForDone(10000)
+    win.close()
+    win.deleteLater()
+    settle(app, 5)
 
 
 def test_gui_connects_and_backs_up(window, tmp_path):
