@@ -290,8 +290,9 @@ profile can lock more (`keep_apps`).
   when you click it. OPxFlasher sends nothing on its own.
 - **Phone not showing up?** (phone panel, or `opx usb-check`): on Windows it finds a
   OnePlus / OPPO phone with a missing or broken USB driver, tells you whether it's the adb or the
-  fastboot driver, and offers three buttons: **Get the driver** (Google's official USB driver page),
-  **Windows Update** (its optional driver updates often include the Android driver) and **Open
-  Device Manager**. On Linux it checks your user may open the phone (udev rules / `plugdev`). It
-  also spots a phone stuck in Qualcomm 9008 (EDL) mode. OPxFlasher never installs drivers itself:
-  they come from Google or Windows Update, and only that install asks for administrator approval.
+  fastboot driver, and explains two fixes: Windows Update's optional driver updates (which often
+  include the Android driver), or the Google USB driver (**Get the driver** opens Google's official
+  page) applied in Device Manager. On Linux it checks your user may open the phone (udev rules /
+  `plugdev`). It also spots a phone stuck in Qualcomm 9008 (EDL) mode. OPxFlasher never installs
+  drivers, opens Windows settings or asks for administrator rights itself; only the driver install
+  asks for approval.

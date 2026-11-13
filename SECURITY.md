@@ -14,6 +14,12 @@ soon as possible, and credit in the release notes if you'd like it.
 
 Only the latest release candidate or release is supported with fixes.
 
+## Antivirus false positives
+
+Windows Defender occasionally flags the single-file `.exe` (a known issue with PyInstaller
+apps). Verify the file as below, then report it to Microsoft as incorrectly detected at
+https://www.microsoft.com/en-us/wdsi/filesubmission, and let us know in an issue.
+
 ## Verifying releases
 
 Release files are signed with GitHub build attestations:

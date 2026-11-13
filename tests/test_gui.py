@@ -647,22 +647,20 @@ def test_gui_usb_driver_help(window, monkeypatch):
     finding = usbcheck.check_windows([{"Status": "Error", "Class": None, "FriendlyName": "PJZ110",
                                        "InstanceId": "USB\\VID_22D9&PID_2769\\X"}])
     monkeypatch.setattr(usbcheck, "check", lambda: finding)
-    clicks = iter(["Get the driver", "Windows Update", "Open Device Manager", None])
-    done = []
+    clicks = iter(["Get the driver", None])
+    seen = []
 
-    def fake_exec(box):  # pretend the user clicks each fix, then Close
+    def fake_exec(box):  # the user clicks Get the driver, then Close
         label = next(clicks)
+        seen.append([b.text() for b in box.buttons()])
         box._clicked = next((b for b in box.buttons() if b.text() == label), None)
-        done.append(label)
 
     monkeypatch.setattr(gui.QMessageBox, "exec", fake_exec)
     monkeypatch.setattr(gui.QMessageBox, "clickedButton", lambda box: box._clicked)
     opened = []
     monkeypatch.setattr(gui.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
-    monkeypatch.setattr(usbcheck, "open_windows_update", lambda: opened.append("update") or True)
-    monkeypatch.setattr(usbcheck, "open_device_manager", lambda: opened.append("devmgmt") or False)
     win.usb_check()
     settle(app)
-    assert done == ["Get the driver", "Windows Update", "Open Device Manager", None]
-    assert opened == [usbcheck.GOOGLE_DRIVER, "update", "devmgmt"]
-    assert "Device Manager wasn't opened" in win.log.toPlainText()
+    assert opened == [usbcheck.GOOGLE_DRIVER]
+    assert "Get the driver" in seen[0] and not any("Device Manager" in b for b in seen[0])
+

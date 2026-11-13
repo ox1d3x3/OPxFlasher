@@ -480,8 +480,7 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.information(self, "USB check", text)
             return
-        labels = {"driver-page": tr("Get the driver"), "windows-update": tr("Windows Update"),
-                  "device-manager": tr("Open Device Manager")}
+        labels = {"driver-page": tr("Get the driver")}
         box = QMessageBox(QMessageBox.Warning, tr("USB check"), text, parent=self)
         buttons = {box.addButton(labels[a], QMessageBox.ActionRole): a for a in dict.fromkeys(actions)}
         box.addButton(QMessageBox.Close)
@@ -496,15 +495,9 @@ class MainWindow(QMainWindow):
     def usb_action(self, action: str) -> None:
         from opx import usbcheck
 
-        if action == "driver-page":
+        if action == "driver-page":  # a web page only: OPxFlasher never opens Windows settings
             QDesktopServices.openUrl(QUrl(usbcheck.GOOGLE_DRIVER))
             self.say(f"Opened {usbcheck.GOOGLE_DRIVER}")
-        elif action == "windows-update":
-            if not usbcheck.open_windows_update():
-                self.say("Couldn't open Windows Update: open Settings > Windows Update > Optional updates.")
-        elif action == "device-manager":
-            if not usbcheck.open_device_manager():
-                self.say("Device Manager wasn't opened (the approval was declined or this isn't Windows).")
 
     def _usb_failed(self, exc: BaseException) -> None:
         self.usb_btn.setEnabled(True)
