@@ -91,7 +91,7 @@ jobs:
           names = set(zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist())
           need = ["opx/profiles/oplus-generic.json", "opx/profiles/oneplus-13.json",
                   "opx/profiles/oneplus-13t.json", "opx/profiles/oneplus-15.json",
-                  "opx/recovery/update-binary.sh", "opx/locales/template.json",
+                  "opx/recovery/update-binary.sh", "opx/recovery/rom-install.sh", "opx/locales/template.json",
                   "opx/gui/assets/icon.svg"]
           need += [f"opx/gui/assets/icon-{s}.png" for s in (16, 24, 32, 48, 64, 128, 256)]
           missing = [n for n in need if n not in names]

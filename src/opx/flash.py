@@ -29,8 +29,7 @@ from opx import __version__
 from opx.fastboot import Fastboot, FastbootError, wait_for_fastboot
 from opx.plan import BLOCK, DeviceState, Report
 from opx.profile import Profile
-from opx.rom import payload as pl
-from opx.rom.ota import RomInfo, open_rom
+from opx.rom.ota import RomInfo, materialize, open_rom
 from opx.tools import Tool
 
 OVERRIDE_QCOM_UNVALIDATED = "qcom-arb-unvalidated"
@@ -398,12 +397,12 @@ def extract_images(rom: RomInfo, names: list[str], workdir: Path, emit: EventFn,
         if img is None:
             raise FlashError(f"{name} is not in the ROM")
         emit({"type": "extract", "name": name, "index": i, "total": len(names)})
-        if img.file is not None:
-            files[name] = img.file
+        if img.file is not None and not img.pieces:
+            files[name] = img.file  # fastboot takes raw and sparse images as they are
         else:
             target = workdir / f"{name}.img"
             if not (target.exists() and target.stat().st_size == img.size):
-                pl.extract(rom.payload, name, target)
+                materialize(rom, name, target)  # payload, zip entry, split super, inside super.img
             files[name] = target
     return files
 

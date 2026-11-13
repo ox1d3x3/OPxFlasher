@@ -105,6 +105,8 @@ class Metadata:
 
 
 def _parse_geometry(buf: bytes) -> tuple[int, int, int]:
+    if len(buf) < _GEOM.size:
+        raise LpError("not dynamic-partition metadata (too short)")
     magic, size, checksum, max_size, slots, block = _GEOM.unpack_from(buf, 0)
     if magic != GEOMETRY_MAGIC or size != _GEOM.size:
         raise LpError("not dynamic-partition metadata (bad geometry)")
@@ -117,6 +119,8 @@ def _parse_geometry(buf: bytes) -> tuple[int, int, int]:
 
 
 def _parse_metadata(buf: bytes, max_size: int, slots: int, block: int) -> Metadata:
+    if len(buf) < _HEAD.size:
+        raise LpError("dynamic-partition metadata is truncated")
     head = _HEAD.unpack_from(buf, 0)
     magic, major, minor, header_size, h_sum, tables_size, t_sum = head[:7]
     descs = head[7:]

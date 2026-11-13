@@ -858,3 +858,54 @@ def test_gui_official_roms_pause_and_resume(window, monkeypatch, tmp_path):
     assert calls[0][1:] == ("16", "BP2A.250605.015")  # the phone's own Android version and build
     log = win.log.toPlainText()
     assert "Downloading over 4 connection(s)" in log and "Download paused" in log and "Resuming from" in log
+
+
+def test_gui_convert_to_full_rom(window, tmp_path, monkeypatch):
+    from test_convert import make_ota
+
+    from opx.gui import convert_dialog as cdlg
+
+    app, win = window
+    ota, _ = make_ota(tmp_path)
+    win.rom_edit.setText(str(ota))
+    out = tmp_path / "converted"
+    out.mkdir()
+    dlg = cdlg.ConvertDialog(win, win._dialog_job, str(ota))
+    settle(app)
+    text = dlg.report.toPlainText()
+    assert "Full OTA zip" in text and "PJZ110" in text and dlg.convert_btn.isEnabled()
+    dlg.out_edit.setText(str(out))
+    dlg.want_folder.setChecked(True)
+    dlg.start()
+    for _ in range(200):
+        settle(app, 5)
+        if dlg.made:
+            break
+    assert set(dlg.made) == {"zip", "folder"} and dlg.made["zip"].exists()
+    assert "Recovery zip:" in dlg.status.text() and dlg.use_btn.isVisibleTo(dlg)
+    assert not dlg.convert_btn.isEnabled()  # done; no second run into the same names
+    assert dlg.result_path == dlg.made["folder"]
+    log = win.log.toPlainText()
+    assert "Convert: Full OTA zip" in log and "Recovery zip:" in log
+
+    # ROM check shows what the ROM is
+    win.rom_edit.setText(str(dlg.made["zip"]))
+    win.check_rom()
+    for _ in range(200):
+        settle(app, 5)
+        if "Detected:" in win.log.toPlainText():
+            break
+    assert "Detected: OPxFlasher full ROM (zip) for PJZ110" in win.log.toPlainText()
+    assert win.rom_summary.text().startswith("OPxFlasher full ROM (zip)")
+
+
+def test_gui_convert_refuses_incremental(window, tmp_path):
+    from test_convert import make_ota
+
+    from opx.gui import convert_dialog as cdlg
+
+    app, win = window
+    ota, _ = make_ota(tmp_path, incremental=True)
+    dlg = cdlg.ConvertDialog(win, win._dialog_job, str(ota))
+    settle(app)
+    assert not dlg.convert_btn.isEnabled() and "incremental" in dlg.status.text()

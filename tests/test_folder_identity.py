@@ -52,20 +52,25 @@ def test_folder_without_avb_properties(tmp_path):
     assert rom.codename == "" and any("can't be confirmed" in n for n in rom.notes)
 
 
-def test_zip_of_images_explains_itself(tmp_path):
+def test_flasher_kit_zip_is_read_directly(tmp_path):
     z = tmp_path / "Regional Flasher X9U CN 16.0.10.501.zip"
+    vb = rf.build_vbmeta(1, props={"com.android.build.system.fingerprint": FP_SYSTEM})
     with zipfile.ZipFile(z, "w") as zf:
         zf.writestr("Regional Flasher X9U CN/Regional_Flasher.bat", "@echo off")
-        for name in ("boot", "vbmeta", "system", "my_region"):
-            zf.writestr(f"Regional Flasher X9U CN/OTA_FILES_HERE/{name}.img", b"\0" * 16)
-    with pytest.raises(RomError, match="fastboot flasher package \\(4 images\\).*'OTA_FILES_HERE' folder"):
-        open_rom(z)
+        zf.writestr("Regional Flasher X9U CN/Platform-Tools/readme.txt", "x")
+        for name in ("boot", "system", "my_region"):
+            zf.writestr(f"Regional Flasher X9U CN/OTA_FILES_HERE/{name}.img", b"\0" * 4096)
+        zf.writestr("Regional Flasher X9U CN/OTA_FILES_HERE/vbmeta_system.img", vb)
+    rom = open_rom(z)
+    assert rom.kind == "image-zip" and rom.codename == "OP5D55L1"
+    assert {i.name for i in rom.images} == {"boot", "system", "my_region", "vbmeta_system"}
+    assert rom.image("system").logical and not rom.image("boot").logical and rom.image("system").guessed
+    assert any("flasher package" in n for n in rom.notes)
     plain = tmp_path / "other.zip"
     with zipfile.ZipFile(plain, "w") as zf:
         zf.writestr("readme.txt", "hi")
-    with pytest.raises(RomError, match="no payload.bin"):
+    with pytest.raises(RomError, match="no payload.bin or images"):
         open_rom(plain)
-
 
 def test_report_device_match_for_folder(tmp_path):
     from opx import plan as pn

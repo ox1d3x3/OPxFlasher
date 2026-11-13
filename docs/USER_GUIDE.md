@@ -12,6 +12,7 @@ Everything OPxFlasher does, in the order you'd usually use it. For installing, s
 7. [Root assistant](#root-assistant)
 8. [Reboot and flash one image](#reboot-and-flash-one-image)
 9. [Official ROMs](#official-roms)
+    - [Convert to a full ROM](#convert-to-a-full-rom)
 10. [Phone won't start?](#phone-wont-start)
 11. [Apps (debloat)](#apps-debloat)
 12. [Diagnostics](#diagnostics)
@@ -256,6 +257,39 @@ How the download works:
   ```
 
 Catalog answers are cached, and OPxFlasher only asks the catalog when you open it.
+
+## Convert to a full ROM
+
+**ROM check → Convert to full ROM...** (or `opx rom convert`) turns a ROM into a package you can
+install from a custom recovery, keeping your data:
+
+- **Input:** a full OTA zip (for example one from Official ROMs), a `payload.bin`, a folder of
+  images, a fastboot flasher-kit zip, or an image set with `super.img` (also sparse or split into
+  pieces). Incremental OTAs can't be converted: they only hold the changes between two builds.
+- **First it tells you what the ROM is:** type, phone and model, build, Android version, security
+  patch, how many images (firmware vs. inside super), anything a full ROM normally has that's
+  missing, and which partitions are never written (identity and personal data are always left out).
+- **Recovery zip** (`<name>-fullrom.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
+  flash it. Before writing anything the installer checks:
+  - it's the phone the ROM is for, and the **same variant** (it never changes region, which would
+    need a data wipe),
+  - the ROM is **not older than the installed Android** (from the installed system's own build
+    date): installing older software can blow the OnePlus 13 / 13T / 15 anti-rollback fuse,
+  - no system update is half-applied,
+  - every partition exists and is big enough, and `lptools` is available (for system, vendor, odm...),
+  - **every file in the zip** matches its SHA-256.
+
+  Then it writes the current slot (firmware, boot images, the logical partitions resized inside
+  super, `vbmeta` last) and reads everything back. Images over 1 GiB are stored in parts, because
+  some recoveries can't unzip bigger files.
+- **Image folder** (`<name>-fullrom/`): plain images plus `opxflasher-rom.json`, for fastboot or
+  OPxFlasher. **Use in ROM check** loads the result, so OPxFlasher checks it against your phone
+  before flashing, with all the usual safety checks.
+- A ROM that doesn't say which phone it's for, or how new it is (some image kits), only gets an
+  image folder: a recovery couldn't check it safely.
+
+AERA's own "image zip" format isn't used for converted ROMs, because it can't check for a
+downgrade. AERA installs the recovery zip like any flashable zip.
 
 ## Phone won't start?
 

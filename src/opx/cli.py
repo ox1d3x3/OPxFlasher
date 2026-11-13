@@ -263,6 +263,52 @@ def cmd_rom_inspect(args) -> int:
     return 0
 
 
+def cmd_rom_detect(args) -> int:
+    from opx.rom import detect
+
+    d = detect.detect(args.path)
+    print("\n".join(d.lines()))
+    return 0 if d.ok else 1
+
+
+def cmd_rom_convert(args) -> int:
+    from opx import convert as cv
+    from opx.rom import detect
+
+    d = detect.detect(args.path)
+    print("\n".join(d.lines()) + "\n")
+    ok, why = d.convertible
+    if not ok:
+        print(f"Can't convert: {why}")
+        return 1
+    last = [-1]
+
+    def show(what, done, total):
+        pct = int(done * 100 / total) if total else 0
+        if pct != last[0]:
+            last[0] = pct
+            print(f"\r  {pct:3d}%  {what:<24}", end="", flush=True)
+
+    def step(text):
+        print(f"\n  {text}", flush=True)
+        last[0] = -1
+
+    try:
+        made = cv.convert(d.rom, Path(args.out), make_zip=not args.no_zip, make_folder=args.folder,
+                          progress=show, stage=step)
+    except (cv.ConvertError, OSError) as e:
+        print(f"\n{e}")
+        return 1
+    print()
+    if "zip" in made:
+        print(f"Recovery zip: {made['zip']}")
+        print("  Flash it in OrangeFox / TWRP (or AERA). It checks the phone, the variant and that the ROM")
+        print("  isn't older than the installed Android before writing anything; your data is kept.")
+    if "folder" in made:
+        print(f"Image folder: {made['folder']}  (ROM check / flash it with OPxFlasher, or fastboot)")
+    return 0
+
+
 def cmd_rom_extract(args) -> int:
     rom = open_rom(args.path)
     out = Path(args.out)
@@ -1071,6 +1117,16 @@ def build_parser() -> argparse.ArgumentParser:
     rx.add_argument("names", nargs="+", help="partition names, e.g. vbmeta init_boot")
     rx.add_argument("--out", default="extracted")
     rx.set_defaults(fn=cmd_rom_extract)
+    rd = rsub.add_parser("detect", help="what is this file? type, phone, build, contents, what's missing")
+    rd.add_argument("path")
+    rd.set_defaults(fn=cmd_rom_detect)
+    rc = rsub.add_parser("convert", help="make a full ROM: a recovery zip (OrangeFox / TWRP / AERA) "
+                                         "and/or an image folder")
+    rc.add_argument("path", help="full OTA zip, payload.bin, image folder or flasher-kit zip")
+    rc.add_argument("--out", default=".", help="folder to write to")
+    rc.add_argument("--folder", action="store_true", help="also write an image folder (fastboot / OPxFlasher)")
+    rc.add_argument("--no-zip", action="store_true", help="don't write the recovery zip (with --folder)")
+    rc.set_defaults(fn=cmd_rom_convert)
     ra = rsub.add_parser("avb", help="show AVB rollback index and descriptors of an image")
     ra.add_argument("image")
     ra.set_defaults(fn=cmd_rom_avb)

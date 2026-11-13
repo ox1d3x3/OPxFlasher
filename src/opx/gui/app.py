@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         rom_form = QVBoxLayout(rom_box)
         rom_row = QHBoxLayout()
         self.rom_edit = QLineEdit()
-        self.rom_edit.setPlaceholderText("Full OTA zip, payload.bin, or a folder of .img files")
+        self.rom_edit.setPlaceholderText("Full OTA zip, payload.bin, image folder, flasher-kit zip or a full ROM")
         pick_file = QPushButton(tr("File..."))
         pick_file.clicked.connect(self._choose_rom_file)
         pick_folder = QPushButton(tr("Folder..."))
@@ -392,8 +392,13 @@ class MainWindow(QMainWindow):
         self.save_report_btn = QPushButton(tr("Save report..."))
         self.save_report_btn.clicked.connect(self._save_report)
         self.save_report_btn.setEnabled(False)
+        self.convert_btn = QPushButton(tr("Convert to full ROM..."))
+        self.convert_btn.setToolTip(tr("Make a recovery zip (OrangeFox / TWRP / AERA) or an image folder "
+                                       "from this ROM"))
+        self.convert_btn.clicked.connect(self.open_convert)
         act_row.addWidget(self.check_btn)
         act_row.addWidget(self.save_report_btn)
+        act_row.addWidget(self.convert_btn)
         self.flash_btn = QPushButton(tr("Flash..."))
         self.flash_btn.setEnabled(False)
         self.flash_btn.setToolTip(tr("Writes to the phone. Needs a passing ROM check on the connected phone and a backup."))
@@ -678,6 +683,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(self.cancellable)
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
+        self.convert_btn.setEnabled(not self.busy)
         self.restore_rom_btn.setEnabled(not self.busy)
         self.restore_zip_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
@@ -1182,6 +1188,19 @@ class MainWindow(QMainWindow):
             self.say(f"Downloaded {dlg.downloaded}")
             self.check_rom()
 
+    def open_convert(self) -> None:
+        from opx.gui.convert_dialog import ConvertDialog
+
+        rom_path = self.rom_edit.text().strip()
+        if not rom_path:
+            QMessageBox.information(self, tr("Convert to full ROM"), tr("Choose a ROM file or folder first."))
+            return
+        dlg = ConvertDialog(self, self._dialog_job, rom_path)
+        self.convert_dialog = dlg
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_path:
+            self.rom_edit.setText(str(dlg.result_path))
+            self.check_rom()
+
     def check_rom(self) -> None:
         rom_path = self.rom_edit.text().strip()
         if not rom_path:
@@ -1213,10 +1232,17 @@ class MainWindow(QMainWindow):
         self.reasons.setText("\n".join(f"Stopped by {c.name}: {c.detail}" for c in blocks))
         self.reasons.setVisible(bool(blocks))
         r = report.rom
+        from opx.rom import detect
+
+        found = detect.describe(rom)
         self.rom_summary.setText(
+            f"{found.label}" + (" (incremental)" if found.full is False else "") + " · "
             f"ROM: {r['product'] or '?'} / {r['codename'] or '?'}, Android {r['android'] or '?'}, "
             f"patch {r['security_patch'] or '?'}, full package: {r['full']}, {r['images']} images"
+            + (f" · missing {', '.join(found.missing)}" if found.missing else "")
         )
+        self.say(f"Detected: {found.label}" + (f" for {found.product}" if found.product else "")
+                 + (f", missing {', '.join(found.missing)}" if found.missing else ""))
         status_text = {"pass": "OK", "info": "Info", "warn": "Warning", "block": "STOP"}
         status_colour = {"pass": "#5fd38d", "info": "#9aa3b5", "warn": "#f0c24b", "block": "#ff6b63"}
         self.checks_table.setRowCount(len(report.checks))
