@@ -84,10 +84,10 @@ class RomInfo:
     def is_full(self) -> bool | None:
         if self.kind == "backup":
             return True  # a Full firmware backup is a complete image set
+        if self.payload is not None:
+            return self.payload.is_full  # decided by the data (see Payload.is_full)
         if "pre-build" in self.metadata or "pre-build-incremental" in self.metadata:
             return False
-        if self.payload is not None:
-            return self.payload.is_full
         return None if self.kind not in ("folder", "image-zip", "fullrom") else True
 
     def image(self, name: str) -> RomImage | None:
@@ -138,7 +138,19 @@ def _from_payload(info: RomInfo, source: pl.ByteSource) -> None:
         for p in payload.partitions
     ]
     if not payload.is_full:
-        info.notes.append("This is an incremental OTA. Only full OTAs can be flashed safely.")
+        info.notes.append("This is an incremental OTA (" + (payload.incremental_reason or "no partitions")
+                          + "). Only full OTAs can be flashed or converted.")
+        return
+    labels = []
+    if "pre-build" in info.metadata or "pre-build-incremental" in info.metadata:
+        labels.append("its metadata names a build it updates from")
+    if payload.minor_version != 0:
+        labels.append(f"the payload is marked as delta format (minor version {payload.minor_version})")
+    if any(p.source_info for p in payload.partitions):
+        labels.append("some partitions name the version they replace")
+    if labels:
+        info.notes.append("Full package: " + " and ".join(labels) + ", but every partition carries complete "
+                          "data (each image is checked against its SHA-256).")
 
 
 def open_rom(path: str | Path) -> RomInfo:

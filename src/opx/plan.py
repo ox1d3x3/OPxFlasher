@@ -265,7 +265,8 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
 
     # 1. package type
     if rom.is_full is False:
-        add("Package", BLOCK, "Incremental OTA. Only full OTAs or full image sets can be flashed.")
+        why = rom.payload.incremental_reason if rom.payload is not None else "its metadata names a source build"
+        add("Package", BLOCK, f"Incremental OTA ({why}). Only full OTAs or full image sets can be flashed.")
     elif rom.is_full is None:
         add("Package", BLOCK, "Can't tell whether this is a full OTA.")
     else:

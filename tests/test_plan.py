@@ -38,7 +38,9 @@ def rom_zip(tmp_path, vb_index=2, arb=1, codename="testdevice", product="PJZ110"
         "oplusstanvbk": b"o" * 4096,
     }
     parts.update(extra or {})
-    payload = rf.build_payload(parts, groups={"main": ["system", "my_region"]})
+    # incremental: delta data for system (the metadata label alone no longer decides)
+    payload = rf.build_payload(parts, groups={"main": ["system", "my_region"]},
+                               incremental={"system"} if incremental else None)
     meta = rf.ota_metadata(codename=codename, product=product, incremental=incremental)
     return open_rom(rf.build_ota_zip(tmp_path / "rom.zip", payload, meta))
 

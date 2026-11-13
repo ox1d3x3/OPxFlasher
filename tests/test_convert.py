@@ -311,3 +311,50 @@ def test_cli_detect_and_convert(tmp_path, capsys):
     junk = tmp_path / "x.txt"
     junk.write_text("x")
     assert cli.main(["rom", "detect", str(junk)]) == 1
+
+
+# --- full vs incremental: decided by the data -------------------------------------------
+
+
+def _ota(tmp_path, name, meta_extra=None, **payload_kw):
+    parts = images()
+    payload = rf.build_payload(parts, groups={"qti_dynamic_partitions": LOGICAL}, **payload_kw)
+    meta = rf.ota_metadata(codename="OP5D0DL1")
+    meta.update(meta_extra or {})
+    return rf.build_ota_zip(tmp_path / name, payload, meta)
+
+
+@pytest.mark.parametrize("kw, meta, note", [
+    ({"old_info": {n: b"" for n in ("boot", "system")}}, None, None),  # empty old_partition_info
+    ({"old_info": {"boot": rf.f_int(1, 4096)}}, None, "name the version they replace"),
+    ({"minor_version": 8}, None, "delta format (minor version 8)"),
+    ({}, {"pre-build": "OnePlus/PJZ110/OP5D0DL1:16/X/U.0:user/release-keys"}, "names a build it updates from"),
+])
+def test_full_packages_with_misleading_labels(tmp_path, kw, meta, note):
+    from opx import plan as pn
+
+    z = _ota(tmp_path, "full.zip", meta, **kw)
+    rom = open_rom(z)
+    assert rom.is_full is True
+    assert (note is None) == (not any("Full package:" in n for n in rom.notes))
+    if note:
+        assert any(note in n for n in rom.notes)
+    d = detect.detect(z)
+    assert d.full and d.convertible[0] and d.label.startswith("Full OTA")
+    pkg = next(c for c in pn.build_report(rom, pn.no_device()).checks if c.name == "Package")
+    assert pkg.status == pn.PASS
+    assert cv.convert(rom, tmp_path / "out", chunk=MB)["zip"].exists()
+
+
+def test_incremental_says_why(tmp_path):
+    from opx import plan as pn
+
+    z = _ota(tmp_path, "inc.zip", op_types={"system": 5}, incremental={"boot"})
+    rom = open_rom(z)
+    assert rom.is_full is False
+    assert "2 of 14 partitions only hold changes" in rom.payload.incremental_reason
+    assert "boot (SOURCE_COPY)" in rom.payload.incremental_reason
+    assert "system (SOURCE_BSDIFF)" in rom.payload.incremental_reason
+    pkg = next(c for c in pn.build_report(rom, pn.no_device()).checks if c.name == "Package")
+    assert pkg.status == pn.BLOCK and "boot (SOURCE_COPY)" in pkg.detail
+    assert any("boot (SOURCE_COPY)" in n for n in rom.notes)

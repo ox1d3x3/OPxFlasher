@@ -1243,6 +1243,8 @@ class MainWindow(QMainWindow):
         )
         self.say(f"Detected: {found.label}" + (f" for {found.product}" if found.product else "")
                  + (f", missing {', '.join(found.missing)}" if found.missing else ""))
+        for note in found.notes:
+            self.say(f"  Note: {note}")
         status_text = {"pass": "OK", "info": "Info", "warn": "Warning", "block": "STOP"}
         status_colour = {"pass": "#5fd38d", "info": "#9aa3b5", "warn": "#f0c24b", "block": "#ff6b63"}
         self.checks_table.setRowCount(len(report.checks))

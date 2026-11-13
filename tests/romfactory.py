@@ -55,7 +55,10 @@ def build_payload(
     minor_version: int = 0,
     security_patch: str = "2026-09-01",
     corrupt: str | None = None,
+    old_info: dict[str, bytes] | None = None,
 ) -> bytes:
+    """`old_info`: raw old_partition_info message per partition (b"" = present but empty)."""
+    old_info = old_info or {}
     op_types = op_types or {}
     incremental = incremental or set()
     blob = bytearray()
@@ -85,6 +88,8 @@ def build_payload(
         part = f_bytes(1, name) + f_bytes(7, info) + f_bytes(8, op)
         if name in incremental:
             part += f_bytes(6, f_int(1, len(data)))
+        elif name in old_info:
+            part += f_bytes(6, old_info[name])
         parts_pb += f_bytes(13, part)
 
     manifest = f_int(3, BLOCK) + f_int(12, minor_version) + parts_pb + f_bytes(18, security_patch)

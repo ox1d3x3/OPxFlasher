@@ -92,9 +92,11 @@ class PartitionUpdate:
     name: str
     size: int
     sha256: bytes | None
-    incremental: bool
+    incremental: bool  # some operation needs the old image (delta data)
     version: str
     _ops_raw: list[bytes] = field(repr=False, default_factory=list)
+    source_info: bool = False  # carries old_partition_info (informational: data may still be complete)
+    delta_op: str = ""  # first operation that needs the old image, for messages
 
     def operations(self) -> list[Operation]:
         ops = []
@@ -137,9 +139,18 @@ class Payload:
 
     @property
     def is_full(self) -> bool:
-        if self.minor_version != 0:
-            return False
-        return not any(p.incremental for p in self.partitions)
+        """Every partition carries complete data (no operation needs the old image).
+        That is what makes images extractable; each one is still checked against its
+        SHA-256. Labels (minor_version, empty old_partition_info) don't decide it."""
+        return bool(self.partitions) and not any(p.incremental for p in self.partitions)
+
+    @property
+    def incremental_reason(self) -> str:
+        bad = [p for p in self.partitions if p.incremental]
+        if not bad:
+            return ""
+        shown = ", ".join(f"{p.name} ({p.delta_op})" for p in bad[:3]) + (f" and {len(bad) - 3} more" if len(bad) > 3 else "")
+        return f"{len(bad)} of {len(self.partitions)} partitions only hold changes against the old version: {shown}"
 
     @property
     def logical_names(self) -> set[str]:
@@ -173,12 +184,15 @@ def parse(source: ByteSource) -> Payload:
         f = pb.decode(raw)
         new_info = pb.decode(pb.first(f, 7, b""))
         ops_raw = f.get(8, [])
-        incremental = bool(f.get(6))  # old_partition_info present
-        if not incremental:
-            for op in ops_raw:
-                if pb.first(pb.decode(op), 1, 0) not in FULL_OPS:
-                    incremental = True
-                    break
+        old = pb.decode(pb.first(f, 6, b"")) if f.get(6) else {}
+        source_info = bool(pb.first(old, 1, 0) or pb.first(old, 2))  # a real old size / hash
+        delta_op = ""
+        for op in ops_raw:
+            kind = pb.first(pb.decode(op), 1, 0)
+            if kind not in FULL_OPS:
+                delta_op = OP_NAMES.get(kind, f"unknown operation {kind}")
+                break
+        incremental = bool(delta_op)
         partitions.append(
             PartitionUpdate(
                 name=pb.text(f, 1),
@@ -187,6 +201,8 @@ def parse(source: ByteSource) -> Payload:
                 incremental=incremental,
                 version=pb.text(f, 15),
                 _ops_raw=ops_raw,
+                source_info=source_info,
+                delta_op=delta_op,
             )
         )
 

@@ -896,6 +896,7 @@ def test_gui_convert_to_full_rom(window, tmp_path, monkeypatch):
         if "Detected:" in win.log.toPlainText():
             break
     assert "Detected: OPxFlasher full ROM (zip) for PJZ110" in win.log.toPlainText()
+    assert "  Note: OPxFlasher full ROM, converted from" in win.log.toPlainText()
     assert win.rom_summary.text().startswith("OPxFlasher full ROM (zip)")
 
 

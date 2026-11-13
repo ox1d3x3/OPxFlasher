@@ -73,8 +73,11 @@ def test_open_ota_zip(tmp_path):
 
 
 def test_incremental_ota_zip(tmp_path):
-    z = rf.build_ota_zip(tmp_path / "ota.zip", make_payload(), rf.ota_metadata(incremental=True))
+    z = rf.build_ota_zip(tmp_path / "ota.zip", make_payload(incremental={"system"}), rf.ota_metadata(incremental=True))
     assert open_rom(z).is_full is False
+    # the label alone (complete data in every partition) is a full package
+    z2 = rf.build_ota_zip(tmp_path / "ota2.zip", make_payload(), rf.ota_metadata(incremental=True))
+    assert open_rom(z2).is_full is True
 
 
 def test_open_folder_rom(tmp_path):
