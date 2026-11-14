@@ -50,6 +50,8 @@ class CatalogDialog(QDialog):
         self.model = model
         self.releases: list[catalog.Release] = []
         self.downloaded: Path | None = None
+        self.converted: dict[str, Path] = {}  # {"folder": ..., "zip": ...} after Download and convert
+        self.convert_after: tuple[bool, bool] | None = None  # (image folder, recovery zip)
         self.cancel = threading.Event()
 
         layout = QVBoxLayout(self)
@@ -84,13 +86,30 @@ class CatalogDialog(QDialog):
         credit.setStyleSheet("color:#9aa3b5")
         layout.addWidget(credit)
 
+        conv = QHBoxLayout()
+        conv.addWidget(QLabel(tr("Convert for:")))
+        self.for_opx = QCheckBox(tr("OPxFlasher (image folder)"))
+        self.for_opx.setChecked(True)
+        self.for_recovery = QCheckBox(tr("OrangeFox / AERA (recovery zip)"))
+        for box in (self.for_opx, self.for_recovery):
+            box.toggled.connect(self._update_buttons)
+            conv.addWidget(box)
+        conv.addStretch(1)
+        layout.addLayout(conv)
+
         row = QHBoxLayout()
-        self.download_btn = QPushButton(tr("Download and check"))
+        self.download_btn = QPushButton(tr("Download only"))
+        self.download_btn.setToolTip(tr("Download the full OTA zip (MD5 checked)"))
         self.download_btn.clicked.connect(self.download)
+        self.convert_btn = QPushButton(tr("Download and convert"))
+        self.convert_btn.setObjectName("primary")
+        self.convert_btn.setToolTip(tr("Download, then make the full ROM you ticked above"))
+        self.convert_btn.clicked.connect(self.download_and_convert)
         self.cancel_btn = QPushButton(tr("Close"))
         self.cancel_btn.clicked.connect(self._close_or_cancel)
         row.addStretch(1)
         row.addWidget(self.download_btn)
+        row.addWidget(self.convert_btn)
         row.addWidget(self.cancel_btn)
         layout.addLayout(row)
         self.busy = False
@@ -146,8 +165,15 @@ class CatalogDialog(QDialog):
             self.progress.hide()
         self.status.setText(str(exc))
         self.log(("Download paused: " if paused else "Official ROMs: ") + str(exc))
-        self.download_btn.setText(tr("Resume download") if paused else tr("Download and check"))
+        if paused:
+            (self.convert_btn if self.convert_after else self.download_btn).setText(tr("Resume download"))
+        else:
+            self._reset_button_text()
         self._update_buttons()
+
+    def _reset_button_text(self) -> None:
+        self.download_btn.setText(tr("Download only"))
+        self.convert_btn.setText(tr("Download and convert"))
 
     def log(self, text: str) -> None:
         """Also into the main window's log, so an exported log shows what happened."""
@@ -161,12 +187,26 @@ class CatalogDialog(QDialog):
 
     def _update_buttons(self) -> None:
         self.download_btn.setEnabled(not self.busy and self.selected() is not None)
+        self.convert_btn.setEnabled(not self.busy and self.selected() is not None
+                                    and (self.for_opx.isChecked() or self.for_recovery.isChecked()))
+        self.for_opx.setEnabled(not self.busy)
+        self.for_recovery.setEnabled(not self.busy)
         self.others.setEnabled(not self.busy and bool(self.releases))
         self.cancel_btn.setText("Cancel" if self.busy and self.progress.isVisible() else "Close")
 
     # --- download -----------------------------------------------------------
 
+    def download_and_convert(self) -> None:
+        self.convert_after = (self.for_opx.isChecked(), self.for_recovery.isChecked())
+        self._start_download()
+
     def download(self) -> None:
+        self.convert_after = None
+        self._start_download()
+
+    def _start_download(self) -> None:
+        self.downloaded = None
+        self.converted = {}
         rel = self.selected()
         if rel is None:
             return
@@ -229,17 +269,64 @@ class CatalogDialog(QDialog):
         self.progress.setFormat(f"{done / 1e6:,.0f} MB" + (f" of {total / 1e6:,.0f} MB" if total else "") + speed)
 
     def _downloaded(self, path: Path) -> None:
-        self.busy = False
         self.downloaded = path
-        self.download_btn.setText(tr("Download and check"))
+        self._reset_button_text()
+        if not self.convert_after:
+            self.busy = False
+            self.accept()
+            return
+        make_folder, make_zip = self.convert_after
+        self.cancel.clear()
+        self.rate = []
+        self.progress.setRange(0, 0)
+        self.status.setText(tr("Converting to a full ROM..."))
+        self.log(f"Convert: {path.name} -> {path.parent}"
+                 + (" (image folder" + (" + recovery zip)" if make_zip else ")") if make_folder else " (recovery zip)"))
+        cancel = self.cancel.is_set
+        self.run_job(
+            lambda emit=None: convert_download(path, make_folder, make_zip,
+                                               progress=lambda w, n, t: emit(("progress", n, t)),
+                                               stage=lambda s: emit(("stage", s)), cancel=cancel),
+            self._converted, self._convert_failed, event=self._event)
+
+    def _converted(self, made: dict) -> None:
+        self.busy = False
+        self.converted = made
+        for kind, label in (("folder", "Image folder"), ("zip", "Recovery zip")):
+            if kind in made:
+                self.log(f"Convert: {label}: {made[kind]}")
         self.accept()
+
+    def _convert_failed(self, exc: BaseException) -> None:
+        # the download itself is kept; only the conversion failed or was stopped
+        self.busy = False
+        self.progress.hide()
+        self.status.setText(tr("Downloaded, but converting failed:") + f" {exc}")
+        self.log(f"Convert failed: {exc}")
+        self._update_buttons()
+
+    @property
+    def result_path(self) -> Path | None:
+        """What to check next: the converted image folder, else the zip made, else the download."""
+        return self.converted.get("folder") or self.converted.get("zip") or self.downloaded
 
     def _close_or_cancel(self) -> None:
         if self.busy and self.progress.isVisible():
             self.cancel.set()
-            self.status.setText("Pausing... (the download can be resumed)")
+            converting = self.convert_after and self.downloaded is not None
+            self.status.setText(tr("Stopping the conversion... (the download is kept)") if converting
+                                else "Pausing... (the download can be resumed)")
         else:
             self.reject()
+
+
+def convert_download(path: Path, make_folder: bool, make_zip: bool, progress=None, stage=None, cancel=None) -> dict:
+    """Convert a downloaded full OTA next to it."""
+    from opx import convert as cv
+    from opx.rom.ota import open_rom
+
+    return cv.convert(open_rom(path), path.parent, make_zip=make_zip, make_folder=make_folder,
+                      progress=progress, stage=stage, cancel=cancel)
 
 
 def published_text(ms: int) -> str:

@@ -67,7 +67,10 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
   *zip* can't be checked directly: unzip it and choose its images folder.
   Incremental OTAs are refused.
 - Extracts any image from an OTA (hash-verified) – handy for `init_boot` when rooting.
-- Compares the ROM with the **connected phone** (read-only) or a **backup folder**:
+- Compares the ROM with the **connected phone** (read-only) or a **backup folder**. With neither,
+  it only checks the ROM itself (type, which phone it's for, its anti-rollback indexes) and asks you
+  to connect the phone; nothing about the phone is guessed. Problems are listed first, then what
+  passed, then notes.
 
 | Check | Blocks when |
 |---|---|
@@ -88,6 +91,25 @@ signal files), to be restored from your own backup.
 > OnePlus 13 firmware yet, so for now it always blocks and shows the raw numbers.
 > Use `opx rom arb <image>` to compare them with values the community already knows;
 > once confirmed, the profile is switched on.
+
+## Verify a ROM
+
+**ROM check → Verify ROM...** (also in the Tools menu, or `opx rom verify <rom>`) checks any ROM
+before you use it. No phone needed, nothing is written.
+
+- **Integrity, every byte:** a full OTA's `payload.bin` against the SHA-256 in
+  `payload_properties.txt` (or every data block against its own hash), an OPxFlasher full ROM
+  against its recorded SHA-256 list, every zip entry against its CRC, sparse images chunk by chunk,
+  and boot-type images (boot, init_boot, vendor_boot, dtbo, recovery) against the digests in the
+  ROM's own `vbmeta`. A patched or damaged image fails. `--quick` (or unticking *Full check*)
+  skips reading the data.
+- **Complete:** the images a full ROM always has, and every partition the ROM's `vbmeta` chain
+  covers. Logical images must be at least as big as the data `vbmeta` protects.
+- **The right files:** boot, vendor_boot, vbmeta and dtbo must have their real headers; Qualcomm
+  firmware must be signed ELF files.
+- **Who can install it:** *OPxFlasher* (ROM check, then Flash), and *OrangeFox / AERA* (ready
+  when it's an OPxFlasher recovery zip; otherwise after converting). When converting would make it
+  usable, OPxFlasher lists the files it found and offers to convert it.
 
 ## Flashing a ROM
 
@@ -206,6 +228,27 @@ those projects recommend. OPxFlasher handles the error-prone parts around it:
 
 After an OTA, run the same steps with the new build's full OTA.
 
+## Unlock the bootloader
+
+**Tools → Unlock bootloader...** (or `opx unlock`) unlocks with the phone maker's own command
+(`fastboot flashing unlock`, or `fastboot oem unlock` on older OnePlus bootloaders); the phone
+then asks you to confirm on its own screen. **Unlocking erases everything on the phone.**
+
+1. Before you start: back up your photos and files, and turn on **OEM unlocking** and **USB
+   debugging** in Developer options (Settings → About phone: tap the build number 7 times).
+2. Read the warnings (security, warranty, data wipe, no liability): the button stays off for 30
+   seconds, then answer a small sum and tick *I understand the risks of my action*. A last
+   **Are you sure?** defaults to No.
+3. OPxFlasher checks the phone: already unlocked → nothing to do; OEM unlocking off → it stops and
+   says how to turn it on.
+4. It reboots to the bootloader (never fastbootd, and not on firmware where that reboot is known to
+   brick), checks `unlocked` again, and sends the unlock command.
+5. On the phone, choose **UNLOCK THE BOOTLOADER** with the volume keys and press power. The phone
+   erases itself and restarts; set it up again and turn USB debugging back on.
+
+OPPO and realme phones usually also need the maker's Deep Testing approval before the bootloader
+accepts the command.
+
 ## Reboot and flash one image
 
 **Reboot buttons** (phone panel) and `opx reboot system|bootloader|fastbootd|recovery`
@@ -257,6 +300,10 @@ holds the links. Command line: `opx ota snapshot --out <folder>`, `opx ota mirro
 - **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.
+  - **Download only** saves the full OTA zip (MD5 checked) and runs the ROM check on it.
+  - **Download and convert** also makes the full ROM you tick under *Convert for*:
+    **OPxFlasher (image folder)** is ticked by default; tick **OrangeFox / AERA (recovery zip)**
+    to get a recovery zip as well. If converting fails or is stopped, the download is kept.
 - **Command line:**
   ```sh
   opx ota list                      # ROMs for the connected phone
@@ -277,6 +324,9 @@ install from a custom recovery, keeping your data:
 - **First it tells you what the ROM is:** type, phone and model, build, Android version, security
   patch, how many images (firmware vs. inside super), anything a full ROM normally has that's
   missing, and which partitions are never written (identity and personal data are always left out).
+- **What to make:** the **OPxFlasher image folder** is ticked by default; tick the **recovery zip**
+  too if you want to install from OrangeFox / TWRP / AERA (`--folder` / `--no-zip` on the command
+  line).
 - **Recovery zip** (`<name>-fullrom.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
   flash it. Before writing anything the installer checks:
   - it's the phone the ROM is for (its device codename; the chip platform name, shared by many

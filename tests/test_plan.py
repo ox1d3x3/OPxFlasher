@@ -129,8 +129,28 @@ def test_never_flash_partitions_are_skipped(adb, phone, tmp_path):
 
 
 def test_no_device_blocks(tmp_path):
+    from opx import flash as fl
+
     r = pn.build_report(rom_zip(tmp_path), pn.no_device())
-    assert status(r, "Phone") == "block" and r.verdict == "BLOCKED"
+    assert status(r, "Phone") == "block" and r.verdict == "NOT COMPARED"
+    # only the ROM's own checks: one stop (connect the phone), nothing guessed about the phone
+    assert [c.name for c in r.checks if c.status == "block"] == ["Phone"]
+    names = {c.name for c in r.checks}
+    assert "Device match" not in names and not any(n.startswith(("AVB ", "Qualcomm ARB")) for n in names)
+    assert status(r, "For") == "info" and "rollback indexes" in next(c.detail for c in r.checks if c.name == "Anti-rollback")
+    assert r.checks[0].name == "Phone"  # problems first
+    assert fl.hard_blocks(r, [fl.OVERRIDE_QCOM_UNVALIDATED]) != []  # still can't be flashed
+
+
+def test_no_device_still_blocks_a_bad_rom(tmp_path):
+    r = pn.build_report(rom_zip(tmp_path, incremental=True), pn.no_device())
+    assert r.verdict == "BLOCKED" and r.checks[0].status == "block"
+
+
+def test_checks_are_sorted_problems_first():
+    C = pn.Check
+    out = pn.sort_checks([C("a", "info", ""), C("b", "pass", ""), C("c", "block", ""), C("d", "warn", ""), C("e", "block", "")])
+    assert [c.name for c in out] == ["c", "e", "d", "b", "a"]
 
 
 def test_cos17_device_is_blocked(adb, phone, tmp_path):

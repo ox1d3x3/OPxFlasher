@@ -56,10 +56,10 @@ class ConvertDialog(QDialog):
         self.report.setPlainText(f"Looking at {self.rom_path.name}...")
         layout.addWidget(self.report, 1)
 
-        self.want_zip = QCheckBox(tr("Recovery zip (OrangeFox / TWRP / AERA)"))
-        self.want_zip.setChecked(True)
-        self.want_folder = QCheckBox(tr("Image folder (fastboot / OPxFlasher)"))
-        for box in (self.want_zip, self.want_folder):
+        self.want_folder = QCheckBox(tr("OPxFlasher image folder (check and flash it from OPxFlasher)"))
+        self.want_folder.setChecked(True)
+        self.want_zip = QCheckBox(tr("Also a recovery zip for OrangeFox / TWRP / AERA"))
+        for box in (self.want_folder, self.want_zip):
             box.toggled.connect(self._update_buttons)
             layout.addWidget(box)
 

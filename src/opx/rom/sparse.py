@@ -129,3 +129,21 @@ def _expand(fh: BinaryIO, label: str, out: BinaryIO, progress, overlay: bool) ->
             raise SparseError(f"{src.name}: unknown chunk type {ctype:#x}")
         block += nblocks
     return size
+
+
+class _Discard:
+    """A write target that keeps nothing: walks a sparse image without writing it."""
+
+    def truncate(self, n):
+        return n
+
+    def seek(self, n, whence=0):
+        return n
+
+    def write(self, data):
+        return len(data)
+
+
+def check(fh: BinaryIO) -> int:
+    """Read a whole sparse image and check every chunk; nothing is written. Returns the raw size."""
+    return _expand(fh, getattr(fh, "name", "image"), _Discard(), None, False)

@@ -26,7 +26,7 @@ def test_rom_inspect_extract_avb_arb(tmp_path, capsys):
 def test_plan_offline_is_blocked(tmp_path, capsys):
     rom = rom_zip(tmp_path)
     assert cli.main(["plan", str(rom.path), "--offline"]) == 3
-    assert "Verdict: BLOCKED" in capsys.readouterr().out
+    assert "Verdict: NOT COMPARED" in capsys.readouterr().out  # still exit 3: nothing to flash onto
 
 
 def test_plan_live_json(adb_env, tmp_path, capsys):

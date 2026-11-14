@@ -875,7 +875,8 @@ def test_gui_convert_to_full_rom(window, tmp_path, monkeypatch):
     text = dlg.report.toPlainText()
     assert "Full OTA zip" in text and "PJZ110" in text and dlg.convert_btn.isEnabled()
     dlg.out_edit.setText(str(out))
-    dlg.want_folder.setChecked(True)
+    assert dlg.want_folder.isChecked() and not dlg.want_zip.isChecked()  # OPxFlasher first; recovery zip opt-in
+    dlg.want_zip.setChecked(True)
     dlg.start()
     for _ in range(200):
         settle(app, 5)
@@ -935,3 +936,115 @@ def test_gui_catalog_snapshot_menu(window, monkeypatch, tmp_path):
     assert settings.get("catalog_snapshot") == str(other)
     menu = [a.text() for a in win.menuBar().actions()[2].menu().actions()]
     assert "Save ROM catalog snapshot..." in menu and "Use a ROM catalog snapshot..." in menu
+
+
+def test_gui_rom_check_without_a_phone_is_calm(window, tmp_path):
+    from test_plan import rom_zip
+
+    app, win = window
+    win.cmp_live.setChecked(True)
+    win.session = None
+    win.devices = []
+    win.device_combo.clear()
+    rom = rom_zip(tmp_path)
+    win.rom_edit.setText(str(rom.path))
+    win.check_rom()
+    for _ in range(100):
+        settle(app, 5)
+        if win.report is not None:
+            break
+    assert win.report.verdict == "NOT COMPARED", [(c.name, c.status) for c in win.report.checks]
+    assert "connect your phone" in win.verdict.text() and not win.reasons.isVisibleTo(win)
+    assert win.checks_table.item(0, 1).text() == "Phone"  # the one thing to do comes first
+    assert win.checks_table.item(0, 0).text() == "Next"  # shown as a step, not a red STOP
+    assert "BLOCK " not in win.log.toPlainText().split("ROM check:")[-1]
+
+
+def test_gui_verify_rom_then_offer_conversion(window, tmp_path, monkeypatch):
+    from test_convert import LOGICAL, make_ota
+    from test_verify import boot_set
+
+    from opx.gui import verify_dialog as vd
+
+    app, win = window
+    ota, _ = make_ota(tmp_path, parts={**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}})
+    asked = []
+    monkeypatch.setattr(vd.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.No)
+    dlg = vd.VerifyDialog(win, win._dialog_job, str(ota))
+    dlg.start()
+    for _ in range(200):
+        settle(app, 5)
+        if dlg.report is not None:
+            break
+    assert dlg.report.verdict.startswith("VERIFIED") and dlg.verdict.text().startswith("VERIFIED")
+    assert dlg.table.rowCount() > 3 and "OrangeFox / AERA: After converting" in dlg.targets.text()
+    assert asked and "Convert now?" in asked[0] and "boot" in asked[0]  # found files listed
+    assert dlg.convert_btn.isEnabled() and not dlg.convert_requested
+    assert "Verify: VERIFIED" in win.log.toPlainText()
+
+
+def test_gui_unlock_dialog_gates(window, monkeypatch):
+    import random
+
+    from opx.gui import unlock_dialog as ud
+
+    app, win = window
+    dlg = ud.UnlockDialog(win, seconds=3, rng=random.Random(1))
+    assert not dlg.go.isEnabled() and "3 s" in dlg.timer_label.text()
+    dlg.agree.setChecked(True)
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    assert not dlg.go.isEnabled()  # still reading
+    for _ in range(3):
+        dlg._tick()
+    assert dlg.go.isEnabled()
+    dlg.answer.setText(str(dlg.a + dlg.b + 1))
+    assert not dlg.go.isEnabled()  # wrong sum
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    dlg.agree.setChecked(False)
+    assert not dlg.go.isEnabled()  # no agreement
+    dlg.agree.setChecked(True)
+    monkeypatch.setattr(ud.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.No)
+    dlg._confirm()
+    assert dlg.result() != QDialog.DialogCode.Accepted
+    monkeypatch.setattr(ud.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dlg._confirm()
+    assert dlg.result() == QDialog.DialogCode.Accepted
+    assert all(w.split()[0] in " ".join(lb.text() for lb in dlg.findChildren(ud.QLabel)) for w in ud.ul.WARNINGS)
+
+
+def test_gui_download_and_convert(window, monkeypatch, tmp_path):
+    from test_catalog import SAMPLE
+    from test_convert import LOGICAL, make_ota
+    from test_verify import boot_set
+
+    from opx import catalog
+    from opx.gui import catalog_dialog as cd
+
+    app, win = window
+    releases = [catalog.Release.from_json(r) for r in SAMPLE["releases"]]
+    monkeypatch.setattr(cd.catalog, "for_phone", lambda model: [r for r in releases if r.model == model])
+    monkeypatch.setattr(cd.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path / "dl"))
+    (tmp_path / "dl").mkdir()
+    src, _ = make_ota(tmp_path, parts={**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}})
+
+    def fake_download(rel, folder, progress=None, cancel=None, stage=None, android="", build=""):
+        out = folder / src.name
+        out.write_bytes(src.read_bytes())
+        return out
+
+    monkeypatch.setattr(cd.catalog, "download", fake_download)
+    dlg = cd.CatalogDialog(win, win._dialog_job, "PJZ110", "16", "BP2A.250605.015")
+    settle(app)
+    assert dlg.for_opx.isChecked() and not dlg.for_recovery.isChecked()  # OPxFlasher by default
+    dlg.for_opx.setChecked(False)
+    assert not dlg.convert_btn.isEnabled()  # nothing to make
+    dlg.for_opx.setChecked(True)
+    dlg.download_and_convert()
+    for _ in range(200):
+        settle(app, 5)
+        if dlg.converted:
+            break
+    assert set(dlg.converted) == {"folder"} and dlg.converted["folder"].is_dir()
+    assert dlg.result_path == dlg.converted["folder"] and dlg.downloaded.exists()
+    assert "Convert: Image folder:" in win.log.toPlainText()

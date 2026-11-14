@@ -155,6 +155,21 @@ def main(argv: list[str]) -> int:
         log(f"set_active {args[1]}")
         save(state)
         return 0
+    if args in (["flashing", "unlock"], ["oem", "unlock"]):
+        style = state.get("unlock_style", "flashing")
+        if args[0] != style:
+            err("FAILED (remote: 'unknown command')")
+            return 1
+        if not state.get("oem_unlock_allowed", True):
+            err("FAILED (remote: 'Flashing Unlock is not allowed')")
+            return 1
+        log(" ".join(args))
+        if state.get("owner_confirms", True):  # the owner presses UNLOCK on the phone's screen
+            state["unlocked"] = True
+            state["wiped"] = True
+        save(state)
+        err("OKAY\nFinished.")
+        return 0
     if args == ["-w"]:
         state["wiped"] = True
         log("wipe")

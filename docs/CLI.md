@@ -28,6 +28,7 @@ opx partitions --mode critical               # what a backup would read
 opx partitions --all [--csv parts.csv]       # every partition with size, slot and role
 opx backup --mode network|critical|full --out backups [--dry-run]
 opx verify backups/<folder>                  # re-check a backup offline
+opx unlock                                   # unlock the bootloader (ERASES the phone; asks 3 times)
 ```
 
 ## ROMs
@@ -38,6 +39,7 @@ opx ota download --id <id> --out ~/Downloads [--connections 4]   # resumes if ru
 opx ota snapshot --out ~/Backups               # whole ROM catalog in one file (for when it's down)
 opx ota mirrors --add ota.example.com          # add your own catalog mirror (tried after ota.ox1de.xyz)
 opx rom detect <file-or-folder>                # what is it? phone, build, contents, what's missing
+opx rom verify <rom> [--quick] [--json]        # complete and undamaged? who can install it?
 opx rom convert <rom> --out ~/ROMs [--folder] [--no-zip]   # full ROM: recovery zip and/or image folder
 
 opx rom inspect ROM.zip                      # device, build, full/incremental, images

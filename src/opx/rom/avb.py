@@ -28,6 +28,17 @@ class AvbError(ValueError):
 
 
 @dataclass
+class HashDescriptor:
+    """What an image must hash to: digest = hash(salt + image[:image_size])."""
+
+    partition: str
+    image_size: int
+    algorithm: str
+    salt: bytes
+    digest: bytes
+
+
+@dataclass
 class Vbmeta:
     rollback_index: int
     rollback_index_location: int
@@ -39,6 +50,8 @@ class Vbmeta:
     hash_partitions: list[str] = field(default_factory=list)
     hashtree_partitions: list[str] = field(default_factory=list)
     chains: list[tuple[str, int]] = field(default_factory=list)  # (partition, rollback location)
+    hashes: list[HashDescriptor] = field(default_factory=list)
+    hashtree_sizes: dict[str, int] = field(default_factory=dict)  # partition -> protected data size
     from_footer: bool = False
 
     @property
@@ -107,11 +120,20 @@ def _parse_descriptors(blob: bytes, vb: Vbmeta) -> None:
             value = body[16 + klen + 1 : 16 + klen + 1 + vlen].decode("utf-8", "replace")
             vb.properties[key] = value
         elif tag == TAG_HASH and n >= 116:
-            name_len = struct.unpack(">I", body[40:44])[0]
-            vb.hash_partitions.append(body[116 : 116 + name_len].decode("utf-8", "replace"))
+            image_size = struct.unpack(">Q", body[0:8])[0]
+            algorithm = body[8:40].split(b"\0", 1)[0].decode("ascii", "replace")
+            name_len, salt_len, digest_len = struct.unpack(">III", body[40:52])
+            name = body[116 : 116 + name_len].decode("utf-8", "replace")
+            salt = body[116 + name_len : 116 + name_len + salt_len]
+            digest = body[116 + name_len + salt_len : 116 + name_len + salt_len + digest_len]
+            vb.hash_partitions.append(name)
+            vb.hashes.append(HashDescriptor(name, image_size, algorithm, salt, digest))
         elif tag == TAG_HASHTREE and n >= 164:
+            image_size = struct.unpack(">Q", body[4:12])[0]
             name_len = struct.unpack(">I", body[88:92])[0]
-            vb.hashtree_partitions.append(body[164 : 164 + name_len].decode("utf-8", "replace"))
+            name = body[164 : 164 + name_len].decode("utf-8", "replace")
+            vb.hashtree_partitions.append(name)
+            vb.hashtree_sizes[name] = image_size
         elif tag == TAG_CHAIN and n >= 76:
             location, name_len = struct.unpack(">II", body[:8])
             vb.chains.append((body[76 : 76 + name_len].decode("utf-8", "replace"), location))

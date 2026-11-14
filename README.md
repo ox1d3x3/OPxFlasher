@@ -60,10 +60,12 @@ firmware fits **your** phone and that you have a verified backup to return to.
 | **Guarded flashing** | Flashes only when every check passes, with a verified backup selected. Resumable journal; `super.img` from the bootloader where fastbootd is unsafe. |
 | **Anti-rollback fuse guard** | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501+: never flashes a build older than the one installed, because that blows a hardware fuse. |
 | **ROM detection & conversion** | Recognises full / incremental OTAs, payload.bin, image folders, flasher-kit zips, sparse and split images. Converts any full ROM into a **recovery zip** for OrangeFox / TWRP / AERA (checks phone, variant and downgrade before writing; keeps your data) or an image folder. |
+| **Verify ROM** | Checks any ROM byte by byte against its own hashes (payload, full-ROM SHA-256 list, zip CRCs, vbmeta digests), that it's complete and the files are what their names say, and whether OPxFlasher or OrangeFox / AERA can install it, offering to convert when needed. |
+| **Bootloader unlock** | Guided unlock with the maker's own command: warnings, a 30-second read, a sum and your agreement first; checks OEM unlocking and never reboots via fastbootd. Erases the phone. |
 | **Full ROM restore** | Put a Full backup back from the PC, or make a recovery zip for **AERA** or **OrangeFox / TWRP**. |
 | **Region & signal** | Convert regions and restore the phone's own signal files from its backup. |
 | **Root assistant** | Magisk, KernelSU or APatch: matching stock image, patch on the phone, checked flash, unroot. |
-| **Everyday tools** | Reboot buttons, single-image flashing, official ROM downloads, debloat (reversible), logs with problem hints, partition explorer. |
+| **Everyday tools** | Reboot buttons, single-image flashing, official ROM downloads (download only, or download and convert), debloat (reversible), logs with problem hints, partition explorer. |
 | **Rescue** | *Phone won't start?* works out the phone's state (fastboot, recovery, boot loop, 9008 ...) and walks you through what to try. |
 
 <p align="center">

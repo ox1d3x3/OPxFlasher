@@ -25,6 +25,7 @@ from pathlib import Path
 
 from opx.flash import OVERRIDE_UNKNOWN_FIRMWARE  # noqa: E402,F401  (re-exported)
 from opx.plan import BLOCK, Check, DeviceState, Report
+from opx.plan import sort_checks as pn_sort
 from opx.profile import is_user_data
 from opx.rom.ota import RomImage, RomInfo
 
@@ -132,7 +133,7 @@ def merge(report: Report, extra: list[Check], device: DeviceState, live: bool, f
                 # comparing the backup with itself says nothing; "Current firmware" covers the risk
                 c = Check(c.name, "info", "Can't compare: the phone isn't running Android.")
         checks.append(c)
-    report.checks = extra + checks
+    report.checks = pn_sort(extra + checks)
     return report
 
 

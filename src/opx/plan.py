@@ -162,10 +162,14 @@ class Report:
     device: dict[str, str]
     checks: list[Check]
     items: list[PlanItem]
+    compared: bool = True  # False: checked on its own, no phone or backup to compare with
 
     @property
     def verdict(self) -> str:
-        if any(c.status == BLOCK for c in self.checks):
+        blocks = [c for c in self.checks if c.status == BLOCK]
+        if blocks and not self.compared and all(c.name == "Phone" for c in blocks):
+            return "NOT COMPARED"  # the ROM itself is fine; nothing to compare it with yet
+        if blocks:
             return "BLOCKED"
         if any(c.status == WARN for c in self.checks):
             return "OK WITH WARNINGS"
@@ -173,6 +177,14 @@ class Report:
 
     def to_json(self) -> str:
         return json.dumps({"verdict": self.verdict, **asdict(self)}, indent=2)
+
+
+ORDER = {BLOCK: 0, WARN: 1, PASS: 2, INFO: 3}
+
+
+def sort_checks(checks: list[Check]) -> list[Check]:
+    """Problems first (stops, then warnings), then what passed, then notes; stable within each."""
+    return sorted(checks, key=lambda c: ORDER.get(c.status, 9))
 
 
 def rom_summary(rom: RomInfo) -> dict[str, str]:
@@ -273,14 +285,17 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         add("Package", PASS, f"Full package ({rom.kind}, {len(rom.images)} images).")
 
     # 2. which phone
-    if dev.source == "none":
-        add("Phone", BLOCK, "Connect the phone (rooted, over ADB) or choose a backup so the ROM can be compared.")
+    alone = dev.source == "none"  # only the ROM's own checks; nothing about the phone is guessed
+    if alone:
+        add("Phone", BLOCK, "Connect your phone (rooted, over ADB) or choose a backup to compare this ROM with it.")
     else:
         add("Phone", INFO, dev.label)
 
     dev_codename = dev.facts.get("codename", "")
     if not rom.codename:
         add("Device match", BLOCK, "The ROM doesn't say which device it is for (no OTA metadata).")
+    elif alone:
+        add("For", INFO, " ".join(x for x in (rom.product, f"({rom.codename})") if x) + ".")
     elif not dev_codename:
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.")
     elif rom.codename != dev_codename:
@@ -313,6 +328,7 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
             add("Security patch", PASS, f"ROM {rom.security_patch}, phone {dev_patch}.")
 
     # 5. AVB rollback indexes
+    alone_idx = []
     for name in prof.avb_images:
         if not rom.image(name):
             continue
@@ -324,6 +340,8 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         dev_idx = _avb_index(dev.read_current(name)) if dev.source != "none" else None
         if rom_idx is None:
             add(f"AVB {name}", BLOCK, f"No AVB metadata in the ROM's {name}.")
+        elif alone:
+            alone_idx.append(f"{name} {rom_idx}")
         elif dev_idx is None:
             add(f"AVB {name}", BLOCK, f"ROM rollback index {rom_idx}; the phone's current {name} couldn't be read.")
         elif rom_idx < dev_idx:
@@ -331,8 +349,12 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         else:
             add(f"AVB {name}", PASS, f"ROM rollback index {rom_idx} >= phone {dev_idx}.")
 
-    # 6. Qualcomm anti-rollback (experimental)
-    for name in prof.qcom_arb_images:
+    if alone_idx:
+        add("Anti-rollback", INFO, "AVB rollback indexes: " + ", ".join(alone_idx)
+            + ". Compared with your phone once it's connected.")
+
+    # 6. Qualcomm anti-rollback (experimental): only meaningful against a phone
+    for name in [] if alone else prof.qcom_arb_images:
         if not rom.image(name):
             continue
         try:
@@ -410,4 +432,5 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         worry = any(w in note.lower() for w in ("can't", "incremental", "damaged", "more than one"))
         add("ROM", WARN if worry else INFO, note)
 
-    return Report(rom=rom_summary(rom), device=dict(dev.facts), checks=checks, items=items)
+    return Report(rom=rom_summary(rom), device=dict(dev.facts), checks=sort_checks(checks), items=items,
+                  compared=not alone)

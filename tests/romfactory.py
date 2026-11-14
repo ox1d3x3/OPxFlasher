@@ -142,9 +142,14 @@ def build_vbmeta(rollback_index: int, location: int = 0, chains=(), props=None, 
     for key, value in (props or {}).items():
         k, v = key.encode(), value.encode()
         descs += _desc(0, struct.pack(">QQ", len(k), len(v)) + k + b"\0" + v + b"\0")
-    for name in hashes:
-        n = name.encode()
-        body = struct.pack(">Q32sIIII60s", 4096, b"sha256", len(n), 0, 32, 0, b"") + n + b"\0" * 32
+    for entry in hashes:  # a name (dummy digest) or (name, image bytes) for a real one
+        name, data = (entry, None) if isinstance(entry, str) else entry
+        n, salt = name.encode(), b"salt1234"
+        if data is None:
+            body = struct.pack(">Q32sIIII60s", 4096, b"sha256", len(n), 0, 32, 0, b"") + n + b"\0" * 32
+        else:
+            digest = hashlib.sha256(salt + data).digest()
+            body = struct.pack(">Q32sIIII60s", len(data), b"sha256", len(n), len(salt), 32, 0, b"") + n + salt + digest
         descs += _desc(2, body)
     for name, loc in chains:
         n = name.encode()

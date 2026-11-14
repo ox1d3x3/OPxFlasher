@@ -73,6 +73,8 @@ QPushButton:disabled { color: #6b7280; }
 QPushButton#primary { background: #d6322c; border-color: #d6322c; color: white; font-weight: 600; }
 QPushButton#primary:hover { background: #e2453f; }
 QPushButton#primary:disabled { background: #4a2a29; border-color: #4a2a29; }
+QPushButton#danger { background: #8f1d18; border-color: #ff6b63; color: white; font-weight: 700; }
+QPushButton#danger:disabled { background: #3a2321; border-color: #3a2321; color: #8a8f9a; }
 QLineEdit, QComboBox, QPlainTextEdit, QTableWidget {
     background: #1c1f26; border: 1px solid #2c3039; border-radius: 6px; padding: 4px;
 }
@@ -396,7 +398,12 @@ class MainWindow(QMainWindow):
         self.convert_btn.setToolTip(tr("Make a recovery zip (OrangeFox / TWRP / AERA) or an image folder "
                                        "from this ROM"))
         self.convert_btn.clicked.connect(self.open_convert)
+        self.verify_btn = QPushButton(tr("Verify ROM..."))
+        self.verify_btn.setToolTip(tr("Is this ROM complete and undamaged, and can OPxFlasher / OrangeFox / AERA "
+                                      "install it? No phone needed."))
+        self.verify_btn.clicked.connect(self.open_verify)
         act_row.addWidget(self.check_btn)
+        act_row.addWidget(self.verify_btn)
         act_row.addWidget(self.save_report_btn)
         act_row.addWidget(self.convert_btn)
         self.flash_btn = QPushButton(tr("Flash..."))
@@ -528,6 +535,9 @@ class MainWindow(QMainWindow):
         tools = bar.addMenu(tr("&Tools"))
         act(tools, tr("Download adb and fastboot"), self.download_tools)
         act(tools, tr("Official ROMs..."), self.open_catalog)
+        act(tools, tr("Verify ROM..."), self.open_verify)
+        act(tools, tr("Unlock bootloader..."), self.unlock_bootloader,
+            tip=tr("Unlock with the phone maker's own command; erases the phone"))
         act(tools, tr("Save ROM catalog snapshot..."), self.save_catalog_snapshot,
             tip=tr("Keep a copy of the whole official-ROM list, for when the catalog is down"))
         act(tools, tr("Use a ROM catalog snapshot..."), self.use_catalog_snapshot)
@@ -689,6 +699,7 @@ class MainWindow(QMainWindow):
         self.open_btn.setEnabled(self.last_folder is not None)
         self.check_btn.setEnabled(not self.busy)
         self.convert_btn.setEnabled(not self.busy)
+        self.verify_btn.setEnabled(not self.busy)
         self.restore_rom_btn.setEnabled(not self.busy)
         self.restore_zip_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
@@ -1234,9 +1245,67 @@ class MainWindow(QMainWindow):
         dlg = CatalogDialog(self, self._dialog_job, model, props.get("ro.build.version.release", ""),
                             props.get("ro.build.id", ""))
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.downloaded:
-            self.rom_edit.setText(str(dlg.downloaded))
             self.say(f"Downloaded {dlg.downloaded}")
+            self.rom_edit.setText(str(dlg.result_path))
             self.check_rom()
+
+    def unlock_bootloader(self) -> None:
+        from opx.gui.unlock_dialog import UnlockDialog
+
+        d = self.selected_device()
+        if d is None or not ((d.transport == "adb" and d.state == "device")
+                             or (d.transport == "fastboot" and d.state in ("bootloader", "fastbootd"))):
+            QMessageBox.information(
+                self, tr("Unlock bootloader"),
+                tr("Connect the phone first: started normally with USB debugging on, or in the bootloader."))
+            return
+        dlg = UnlockDialog(self)
+        self.unlock_dialog = dlg
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self.say("Bootloader unlock: cancelled.")
+            return
+        from opx import unlock as ul
+
+        blocked = self._blocked_for_reboot()
+        self.say("Bootloader unlock: started.")
+        self._set_busy(True)
+        job = Job(lambda emit=None: ul.run(d, blocked, say=emit))
+        job.kwargs["emit"] = job.signals.event.emit
+        self.run_job(job, self._unlock_done, self._unlock_failed, self._unlock_progress)
+
+    def _unlock_progress(self, text) -> None:
+        self.say(f"  {text}")
+
+    def _unlock_done(self, result) -> None:
+        self._set_busy(False)
+        self.say(f"Bootloader unlock: {result.status}")
+        title = {"already-unlocked": tr("Already unlocked"), "unlocked": tr("Bootloader unlocked"),
+                 "confirm-on-phone": tr("Confirm on the phone"), "needs-oem-unlocking": tr("Turn on OEM unlocking"),
+                 }.get(result.status, tr("Unlock bootloader"))
+        box = QMessageBox.information if result.status in ("already-unlocked", "unlocked", "confirm-on-phone") \
+            else QMessageBox.warning
+        box(self, title, result.message)
+        self.session = None
+        QTimer.singleShot(3000, self.refresh_devices)
+
+    def _unlock_failed(self, exc) -> None:
+        self._set_busy(False)
+        self.say(f"Bootloader unlock failed: {exc}")
+        QMessageBox.warning(self, tr("Unlock bootloader"), str(exc))
+        QTimer.singleShot(3000, self.refresh_devices)
+
+    def open_verify(self) -> None:
+        from opx.gui.verify_dialog import VerifyDialog
+
+        rom_path = self.rom_edit.text().strip()
+        if not rom_path:
+            QMessageBox.information(self, tr("Verify ROM"), tr("Choose a ROM file or folder first."))
+            return
+        dlg = VerifyDialog(self, self._dialog_job, rom_path)
+        self.verify_dialog = dlg
+        dlg.start()
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.convert_requested:
+            self.open_convert()
 
     def open_convert(self) -> None:
         from opx.gui.convert_dialog import ConvertDialog
@@ -1270,17 +1339,19 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         self.report = report
         self.save_report_btn.setEnabled(True)
-        colours = {"BLOCKED": "#5c1d1b", "OK WITH WARNINGS": "#4d3b12", "OK": "#1d4d2b"}
+        colours = {"BLOCKED": "#5c1d1b", "OK WITH WARNINGS": "#4d3b12", "OK": "#1d4d2b", "NOT COMPARED": "#1d3550"}
         text = {
             "BLOCKED": "BLOCKED - this ROM must not be flashed as things stand",
             "OK WITH WARNINGS": "OK with warnings - read them before going further",
             "OK": "OK - all safety checks passed (dry run)",
+            "NOT COMPARED": "ROM checked - connect your phone or choose a backup to compare it with your phone",
         }[report.verdict]
         self.verdict.setText(text)
         self.verdict.setStyleSheet(f"background:{colours[report.verdict]}")
         blocks = [c for c in report.checks if c.status == "block"]
-        self.reasons.setText("\n".join(f"Stopped by {c.name}: {c.detail}" for c in blocks))
-        self.reasons.setVisible(bool(blocks))
+        # the table below has the details; the banner only names what to fix
+        self.reasons.setText("Fix first: " + ", ".join(c.name for c in blocks) if report.verdict == "BLOCKED" else "")
+        self.reasons.setVisible(report.verdict == "BLOCKED")
         r = report.rom
         from opx.rom import detect
 
@@ -1297,10 +1368,12 @@ class MainWindow(QMainWindow):
             self.say(f"  Note: {note}")
         status_text = {"pass": "OK", "info": "Info", "warn": "Warning", "block": "STOP"}
         status_colour = {"pass": "#5fd38d", "info": "#9aa3b5", "warn": "#f0c24b", "block": "#ff6b63"}
-        self.checks_table.setRowCount(len(report.checks))
-        for row, c in enumerate(report.checks):
-            cell = QTableWidgetItem(status_text[c.status])
-            cell.setForeground(QColor(status_colour[c.status]))
+        shown = pn.sort_checks(report.checks)
+        self.checks_table.setRowCount(len(shown))
+        for row, c in enumerate(shown):
+            waiting = report.verdict == "NOT COMPARED" and c.name == "Phone"  # a next step, not a problem
+            cell = QTableWidgetItem("Next" if waiting else status_text[c.status])
+            cell.setForeground(QColor("#7fb2ff" if waiting else status_colour[c.status]))
             self.checks_table.setItem(row, 0, cell)
             self.checks_table.setItem(row, 1, QTableWidgetItem(c.name))
             self.checks_table.setItem(row, 2, QTableWidgetItem(c.detail))
@@ -1313,7 +1386,7 @@ class MainWindow(QMainWindow):
                 self.plan_table.setItem(row, col, QTableWidgetItem(v))
         self.say(f"ROM check: {report.verdict}")
         for c in report.checks:  # the reasons, so an exported log explains the verdict
-            if c.status in (pn.BLOCK, pn.WARN):
+            if c.status in (pn.BLOCK, pn.WARN) and report.verdict != "NOT COMPARED":
                 self.say(f"  {c.status.upper()} {c.name}: {c.detail}")
         self._update_buttons()
 

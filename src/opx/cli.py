@@ -310,6 +310,36 @@ def cmd_rom_detect(args) -> int:
     return 0 if d.ok else 1
 
 
+def cmd_rom_verify(args) -> int:
+    from opx.rom import verify as vf
+
+    last = [""]
+
+    def show(what, done, total):
+        pct = f"{int(done * 100 / total):3d}%" if total else "    "
+        line = f"\r  {pct}  {what[:40]:<40}"
+        if line != last[0]:
+            last[0] = line
+            print(line, end="", flush=True)
+
+    try:
+        rep = vf.verify(args.path, deep=not args.quick, progress=None if args.json else show)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        return 130
+    if last[0]:
+        print()
+    if args.json:
+        import dataclasses
+
+        print(json.dumps({"verdict": rep.verdict, "deep": rep.deep,
+                          "findings": [dataclasses.asdict(f) for f in rep.sorted_findings()],
+                          "targets": [dataclasses.asdict(t) for t in rep.targets]}, indent=2))
+    else:
+        print("\n".join(rep.lines()))
+    return 1 if rep.failed else 0
+
+
 def cmd_rom_convert(args) -> int:
     from opx import convert as cv
     from opx.rom import detect
@@ -409,17 +439,17 @@ def cmd_plan(args) -> int:
     report = pn.build_report(rom, dev_state)
     if args.json:
         print(report.to_json())
-        return 0 if report.verdict != "BLOCKED" else 3
+        return 0 if report.verdict in ("OK", "OK WITH WARNINGS") else 3
     _print_report(rom, report, dev_state)
     print(f"\nVerdict: {report.verdict}")
-    return 0 if report.verdict != "BLOCKED" else 3
+    return 0 if report.verdict in ("OK", "OK WITH WARNINGS") else 3
 
 
 def _print_report(rom, report, dev_state) -> None:
     r = report.rom
     print(f"ROM:   {rom.path}  ({r['product'] or '?'} / {r['codename'] or '?'}, Android {r['android'] or '?'}, patch {r['security_patch'] or '?'})")
     print(f"Phone: {dev_state.label}\n")
-    for c in report.checks:
+    for c in pn.sort_checks(report.checks):
         print(f"  [{SYMBOL[c.status]}] {c.name:<26} {c.detail}")
     print("\nDry-run plan (nothing is written):")
     for i in report.items:
@@ -762,6 +792,42 @@ def cmd_reboot(args) -> int:
         print(e, file=sys.stderr)
         return 4
     return 0
+
+
+def cmd_unlock(args) -> int:
+    import secrets
+
+    from opx import reboot as rb
+    from opx import unlock as ul
+
+    d, blocked = _phone_for_reboot(args.serial)
+    if d is None:
+        return 2
+    print("UNLOCK THE BOOTLOADER - read this carefully:\n")
+    for w in ul.WARNINGS:
+        print(f"  * {w}\n")
+    print(ul.OEM_UNLOCK_STEPS + "\n")
+    a, b = 11 + secrets.randbelow(39), 11 + secrets.randbelow(39)
+    try:
+        if input(f"To show you've read this, what is {a} + {b}? ").strip() != str(a + b):
+            print("That's not right. Cancelled.")
+            return 1
+    except EOFError:
+        return 1
+    if not _confirm("I UNDERSTAND", "Unlocking erases the phone, and the OPxFlasher developer is not "
+                                    "responsible for any damage."):
+        print("Cancelled.")
+        return 1
+    if not _confirm("YES", "Are you sure? Everything on the phone will be erased."):
+        print("Cancelled.")
+        return 1
+    try:
+        res = ul.run(d, blocked, say=print)
+    except (ul.UnlockError, rb.RebootError, ul.FastbootError) as e:
+        print(e, file=sys.stderr)
+        return 4
+    print(f"\n{res.message}")
+    return 0 if res.status in (ul.ALREADY, ul.UNLOCKED, ul.CONFIRM) else 3
 
 
 def cmd_restore_rom(args) -> int:
@@ -1163,6 +1229,12 @@ def build_parser() -> argparse.ArgumentParser:
     rd = rsub.add_parser("detect", help="what is this file? type, phone, build, contents, what's missing")
     rd.add_argument("path")
     rd.set_defaults(fn=cmd_rom_detect)
+    rv = rsub.add_parser("verify", help="is this ROM complete and undamaged, and what can install it "
+                                        "(OPxFlasher, OrangeFox / AERA)? reads every byte unless --quick")
+    rv.add_argument("path")
+    rv.add_argument("--quick", action="store_true", help="structure, headers and completeness only")
+    rv.add_argument("--json", action="store_true")
+    rv.set_defaults(fn=cmd_rom_verify)
     rc = rsub.add_parser("convert", help="make a full ROM: a recovery zip (OrangeFox / TWRP / AERA) "
                                          "and/or an image folder")
     rc.add_argument("path", help="full OTA zip, payload.bin, image folder or flasher-kit zip")
@@ -1191,6 +1263,10 @@ def build_parser() -> argparse.ArgumentParser:
     rbt.add_argument("-s", "--serial")
     rbt.add_argument("--yes", action="store_true", help="skip the extra question for fastbootd from fastboot")
     rbt.set_defaults(fn=cmd_reboot)
+
+    un = sub.add_parser("unlock", help="unlock the bootloader with the phone maker's own command (ERASES the phone)")
+    un.add_argument("-s", "--serial")
+    un.set_defaults(fn=cmd_unlock)
 
     rr = sub.add_parser("restore-rom", help="restore the whole OS from a Full firmware backup of this phone")
     rr.add_argument("backup", help="the Full firmware backup folder")
