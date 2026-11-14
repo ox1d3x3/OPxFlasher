@@ -386,21 +386,16 @@ def _vbmeta(rom: RomInfo, name: str) -> avb.Vbmeta | None:
 
 
 def avb_protected(rom: RomInfo) -> set[str]:
-    """Partitions this ROM's AVB chain checks at boot (hash, hash tree or chained vbmeta).
+    """Partitions this ROM's AVB chain checks at boot (hash or hash tree descriptors in vbmeta and the
+    vbmeta images it chains to, plus the chained partitions themselves).
     Keeping the phone's old copy of one of these while flashing this ROM's vbmeta would fail
     verification, unless it's the very same build. Unknown (no readable vbmeta) -> empty set."""
     top = _vbmeta(rom, "vbmeta")
     if top is None:
         return set()
+    # Only what the ROM's vbmeta chain lists: an image that merely signs itself (its own AVB footer,
+    # not chained) stays consistent when the phone keeps its old copy, footer and all.
     tables = [top] + [vb for c, _ in top.chains if (vb := _vbmeta(rom, c)) is not None]
-    for img in rom.images:  # images carrying their own vbmeta (AVB footer) protect themselves
-        if img.file is not None and not img.sparse:
-            try:
-                own = avb.parse_file_footer(img.file)
-            except (avb.AvbError, OSError):
-                own = None
-            if own is not None:
-                tables.append(own)
     out = {c for c, _ in top.chains}
     for vb in tables:
         out |= set(vb.hash_partitions) | set(vb.hashtree_partitions)

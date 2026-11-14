@@ -434,3 +434,21 @@ def test_recovery_zip_keeps_only_network_files_vbmeta_does_not_check(tmp_path):
         listing = zf.read("opx/rom.list").decode()
     assert " my_region " in listing and " odm " in listing and "oplusstanvbk" not in listing
     assert (made["folder"] / "oplusstanvbk.img").exists()  # the PC image folder still has it (app decides)
+
+
+def test_self_signed_region_image_is_not_counted_as_checked_by_vbmeta(tmp_path):
+    """my_region carrying only its own AVB footer (as OPPO's do) self-verifies: the phone's old copy,
+    footer and all, stays consistent, so it can be kept. Same answer for the OTA and the folder."""
+    from test_verify import boot_set
+
+    import romfactory as rf
+    from opx.rom.verify import avb_protected
+
+    region_data = os.urandom(4096 * 2)
+    own = rf.with_footer(region_data, rf.build_vbmeta(1, hashtrees=[("my_region", region_data)]))
+    imgs = {**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}, "my_region": own, "oplusstanvbk": os.urandom(4096)}
+    ota, _ = make_ota(tmp_path, parts=imgs)
+    made = cv.convert(open_rom(ota), tmp_path / "out", make_zip=False, make_folder=True)
+    for rom in (open_rom(ota), open_rom(made["folder"])):
+        assert "my_region" not in avb_protected(rom)
+        assert set(cv.plan(rom).kept) == {"oplusstanvbk", "my_region"}
