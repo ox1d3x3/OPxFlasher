@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -97,12 +98,16 @@ def fetch(model: str = "", device: str = "", region: str = "", latest: bool = Fa
 
     Tries the catalog, then each mirror, then the last copy on disk, then a saved
     snapshot (settings 'catalog_snapshot'). Mirrors serve the same API."""
+    global last_source
     errors = []
-    for base in (API, *(MIRRORS if mirrors is None else mirrors)):
+    for base in sources() if mirrors is None else (API, *mirrors):
         try:
-            return _fetch_from(base, model, device, region, latest, cache, opener, offline_ok=False)
+            rels = _fetch_from(base, model, device, region, latest, cache, opener, offline_ok=False)
+            last_source = base
+            return rels
         except CatalogError as e:
             errors.append(e)
+    last_source = "saved copy"
     try:  # every server down: the last copy we have
         return _fetch_from(API, model, device, region, latest, cache, opener, offline_ok=True, network=False)
     except CatalogError:
@@ -111,6 +116,61 @@ def fetch(model: str = "", device: str = "", region: str = "", latest: bool = Fa
     if snap is not None and snap.exists():
         return filter_releases(load_snapshot(snap), model, device, region, latest)
     raise errors[0]
+
+
+# --- mirrors: the built-in ones plus any the user adds (same API) ----------------------------
+
+last_source = API  # which server answered the last fetch (for "from mirror ..." notes)
+
+
+def normalize_mirror(url: str) -> str:
+    """'ota.example.com' / 'https://ota.example.com/' -> 'https://ota.example.com/api/ota.php'."""
+    url = (url or "").strip()
+    if not url:
+        raise CatalogError("Enter a mirror address.")
+    if "://" not in url:
+        url = "https://" + url
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("https", "http") or not parts.hostname:
+        raise CatalogError("A mirror address starts with https:// (or http:// on your own network).")
+    path = parts.path.rstrip("/")
+    if not path.endswith((".php", "/api/ota")):
+        path += "/api/ota.php"
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def user_mirrors() -> list[str]:
+    from opx import settings
+
+    value = settings.get("catalog_mirrors") or []
+    return [str(u) for u in value if isinstance(u, str) and u.strip()] if isinstance(value, list) else []
+
+
+def set_user_mirrors(urls: list[str]) -> None:
+    from opx import settings
+
+    settings.put("catalog_mirrors", list(dict.fromkeys(urls)))
+
+
+def sources() -> list[str]:
+    """Where the catalog is looked up, in order: the catalog, built-in mirrors, user mirrors."""
+    return list(dict.fromkeys((API, *MIRRORS, *user_mirrors())))
+
+
+def describe_source(base: str) -> str:
+    if base == API:
+        return "the OTA catalog"
+    return urllib.parse.urlsplit(base).hostname or base if base.startswith("http") else base
+
+
+def test_mirror(url: str, opener=None) -> int:
+    """Ask a mirror for its latest builds; returns how many it has. Raises CatalogError."""
+    base = normalize_mirror(url)
+    with tempfile.TemporaryDirectory() as tmp:
+        rels = _fetch_from(base, "", "", "", True, Path(tmp), opener, offline_ok=False)
+    if not rels:
+        raise CatalogError("That server answered, but has no ROMs listed.")
+    return len(rels)
 
 
 def _snapshot_setting() -> Path | None:

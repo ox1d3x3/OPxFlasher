@@ -130,7 +130,10 @@ class CatalogDialog(QDialog):
         if self.releases:
             self.status.setText(f"{len(own)} ROM(s) for your phone ({self.model})"
                                 + (f", {len(other)} for other variants." if other else ".")
-                                + " Pick one; it is checked against your phone before anything is flashed.")
+                                + " Pick one; it is checked against your phone before anything is flashed."
+                                + ("" if catalog.last_source == catalog.API else
+                                   f" (The OTA catalog didn't answer; list from "
+                                   f"{catalog.describe_source(catalog.last_source)}.)"))
             self.table.selectRow(0)
         else:
             self.status.setText(f"The catalog has no ROMs for {self.model} yet.")

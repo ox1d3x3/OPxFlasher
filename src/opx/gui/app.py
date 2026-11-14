@@ -531,6 +531,8 @@ class MainWindow(QMainWindow):
         act(tools, tr("Save ROM catalog snapshot..."), self.save_catalog_snapshot,
             tip=tr("Keep a copy of the whole official-ROM list, for when the catalog is down"))
         act(tools, tr("Use a ROM catalog snapshot..."), self.use_catalog_snapshot)
+        act(tools, tr("ROM catalog mirrors..."), self.catalog_mirrors,
+            tip=tr("Servers used when the OTA catalog is down; add your own"))
         act(tools, tr("Read a logs zip..."), lambda: self.diag_tab.read_logs())
         tools.addSeparator()
         lang = tools.addMenu(tr("Language"))
@@ -1210,6 +1212,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("ROM catalog snapshot"), str(e))
             return
         self.say(f"Catalog snapshot set: {path} ({n} releases), used when the catalog is down.")
+
+    def catalog_mirrors(self) -> None:
+        from opx.gui.mirrors_dialog import MirrorsDialog
+
+        MirrorsDialog(self, self._dialog_job).exec()
 
     def open_catalog(self) -> None:
         model = self.session.props.get("ro.product.model", "") if self.session else ""

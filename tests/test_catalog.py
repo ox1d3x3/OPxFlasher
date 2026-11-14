@@ -217,3 +217,37 @@ def test_cli_ota_snapshot(tmp_path, monkeypatch, capsys):
     assert cli.main(["ota", "snapshot", "--out", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "Saved 3 releases" in out and (tmp_path / "opx-catalog-snapshot.json").exists()
+
+
+def test_user_mirrors_order_normalize_and_cli(tmp_path, monkeypatch, capsys):
+    from opx import cli
+
+    store = {}
+    from opx import settings
+    monkeypatch.setattr(settings, "get", lambda k, d=None: store.get(k, d))
+    monkeypatch.setattr(settings, "put", lambda k, v: store.__setitem__(k, v))
+    assert catalog.normalize_mirror("ota.example.com") == "https://ota.example.com/api/ota.php"
+    assert catalog.normalize_mirror("http://10.0.0.5:8085/") == "http://10.0.0.5:8085/api/ota.php"
+    assert catalog.normalize_mirror("https://x.y/api/ota.php") == "https://x.y/api/ota.php"
+    with pytest.raises(catalog.CatalogError):
+        catalog.normalize_mirror("ftp://x.y")
+
+    asked = []
+
+    def opener(req, timeout=None):
+        asked.append(req.full_url)
+        if not req.full_url.startswith("https://mine.example"):
+            raise urllib.error.URLError("down")
+        return Resp(json.dumps(SAMPLE).encode(), {})
+
+    monkeypatch.setattr(catalog.urllib.request, "urlopen", opener)
+    assert cli.main(["ota", "mirrors", "--add", "mine.example"]) == 0
+    assert store["catalog_mirrors"] == ["https://mine.example/api/ota.php"]
+    assert catalog.sources()[0] == catalog.API and catalog.sources()[-1] == "https://mine.example/api/ota.php"
+    asked.clear()
+    rels = catalog.fetch(model="PJZ110", cache=tmp_path / "c")
+    assert len(rels) == 3 and catalog.last_source == "https://mine.example/api/ota.php"
+    assert [u.split("?")[0] for u in asked] == catalog.sources()  # catalog, built-in mirror, then yours
+    assert cli.main(["ota", "mirrors", "--remove", "https://mine.example/api/ota.php"]) == 0
+    assert store["catalog_mirrors"] == []
+    assert "your mirror" not in capsys.readouterr().out.split("Remove")[-1]

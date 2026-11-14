@@ -68,6 +68,30 @@ def cmd_devices(args) -> int:
 def cmd_ota(args) -> int:
     from opx import catalog
 
+    if args.action == "mirrors":
+        mine = catalog.user_mirrors()
+        try:
+            if args.add:
+                url = catalog.normalize_mirror(args.add)
+                print(f"Checking {url} ...")
+                print(f"  OK, {catalog.test_mirror(url)} latest builds listed.")
+                catalog.set_user_mirrors(mine + [url])
+            if args.remove:
+                url = catalog.normalize_mirror(args.remove)
+                if url not in mine:
+                    print(f"{url} isn't one of your mirrors.")
+                    return 1
+                catalog.set_user_mirrors([u for u in mine if u != url])
+        except catalog.CatalogError as e:
+            print(e)
+            return 1
+        print("The catalog is looked up in this order:")
+        for i, base in enumerate(catalog.sources(), 1):
+            kind = "catalog" if base == catalog.API else "built-in mirror" if base in catalog.MIRRORS else "your mirror"
+            print(f"  {i}. {base}  ({kind})")
+        print("Add one: opx ota mirrors --add ota.example.com   Remove: --remove <url>")
+        return 0
+
     if args.action == "snapshot":
         out = Path(args.out if args.out != "." else "opx-catalog-snapshot.json")
         if out.is_dir():
@@ -93,6 +117,8 @@ def cmd_ota(args) -> int:
     except catalog.CatalogError as e:
         print(e)
         return 1
+    if catalog.last_source != catalog.API:
+        print(f"(The OTA catalog didn't answer; using {catalog.describe_source(catalog.last_source)}.)")
 
     if args.action == "list":
         if not releases:
@@ -1107,9 +1133,12 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("action", choices=("where", "fetch"))
     t.set_defaults(fn=cmd_tools)
 
-    ota = sub.add_parser("ota", help="official ROMs from Daniel Springer's OTA catalog")
-    ota.add_argument("action", choices=("list", "download", "snapshot"),
-                     help="snapshot: save the whole catalog to a file (--out), for when it's down")
+    ota = sub.add_parser("ota", help="official ROMs (OTA catalog, with mirror fallback)")
+    ota.add_argument("action", choices=("list", "download", "snapshot", "mirrors"),
+                     help="snapshot: save the whole catalog to a file (--out), for when it's down; "
+                          "mirrors: show / add / remove catalog mirrors")
+    ota.add_argument("--add", metavar="URL", help="mirrors: add a catalog mirror (same API)")
+    ota.add_argument("--remove", metavar="URL", help="mirrors: remove one of your mirrors")
     ota.add_argument("--model", help="model number, e.g. PJZ110 (default: the connected phone's)")
     ota.add_argument("--device", help="device name as in the catalog, e.g. 'OP 13'")
     ota.add_argument("--region", help="region code, e.g. CN, EU, IN, GLO")
