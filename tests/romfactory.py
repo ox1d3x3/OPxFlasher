@@ -137,8 +137,28 @@ def _desc(tag: int, body: bytes) -> bytes:
     return struct.pack(">QQ", tag, len(body)) + body
 
 
-def build_vbmeta(rollback_index: int, location: int = 0, chains=(), props=None, hashes=(), flags: int = 0) -> bytes:
+def verity_root(data: bytes, salt: bytes, bs: int = 4096) -> bytes:
+    """dm-verity root the way avbtool builds it (sha256)."""
+    h = lambda b: hashlib.sha256(salt + b).digest()
+    if len(data) == bs:
+        return h(data)
+    level = b"".join(h(data[i : i + bs]) for i in range(0, len(data), bs))
+    while True:
+        level += b"\0" * (-len(level) % bs)
+        if len(level) == bs:
+            return h(level)
+        level = b"".join(h(level[i : i + bs]) for i in range(0, len(level), bs))
+
+
+def build_vbmeta(rollback_index: int, location: int = 0, chains=(), props=None, hashes=(), flags: int = 0,
+                 hashtrees=()) -> bytes:
     descs = b""
+    for name, data in hashtrees:  # (partition, image bytes: whole 4096-byte blocks)
+        n, salt = name.encode(), b"verity-salt"
+        root = verity_root(data, salt)
+        body = struct.pack(">IQQQIIIQQ32sIIII60s", 1, len(data), len(data), 0, 4096, 4096, 0, 0, 0, b"sha256",
+                           len(n), len(salt), len(root), 0, b"") + n + salt + root
+        descs += _desc(1, body)
     for key, value in (props or {}).items():
         k, v = key.encode(), value.encode()
         descs += _desc(0, struct.pack(">QQ", len(k), len(v)) + k + b"\0" + v + b"\0")

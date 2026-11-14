@@ -60,6 +60,8 @@ class CatalogDialog(QDialog):
         layout.addWidget(self.status)
 
         self.table = QTableWidget(0, len(COLUMNS))
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -310,6 +312,13 @@ class CatalogDialog(QDialog):
         """What to check next: the converted image folder, else the zip made, else the download."""
         return self.converted.get("folder") or self.converted.get("zip") or self.downloaded
 
+    def reject(self) -> None:
+        # Esc or the window's X while a job runs means "stop", not "leave it running unseen"
+        if self.busy and self.progress.isVisible():
+            self._close_or_cancel()
+        else:
+            super().reject()
+
     def _close_or_cancel(self) -> None:
         if self.busy and self.progress.isVisible():
             self.cancel.set()
@@ -325,7 +334,7 @@ def convert_download(path: Path, make_folder: bool, make_zip: bool, progress=Non
     from opx import convert as cv
     from opx.rom.ota import open_rom
 
-    return cv.convert(open_rom(path), path.parent, make_zip=make_zip, make_folder=make_folder,
+    return cv.convert_or_reuse(open_rom(path), path.parent, make_zip=make_zip, make_folder=make_folder,
                       progress=progress, stage=stage, cancel=cancel)
 
 

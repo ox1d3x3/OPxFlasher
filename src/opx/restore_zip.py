@@ -55,6 +55,31 @@ SCRIPT = Path(__file__).parent / "recovery" / "update-binary.sh"
 _SAFE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+def _check_backup(manifest: dict, images, progress: Progress | None, cancel) -> None:
+    """Every image going into the zip must still match the SHA-256 recorded when it was backed up.
+    (The zip gets fresh checksums of what it holds, so a backup damaged on disk would otherwise
+    travel on looking valid.)"""
+    recorded = {p.get("file"): p.get("sha256") for p in manifest.get("partitions", [])}
+    total = sum(i.size for i in images)
+    done = 0
+    for img in images:
+        want = recorded.get(img.file.name)
+        if not want:
+            raise RestoreError(f"The backup has no recorded SHA-256 for {img.file.name}; verify the backup first.")
+        h = hashlib.sha256()
+        with open(img.file, "rb") as fh:
+            while chunk := fh.read(1 << 20):
+                h.update(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(f"Checking the backup: {img.name}", done, total)
+                if cancel and cancel():
+                    raise RestoreError("Cancelled.")
+        if h.hexdigest() != want:
+            raise RestoreError(f"{img.file.name} no longer matches the SHA-256 recorded when it was backed up: "
+                               "the backup is damaged. No zip was made; use another backup.")
+
+
 def zip_name(facts: dict, recovery: str = "aera") -> str:
     safe = lambda s: "".join(c if c.isalnum() or c in "._-" else "_" for c in s)
     tail = "" if recovery == "aera" else f"-{recovery}"
@@ -94,6 +119,7 @@ def build(folder: Path, out_dir: Path, compress: bool = False,
     # never identity or personal data, whatever the backup holds
     physical = [i for i in rom.images if i.name != "super" and not profile.is_never_flash(i.name)]
     boards = [codename] + [b for b in profile.recovery_boards if b != codename]
+    _check_backup(manifest, [*physical, rom.image("super")], progress, cancel)
     if recovery == "orangefox":
         return _build_script_zip(folder, out_dir, manifest, facts, physical, super_file, boards,
                                  profile, compress, progress, cancel, chunk)

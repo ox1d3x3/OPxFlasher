@@ -68,6 +68,8 @@ class VerifyDialog(QDialog):
         layout.addWidget(self.verdict)
 
         self.table = QTableWidget(0, 3)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels([tr("Result"), tr("Check"), tr("Details")])
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -203,6 +205,13 @@ class VerifyDialog(QDialog):
         if path:
             Path(path).write_text("\n".join(self.report.lines()) + "\n", "utf-8")
             self.log(f"Verify report saved to {path}")
+
+    def reject(self) -> None:
+        # Esc or the window's X while a job runs means "stop", not "leave it running unseen"
+        if self.busy:
+            self._close_or_cancel()
+        else:
+            super().reject()
 
     def _close_or_cancel(self) -> None:
         if self.busy:

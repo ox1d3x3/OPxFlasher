@@ -101,8 +101,10 @@ before you use it. No phone needed, nothing is written.
   `payload_properties.txt` (or every data block against its own hash), an OPxFlasher full ROM
   against its recorded SHA-256 list, every zip entry against its CRC, sparse images chunk by chunk,
   and boot-type images (boot, init_boot, vendor_boot, dtbo, recovery) against the digests in the
-  ROM's own `vbmeta`. A patched or damaged image fails. `--quick` (or unticking *Full check*)
-  skips reading the data.
+  ROM's own `vbmeta`. For loose images (folders, flasher kits) the system-type images (system,
+  vendor, product, odm, my_* ...) are also checked the way the phone does at boot: their dm-verity
+  hash tree is rebuilt and its root compared with `vbmeta` (or the image's own AVB footer). A
+  patched or damaged image fails. `--quick` (or unticking *Full check*) skips reading the data.
 - **Complete:** the images a full ROM always has, and every partition the ROM's `vbmeta` chain
   covers. Logical images must be at least as big as the data `vbmeta` protects.
 - **The right files:** boot, vendor_boot, vbmeta and dtbo must have their real headers; Qualcomm
@@ -165,6 +167,8 @@ OPxFlasher can turn a Full firmware backup into a zip you flash in recovery, for
 - **App:** Backup tab → **Make recovery zip...** → pick the recovery → choose the backup.
 - **Command line:** `opx restore-zip <backup-folder> --out <folder> [--recovery aera|orangefox]`
   (`--compress` for a smaller file).
+- Before anything is packed, every image is re-hashed against the SHA-256 recorded when the backup
+  was taken; a backup that was damaged on disk since then is refused and no zip is made.
 
 **OrangeFox / TWRP zip:** a normal flashable zip with its own installer. Before writing anything
 it checks the phone's board, **serial number** and active slot match the backup, that no system
@@ -324,6 +328,9 @@ install from a custom recovery, keeping your data:
 - **First it tells you what the ROM is:** type, phone and model, build, Android version, security
   patch, how many images (firmware vs. inside super), anything a full ROM normally has that's
   missing, and which partitions are never written (identity and personal data are always left out).
+- **Already converted?** If the output is already in that folder, OPxFlasher asks: **Verify and
+  use** it (fully verified first, never reused if damaged) or **Replace** it. *Download and
+  convert* verifies and reuses it automatically.
 - **What to make:** the **OPxFlasher image folder** is ticked by default; tick the **recovery zip**
   too if you want to install from OrangeFox / TWRP / AERA (`--folder` / `--no-zip` on the command
   line).

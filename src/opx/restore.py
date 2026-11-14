@@ -23,11 +23,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from opx.backup import BackupError, manifest_file
 from opx.flash import OVERRIDE_UNKNOWN_FIRMWARE  # noqa: E402,F401  (re-exported)
 from opx.plan import BLOCK, Check, DeviceState, Report
 from opx.plan import sort_checks as pn_sort
 from opx.profile import is_user_data
-from opx.rom.ota import RomImage, RomInfo
+from opx.rom.ota import RomError, RomImage, RomInfo
 
 
 class RestoreError(ValueError):
@@ -69,7 +70,11 @@ def backup_as_rom(folder: Path) -> RomInfo:
             base = name
         else:
             continue  # partitions without a slot are identity / calibration data
-        images.append(RomImage(name=base, size=part["size"], logical=False, file=folder / part["file"]))
+        try:
+            images.append(RomImage(name=base, size=part["size"], logical=False,
+                                   file=manifest_file(folder, part["file"])))
+        except (RomError, BackupError) as e:
+            raise RestoreError(str(e)) from e
     if not any(i.name == "super" for i in images):
         raise RestoreError("This backup has no super.img, so it can't restore system, vendor and the rest.")
 

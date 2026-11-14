@@ -268,3 +268,42 @@ def test_full_backup_refused_while_an_update_merges(adb, tmp_path):
         bk.build_plan(s.shell, s.profile, "full", s.props)
     # Critical backups read logical partitions through the snapshot view and stay allowed
     assert bk.build_plan(s.shell, s.profile, "critical", s.props).items
+
+
+def test_backup_that_cannot_write_stops_cleanly(adb, tmp_path, monkeypatch):
+    """Disk full mid-image: the reader is stopped, no half image is left, the manifest says unfinished."""
+    import builtins
+
+    from opx import backup as bk
+
+    real_open = builtins.open
+
+    class Full:
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __getattr__(self, name):
+            return getattr(self.fh, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.fh.close()
+
+        def write(self, data):
+            raise OSError(28, "No space left on device")
+
+    def fake_open(path, mode="r", *a, **k):
+        fh = real_open(path, mode, *a, **k)
+        return Full(fh) if str(path).endswith(".img.part") and "w" in mode else fh
+
+    s = session(adb)
+    shell, plan = s.shell, bk.build_plan(s.shell, s.profile, "network", s.props)
+    monkeypatch.setattr(builtins, "open", fake_open)
+    with pytest.raises(bk.BackupError, match="Backup stopped while reading"):
+        bk.run_backup(shell, plan, tmp_path / "backups")
+    monkeypatch.undo()
+    folder = next((tmp_path / "backups").iterdir())
+    assert not list(folder.glob("*.part"))
+    assert json.loads((folder / "manifest.json").read_text())["finished"] is False

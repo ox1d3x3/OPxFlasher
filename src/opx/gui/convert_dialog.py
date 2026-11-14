@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -147,6 +148,23 @@ class ConvertDialog(QDialog):
             return
         out = Path(self.out_edit.text().strip())
         make_zip, make_folder = self.want_zip.isChecked(), self.want_folder.isChecked()
+        replace = False
+        have = cv.existing_outputs(d.rom, out, make_zip, make_folder)
+        if have:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle(tr("Already converted"))
+            box.setText(", ".join(p.name for p in have.values()) + " "
+                        + tr("already exists in that folder. Verify it and use it, or make it again?"))
+            use = box.addButton(tr("Verify and use"), QMessageBox.ButtonRole.AcceptRole)
+            again = box.addButton(tr("Replace"), QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(use)
+            box.exec()
+            if box.clickedButton() is again:
+                replace = True
+            elif box.clickedButton() is not use:
+                return
         self.cancel.clear()
         self.busy = True
         self.progress.setRange(0, 0)
@@ -156,9 +174,10 @@ class ConvertDialog(QDialog):
         self._update_buttons()
         rom = d.rom
         self.run_job(
-            lambda emit=None: cv.convert(rom, out, make_zip=make_zip, make_folder=make_folder,
-                                         progress=lambda w, n, t: emit(("progress", w, n, t)),
-                                         stage=lambda s: emit(("stage", s)), cancel=self.cancel.is_set),
+            lambda emit=None: (cv.convert if replace else cv.convert_or_reuse)(
+                rom, out, make_zip=make_zip, make_folder=make_folder,
+                progress=lambda w, n, t: emit(("progress", w, n, t)),
+                stage=lambda s: emit(("stage", s)), cancel=self.cancel.is_set, **({"replace": True} if replace else {})),
             self._done, self._failed, event=self._event,
         )
 
@@ -193,6 +212,13 @@ class ConvertDialog(QDialog):
     @property
     def result_path(self) -> Path | None:
         return self.made.get("folder") or self.made.get("zip")
+
+    def reject(self) -> None:
+        # Esc or the window's X while a job runs means "stop", not "leave it running unseen"
+        if self.busy and self.progress.isVisible():
+            self._close_or_cancel()
+        else:
+            super().reject()
 
     def _close_or_cancel(self) -> None:
         if self.busy and self.progress.isVisible():

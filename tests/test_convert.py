@@ -358,3 +358,30 @@ def test_incremental_says_why(tmp_path):
     pkg = next(c for c in pn.build_report(rom, pn.no_device()).checks if c.name == "Package")
     assert pkg.status == pn.BLOCK and "boot (SOURCE_COPY)" in pkg.detail
     assert any("boot (SOURCE_COPY)" in n for n in rom.notes)
+
+
+def test_existing_outputs_are_verified_and_reused_or_replaced(tmp_path):
+    from test_verify import boot_set
+
+    ota, _ = make_ota(tmp_path, parts={**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}})
+    out = tmp_path / "out"
+    first = cv.convert(open_rom(ota), out, make_zip=True, make_folder=True)
+    with pytest.raises(cv.ConvertError, match="already exists"):
+        cv.convert(open_rom(ota), out, make_zip=True)
+    assert cv.existing_outputs(open_rom(ota), out, True, True) == first
+    stages = []
+    again = cv.convert_or_reuse(open_rom(ota), out, make_zip=True, make_folder=True, stage=stages.append)
+    assert again == first and any("Already converted" in s for s in stages)
+    # only the missing one is made
+    first["zip"].unlink()
+    made = cv.convert_or_reuse(open_rom(ota), out, make_zip=True, make_folder=True)
+    assert made["zip"].exists() and made["folder"] == first["folder"]
+    # a damaged existing output is never reused
+    img = next(first["folder"].rglob("system*.img"))
+    raw = bytearray(img.read_bytes())
+    raw[10] ^= 1
+    img.write_bytes(bytes(raw))
+    with pytest.raises(cv.ConvertError, match="failed verification"):
+        cv.convert_or_reuse(open_rom(ota), out, make_folder=True, make_zip=False)
+    fixed = cv.convert(open_rom(ota), out, make_zip=False, make_folder=True, replace=True)
+    cv.verify_existing(fixed)

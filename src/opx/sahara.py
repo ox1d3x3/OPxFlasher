@@ -102,6 +102,8 @@ def _execute(port, what: int) -> bytes | None:
     cmd, pkt = read_packet(port)
     if cmd != EXECUTE_RESP:
         return None  # not supported on this phone
+    if len(pkt) < 16:
+        raise SaharaError("Truncated Sahara answer.")
     client, length = struct.unpack_from("<II", pkt, 8)
     if client != what or length > MAX_PACKET:
         raise SaharaError("Mismatched Sahara answer.")

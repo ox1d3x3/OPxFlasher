@@ -149,6 +149,12 @@ def test_restore_zip_cancel_leaves_nothing(adb, lp_phone, tmp_path):
     folder = backup_of(adb, tmp_path, "full")
     with pytest.raises(rs.RestoreError, match="Cancelled"):
         rz.build(folder, tmp_path / "out", cancel=lambda: True)
+    assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
+    # cancelled while writing (after the backup check passed): still nothing left behind
+    calls = []
+    with pytest.raises(rs.RestoreError, match="Cancelled"):
+        rz.build(folder, tmp_path / "out", progress=lambda w, d, t: calls.append(w),
+                 cancel=lambda: bool(calls) and not calls[-1].startswith("Checking the backup"))
     assert list((tmp_path / "out").iterdir()) == []
 
 
@@ -164,3 +170,30 @@ def test_cli_restore_zip(adb, lp_phone, tmp_path, capsys):
     assert cli.main(["restore-zip", str(folder), "--out", str(tmp_path / "z")]) == 0
     assert "ONLY for the phone" in capsys.readouterr().out
     assert len(list((tmp_path / "z").glob("OPxFlasher-restore-*.zip"))) == 1
+
+
+@pytest.mark.parametrize("recovery", ["aera", "orangefox"])
+def test_restore_zip_refuses_a_backup_damaged_on_disk(adb, lp_phone, tmp_path, recovery):
+    folder = backup_of(adb, tmp_path, "full")
+    boot = folder / "boot_a.img"
+    raw = bytearray(boot.read_bytes())
+    raw[len(raw) // 2] ^= 1  # one flipped bit since the backup was taken
+    boot.write_bytes(bytes(raw))
+    with pytest.raises(rs.RestoreError, match="no longer matches"):
+        rz.build(folder, tmp_path / "out", recovery=recovery)
+    assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
+
+
+def test_manifest_cannot_point_outside_the_backup(adb, lp_phone, tmp_path):
+    from opx import backup as bk
+
+    folder = backup_of(adb, tmp_path, "full")
+    for bad in ("../evil.img", "/etc/passwd", "sub/boot.img", "C:\\x.img", "..", ""):
+        with pytest.raises(bk.BackupError, match="outside the backup folder"):
+            bk.manifest_file(folder, bad)
+    assert bk.manifest_file(folder, "boot_a.img") == folder / "boot_a.img"
+    manifest = json.loads((folder / "manifest.json").read_text())
+    next(p for p in manifest["partitions"] if p["name"] == "boot_a")["file"] = "../boot_a.img"
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(rs.RestoreError, match="outside the backup folder"):
+        rz.build(folder, tmp_path / "out")

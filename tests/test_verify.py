@@ -194,3 +194,68 @@ def test_cli_verify(tmp_path, capsys):
     bad = tmp_path / "x.txt"
     bad.write_text("no")
     assert cli.main(["rom", "verify", str(bad)]) == 1
+
+
+def verity_rom(tmp_path, damage=None):
+    logical = {n: os.urandom(4096 * (3 + i)) for i, n in enumerate(LOGICAL)}
+    imgs = {**boot_set(), **logical}
+    imgs["vbmeta_system"] = rf.build_vbmeta(1, hashtrees=[(n, logical[n]) for n in ("system", "system_ext", "product")])
+    # vendor carries its own vbmeta in an AVB footer, like real images do
+    imgs["vendor"] = rf.with_footer(logical["vendor"], rf.build_vbmeta(1, hashtrees=[("vendor", logical["vendor"])]))
+    if damage:
+        raw = bytearray(imgs[damage])
+        raw[4096 + 7] ^= 1
+        imgs[damage] = bytes(raw)
+    return folder_rom(tmp_path, imgs)
+
+
+def test_dm_verity_hash_trees_of_loose_images(tmp_path):
+    rep = vf.verify(verity_rom(tmp_path))
+    assert statuses(rep, "dm-verity") == ["ok"], rep.lines()
+    assert "4 system-type images" in next(f.text for f in rep.findings if f.area == "dm-verity")
+
+
+@pytest.mark.parametrize("which", ["system", "vendor"])
+def test_dm_verity_catches_one_flipped_bit(tmp_path, which):
+    rep = vf.verify(verity_rom(tmp_path, damage=which))
+    bad = next(f for f in rep.findings if f.area == "dm-verity")
+    assert rep.verdict == "FAILED" and bad.status == "fail" and bad.text.startswith(which)
+    (tmp_path / "quick").mkdir()
+    quick = vf.verify(verity_rom(tmp_path / "quick", damage=which), deep=False)
+    assert "dm-verity" not in [f.area for f in quick.findings]  # the quick check doesn't read the data
+
+
+# Roots produced by AOSP avbtool (add_hashtree_footer --salt 73, sha256 / sha1) for
+# data = bytes((i * 31 + blocks) % 251 for i in range(4096 * blocks)).
+AVBTOOL_ROOTS = {
+    ("sha256", 1): "6f4546aebd79cb75a23acbe790b570fe8a8edc650cfbd8d47978fc1dbc3ffa55",
+    ("sha256", 2): "ad3e5daf6440d6478e32c84e2443a11df3c44f6961f43208c99a63e72c437470",
+    ("sha256", 300): "5a21568acbe1a88ddc2f608421d2403892c7b3eddcdea6232c4bfa64fd8e7ff4",
+    ("sha1", 1): "463b23451665904d558ae9fab8c7f7923a02ce8c",
+    ("sha1", 2): "1e556245e5442a4ed03c50a7e3127728f690362c",
+    ("sha1", 300): "8dc3597625e2724cac125af441038ae0ae58955a",
+}
+
+
+@pytest.mark.parametrize(("algo", "blocks"), sorted(AVBTOOL_ROOTS))
+def test_hashtree_root_matches_avbtool(algo, blocks):
+    from opx.rom import avb
+
+    data = bytes((i * 31 + blocks) % 251 for i in range(4096 * blocks))
+    d = avb.HashtreeDescriptor("system", len(data), 4096, 4096, algo, b"s", bytes.fromhex(AVBTOOL_ROOTS[algo, blocks]))
+    pos = [0]
+
+    def read(n):
+        pos[0] += n
+        return data[pos[0] - n : pos[0]]
+
+    assert avb.hashtree_root(read, d) == d.root_digest
+    if algo == "sha256":
+        assert rf.verity_root(data, b"s") == d.root_digest  # the test factory builds them the same way
+
+
+def test_hashtree_root_refuses_short_images():
+    from opx.rom import avb
+
+    with pytest.raises(avb.AvbError, match="shorter"):
+        avb.hashtree_root(lambda n: b"", avb.HashtreeDescriptor("x", 8192, 4096, 4096, "sha256", b"", b""))

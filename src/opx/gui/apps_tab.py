@@ -70,6 +70,8 @@ class AppsTab(QWidget):
         layout.addLayout(row)
 
         self.table = QTableWidget(0, 2)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels([tr("Package"), tr("State")])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)

@@ -1048,3 +1048,20 @@ def test_gui_download_and_convert(window, monkeypatch, tmp_path):
     assert set(dlg.converted) == {"folder"} and dlg.converted["folder"].is_dir()
     assert dlg.result_path == dlg.converted["folder"] and dlg.downloaded.exists()
     assert "Convert: Image folder:" in win.log.toPlainText()
+
+
+def test_gui_closing_a_busy_dialog_stops_the_job_instead(window, tmp_path):
+    from opx.gui import verify_dialog as vd
+
+    app, win = window
+    f = tmp_path / "x.zip"
+    f.write_bytes(b"not a rom")
+    dlg = vd.VerifyDialog(win, lambda *a, **k: None, str(f))  # a job that never finishes
+    dlg.show()
+    dlg.start()
+    assert dlg.busy
+    dlg.reject()  # Esc / window X
+    assert dlg.isVisible() and dlg.cancel.is_set() and "Stopping" in dlg.status.text()
+    dlg._failed(vd.vf.VerifyCancelled())
+    dlg.reject()
+    assert not dlg.isVisible()

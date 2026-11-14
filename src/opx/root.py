@@ -22,6 +22,7 @@ import struct
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from opx.backup import manifest_file
 from opx.flash import FlashOptions, FlashPlan, Step, check_backup, sha256_file
 from opx.plan import DeviceState
 from opx.rom import payload as pl
@@ -122,7 +123,7 @@ def stock_from_backup(folder: Path, partition: str, facts: dict[str, str], workd
     entry = parts.get(partition + slot) or parts.get(partition)
     if entry is None:
         raise RootError(f"The backup has no {partition}{slot}. Make a Full backup first.")
-    src = Path(folder) / entry["file"]
+    src = manifest_file(folder, entry["file"])
     if sha256_file(src) != entry["sha256"]:
         raise RootError(f"{src.name} in the backup doesn't match its recorded hash.")
     workdir.mkdir(parents=True, exist_ok=True)

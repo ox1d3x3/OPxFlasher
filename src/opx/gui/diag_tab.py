@@ -76,6 +76,8 @@ class DiagTab(QWidget):
         row.addWidget(self.summary)
         pv.addLayout(row)
         self.table = QTableWidget(0, 4)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels([tr("Partition"), tr("Size"), tr("Type"), tr("Role")])
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)

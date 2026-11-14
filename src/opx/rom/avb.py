@@ -39,6 +39,55 @@ class HashDescriptor:
 
 
 @dataclass
+class HashtreeDescriptor:
+    """dm-verity: the root of a hash tree over image[:image_size], block by block."""
+
+    partition: str
+    image_size: int
+    data_block_size: int
+    hash_block_size: int
+    algorithm: str
+    salt: bytes
+    root_digest: bytes
+
+
+def hashtree_root(read, desc: HashtreeDescriptor, tick=None) -> bytes:
+    """Compute the dm-verity root digest of a stream. `read(n)` returns the next n bytes of
+    the image; exactly desc.image_size bytes are consumed. Raises AvbError if it's short."""
+    import hashlib
+
+    algo = {"sha256": hashlib.sha256, "sha1": hashlib.sha1, "sha512": hashlib.sha512}.get(desc.algorithm)
+    bs, hbs = desc.data_block_size, desc.hash_block_size
+    if algo is None or bs <= 0 or hbs <= 0 or desc.image_size % bs:
+        raise AvbError(f"unsupported hash tree ({desc.algorithm or '?'}, block {bs})")
+    size = algo().digest_size
+    pad = b"\0" * ((1 << (size - 1).bit_length()) - size)  # digests are padded to a power of two (sha1)
+    level = bytearray()
+    done = 0
+    while done < desc.image_size:
+        want = min(bs * 256, desc.image_size - done)
+        chunk = read(want)
+        if len(chunk) != want:
+            raise AvbError("image is shorter than the data its hash tree covers")
+        if desc.image_size == bs:  # one block: its own hash is the root (as avbtool does)
+            return algo(desc.salt + chunk).digest()
+        for i in range(0, want, bs):
+            level += algo(desc.salt + chunk[i : i + bs]).digest() + pad
+        done += want
+        if tick:
+            tick(done, desc.image_size)
+    while True:  # same construction as avbtool: pad each level to whole blocks, hash upwards
+        if len(level) % hbs:
+            level += b"\0" * (hbs - len(level) % hbs)
+        if len(level) <= hbs:
+            return algo(desc.salt + bytes(level)).digest()
+        nxt = bytearray()
+        for i in range(0, len(level), hbs):
+            nxt += algo(desc.salt + level[i : i + hbs]).digest() + pad
+        level = nxt
+
+
+@dataclass
 class Vbmeta:
     rollback_index: int
     rollback_index_location: int
@@ -52,6 +101,7 @@ class Vbmeta:
     chains: list[tuple[str, int]] = field(default_factory=list)  # (partition, rollback location)
     hashes: list[HashDescriptor] = field(default_factory=list)
     hashtree_sizes: dict[str, int] = field(default_factory=dict)  # partition -> protected data size
+    hashtrees: list[HashtreeDescriptor] = field(default_factory=list)
     from_footer: bool = False
 
     @property
@@ -61,6 +111,25 @@ class Vbmeta:
     @property
     def hashtree_disabled(self) -> bool:
         return bool(self.flags & FLAG_HASHTREE_DISABLED)
+
+
+def parse_file_footer(path) -> Vbmeta | None:
+    """The vbmeta appended to an image file (AVB footer), read without loading the image."""
+    import os
+
+    size = os.path.getsize(path)
+    if size < FOOTER_SIZE:
+        return None
+    with open(path, "rb") as fh:
+        fh.seek(size - FOOTER_SIZE)
+        tail = fh.read(FOOTER_SIZE)
+        if tail[:4] != b"AVBf":
+            return None
+        _, _, _, _orig, vb_off, vb_size, _ = struct.unpack(FOOTER_FMT, tail)
+        if vb_off + vb_size > size or vb_size > (8 << 20):
+            raise AvbError("AVB footer points outside the image")
+        fh.seek(vb_off)
+        return _parse_vbmeta(fh.read(vb_size), from_footer=True)
 
 
 def has_avb(data: bytes) -> bool:
@@ -134,6 +203,12 @@ def _parse_descriptors(blob: bytes, vb: Vbmeta) -> None:
             name = body[164 : 164 + name_len].decode("utf-8", "replace")
             vb.hashtree_partitions.append(name)
             vb.hashtree_sizes[name] = image_size
+            dbs, hbs = struct.unpack(">II", body[28:36])
+            algorithm = body[56:88].split(b"\0", 1)[0].decode("ascii", "replace")
+            salt_len, root_len = struct.unpack(">II", body[92:100])
+            salt = body[164 + name_len : 164 + name_len + salt_len]
+            root = body[164 + name_len + salt_len : 164 + name_len + salt_len + root_len]
+            vb.hashtrees.append(HashtreeDescriptor(name, image_size, dbs, hbs, algorithm, salt, root))
         elif tag == TAG_CHAIN and n >= 76:
             location, name_len = struct.unpack(">II", body[:8])
             vb.chains.append((body[76 : 76 + name_len].decode("utf-8", "replace"), location))

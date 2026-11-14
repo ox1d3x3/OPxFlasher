@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from opx import __version__
+from opx.backup import manifest_file
 from opx.fastboot import Fastboot, FastbootError, wait_for_fastboot
 from opx.plan import BLOCK, DeviceState, Report
 from opx.profile import Profile
@@ -119,7 +120,7 @@ def backup_images(folder: Path | str | None, name: str) -> dict[str, tuple[Path,
         if part.get("status") == "failed":
             continue
         if part["name"] in (name, f"{name}_a", f"{name}_b"):
-            out[part["name"]] = (Path(folder) / part["file"], part["sha256"], part.get("source", "by-name"))
+            out[part["name"]] = (manifest_file(folder, part["file"]), part["sha256"], part.get("source", "by-name"))
     return out
 
 

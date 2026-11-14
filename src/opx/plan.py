@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from opx import profile as profiles
-from opx.backup import device_facts
+from opx.backup import device_facts, manifest_file
 from opx.profile import Profile
 from opx.remote import BY_NAME_DIRS, MAPPER_DIR
 from opx.rom import avb, qcom
@@ -105,7 +105,7 @@ def device_from_backup(folder: Path) -> DeviceState:
     for part in manifest.get("partitions", []):
         if part.get("status") == "failed":
             continue
-        files[part["name"]] = folder / part["file"]
+        files[part["name"]] = manifest_file(folder, part["file"])
         if part.get("source") == "mapper":
             n = part["name"]
             logical.add(n[:-2] if n.endswith(("_a", "_b")) else n)

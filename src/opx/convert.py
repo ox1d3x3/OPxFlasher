@@ -164,10 +164,49 @@ def output_name(rom: RomInfo) -> str:
     return re.sub(r"[^A-Za-z0-9._()+-]+", "_", stem).strip("_") or "rom"
 
 
+def existing_outputs(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False) -> dict[str, Path]:
+    """Outputs convert() would make that are already there: {"zip": path, "folder": path}."""
+    base = output_name(rom)
+    want = {"zip": (make_zip, Path(out_dir) / f"{base}-fullrom.zip"),
+            "folder": (make_folder, Path(out_dir) / f"{base}-fullrom")}
+    return {kind: path for kind, (wanted, path) in want.items() if wanted and path.exists()}
+
+
+def verify_existing(paths: dict[str, Path], progress: Progress | None = None,
+                    cancel: Callable[[], bool] | None = None) -> dict[str, Path]:
+    """Fully verify outputs made earlier before they're used again. Raises ConvertError if one is bad."""
+    from opx.rom import verify as vf
+
+    for path in paths.values():
+        try:
+            rep = vf.verify(path, deep=True, cancel=cancel,
+                            progress=progress)
+        except vf.VerifyCancelled:
+            raise ConvertError("Cancelled; the existing files were left as they are.") from None
+        if rep.failed or rep.detection.rom is None or rep.detection.rom.kind != "fullrom":
+            why = next((f.text for f in rep.sorted_findings() if f.status == vf.FAIL), "not an OPxFlasher full ROM")
+            raise ConvertError(f"The existing {path.name} failed verification ({why}). Replace it.")
+    return dict(paths)
+
+
+def convert_or_reuse(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
+                     progress: Progress | None = None, stage: Callable[[str], None] | None = None,
+                     cancel: Callable[[], bool] | None = None) -> dict[str, Path]:
+    """Like convert(), but outputs that already exist are verified and reused, not refused."""
+    have = existing_outputs(rom, out_dir, make_zip, make_folder)
+    if have:
+        (stage or (lambda s: None))("Already converted: verifying " + ", ".join(p.name for p in have.values()) + "...")
+        verify_existing(have, progress, cancel)
+    need_zip, need_folder = make_zip and "zip" not in have, make_folder and "folder" not in have
+    made = convert(rom, out_dir, need_zip, need_folder, progress, stage, cancel) if need_zip or need_folder else {}
+    return {**have, **made}
+
+
 def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
             progress: Progress | None = None, stage: Callable[[str], None] | None = None,
-            cancel: Callable[[], bool] | None = None, chunk: int = CHUNK) -> dict[str, Path]:
-    """Write the full ROM. Returns {"zip": path, "folder": path} for what was made."""
+            cancel: Callable[[], bool] | None = None, chunk: int = CHUNK, replace: bool = False) -> dict[str, Path]:
+    """Write the full ROM. Returns {"zip": path, "folder": path} for what was made.
+    Existing outputs are refused unless `replace` (then they're deleted first)."""
     if not (make_zip or make_folder):
         raise ConvertError("Choose a recovery zip, an image folder, or both.")
     if chunk <= 0 or chunk % (1 << 20):
@@ -179,7 +218,9 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
     zip_out = out_dir / f"{base}-fullrom.zip"
     folder_out = out_dir / f"{base}-fullrom"
     for target in ([zip_out] if make_zip else []) + ([folder_out] if make_folder else []):
-        if target.exists():
+        if target.exists() and replace:
+            shutil.rmtree(target) if target.is_dir() else target.unlink()
+        elif target.exists():
             raise ConvertError(f"{target.name} already exists in {out_dir}; move it or choose another folder.")
 
     with tempfile.TemporaryDirectory(prefix="opx-convert-", dir=out_dir) as tmp:

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -322,6 +323,18 @@ def run_backup(
             write_manifest(False)
             emit({"type": "log", "message": "Backup cancelled. Completed images were kept."})
             raise
+        except (OSError, subprocess.TimeoutExpired) as e:
+            # disk full, drive unplugged, phone stopped answering: don't leave the reader
+            # running or a half image behind, and record what was finished
+            proc.kill()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+            partial.unlink(missing_ok=True)
+            write_manifest(False)
+            raise BackupError(f"Backup stopped while reading {item.name}: {e}. "
+                              "Completed images were kept; free up space or reconnect and start again.") from e
 
         if proc.returncode != 0:
             error = f"adb exited with {proc.returncode}: {stderr}"
@@ -345,6 +358,8 @@ def run_backup(
                 else:
                     status = "failed"
                     error = "hash mismatch between phone and PC copy"
+                    # keep it for inspection, but never under a name a restore would pick up
+                    target.replace(folder / f"{item.name}.img.bad")
         else:
             partial.unlink(missing_ok=True)
 
@@ -383,6 +398,16 @@ def run_backup(
     return folder
 
 
+def manifest_file(folder: Path, name: str) -> Path:
+    """The image a backup manifest names. Only plain file names inside the backup folder are
+    accepted, so an edited manifest can't point a restore or flash at some other file."""
+    name = str(name or "")
+    if not name or name in (".", "..") or Path(name).name != name or "/" in name or "\\" in name or ":" in name:
+        raise BackupError(f"This backup's manifest names a file outside the backup folder ({name!r}). "
+                          "The backup was edited or is damaged; don't use it.")
+    return Path(folder) / name
+
+
 def verify_folder(folder: Path) -> list[tuple[str, bool, str]]:
     """Re-hash a backup folder against its manifest (offline, no phone needed)."""
     folder = Path(folder)
@@ -392,7 +417,7 @@ def verify_folder(folder: Path) -> list[tuple[str, bool, str]]:
         if part.get("status") == "failed":
             report.append((part["file"], False, "was not backed up: " + part.get("error", "")))
             continue
-        path = folder / part["file"]
+        path = manifest_file(folder, part["file"])
         if not path.exists():
             report.append((part["file"], False, "file missing"))
             continue

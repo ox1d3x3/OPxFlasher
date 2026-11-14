@@ -399,10 +399,22 @@ def _avb_checks(rep: VerifyReport, rom: RomInfo, work: Path, deep: bool, meter: 
     if top.verification_disabled or top.hashtree_disabled:
         rep.add(WARN, "AVB", "This vbmeta has verification turned off (a modified ROM, not stock).")
 
+    # loose image files often carry their own vbmeta in an AVB footer (system.img, boot.img ...)
+    for img in rom.images:
+        if img.file is not None and not img.sparse and img.name not in dict(tables):
+            try:
+                own = avb.parse_file_footer(img.file)
+            except (avb.AvbError, OSError):
+                own = None
+            if own is not None:
+                tables.append((img.name, own))
+
     expected = {c for c, _ in top.chains}
     hashes: dict[str, avb.HashDescriptor] = {}
+    trees: dict[str, avb.HashtreeDescriptor] = {}
     sizes: dict[str, int] = {}
     for _name, vb in tables:
+        trees.update({t.partition: t for t in vb.hashtrees})
         expected |= set(vb.hash_partitions) | set(vb.hashtree_partitions)
         hashes.update({h.partition: h for h in vb.hashes})
         sizes.update(vb.hashtree_sizes)
@@ -442,6 +454,69 @@ def _avb_checks(rep: VerifyReport, rom: RomInfo, work: Path, deep: bool, meter: 
                                      "(for example patched for root). A stock ROM must match.")
     elif checked:
         rep.add(OK, "AVB digests", f"{checked} boot-type images match the digests in vbmeta.")
+    _hashtrees(rep, rom, trees, work, meter)
+
+
+class _ZipMember:
+    """One zip entry as a stream; closes the zip with it."""
+
+    def __init__(self, path: Path, member: str):
+        self.zf = zipfile.ZipFile(path)
+        self.fh = self.zf.open(member)
+        self.read = self.fh.read
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.fh.close()
+        self.zf.close()
+
+
+def _hashtrees(rep: VerifyReport, rom: RomInfo, trees: dict[str, avb.HashtreeDescriptor], work: Path,
+               meter: _Meter) -> None:
+    """dm-verity, the way the phone checks system / vendor / ... at boot: rebuild each image's hash
+    tree and compare the root. Only for loose images; payloads and OPxFlasher full ROMs are already
+    covered byte for byte by their own hashes."""
+    if rom.payload is not None or rom.kind == "fullrom":
+        return
+    todo = [(n, t) for n, t in sorted(trees.items())
+            if (img := rom.image(n)) is not None and img.in_super is None and not img.pieces and t.image_size <= img.size]
+    total = sum(t.image_size for _n, t in todo)
+    done, checked, bad, skipped = 0, 0, [], []
+    for name, desc in todo:
+        img = rom.image(name)
+        temp = None
+        try:
+            if img.file is not None and not img.sparse:
+                fh = open(img.file, "rb")
+            elif img.members and len(img.members) == 1 and not img.sparse:
+                fh = _ZipMember(rom.path, img.members[0])
+            else:
+                temp = materialize(rom, name, work / f"{name}.img", verify=False)
+                fh = open(temp, "rb")
+            with fh:
+                base = done
+                root = avb.hashtree_root(fh.read, desc, tick=lambda d, _t, base=base, name=name: meter.tick(
+                    f"{name} (dm-verity)", base + d, total))
+            if root != desc.root_digest:
+                bad.append(name)
+            checked += 1
+        except avb.AvbError as e:
+            skipped.append(f"{name} ({e})")
+        except (RomError, pl.PayloadError, OSError, zipfile.BadZipFile) as e:
+            bad.append(f"{name} (unreadable: {e})")
+        finally:
+            if temp is not None:
+                Path(temp).unlink(missing_ok=True)
+        done += desc.image_size
+    if bad:
+        rep.add(FAIL, "dm-verity", f"{', '.join(bad)}: the data doesn't match its hash tree in vbmeta: damaged or "
+                                   "modified. The phone would refuse it (or it only works with verity off).")
+    elif checked:
+        rep.add(OK, "dm-verity", f"{checked} system-type images match their hash trees ({_size(total)} checked).")
+    if skipped:
+        rep.add(INFO, "dm-verity", "Not checked: " + "; ".join(skipped))
 
 
 def _image_bytes(rom: RomInfo, name: str, work: Path) -> bytes:
