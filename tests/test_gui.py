@@ -569,6 +569,18 @@ def test_gui_apps_tab(window, monkeypatch, tmp_path):
     state = json.loads((phone / "packages.json").read_text())
     assert state["com.oplus.games"]["removed"] and not state["com.android.settings"]["removed"]
 
+    # built-in lists: one menu entry per shipped list; using one removes what's on the phone
+    titles = [a.text() for a in tab.builtin_btn.menu().actions()]
+    assert "ColorOS 16 CN: Recommended" in titles and tab.builtin_btn.isEnabled()
+    rec = next(a for a in tab.builtin_btn.menu().actions() if a.text() == "ColorOS 16 CN: Recommended")
+    assert "Minimal plus" in rec.toolTip()
+    tab.restore_all()
+    settle(app)
+    rec.trigger()
+    settle(app)
+    state = json.loads((phone / "packages.json").read_text())
+    assert state["com.heytap.browser"]["removed"] and not state["com.android.systemui"]["removed"]
+
 
 def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
     import zipfile

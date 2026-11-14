@@ -1,0 +1,48 @@
+# ColorOS 16 CN: HeyTap / OPPO China services
+# HeyTap and OPPO China apps and services (CN accounts, cloud, wallet...).
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- Ads & Analytics ---
+com.opos.ads                                  # OPPO Ads Service: System ad SDK that serves ads in feeds, store and system apps
+com.oppo.ctautoregist                         # CT Auto Register: China Telecom auto-registration
+
+# --- Browser & Search ---
+com.coloros.browser                           # Browser (ColorOS): Stock ColorOS browser
+com.heytap.browser                            # Browser: HeyTap browser with news feed
+
+# --- Customisation ---
+com.heytap.pictorial                          # Lock Screen Magazine: Rotating lock-screen wallpapers with ads
+
+# --- Ecosystem ---
+com.baidu.input_oppo                          # Baidu Keyboard: Preinstalled CN keyboard (kept automatically if it is your active keyboard)
+com.finshell.wallet                           # Wallet: OPPO/HeyTap wallet (CN)
+com.heytap.accessory                          # Accessories: Needed for some earbud / watch pairing  [caution]
+com.heytap.cloud                              # HeyTap Cloud: Cloud backup and sync  [caution]
+com.heytap.health                             # HeyTap Health: Needed for OPPO watch / band
+com.heytap.mydevices                          # My Devices: Connected-device hub  [caution]
+com.heytap.smarthome                          # Smart Home: IoT control app
+com.oplus.eid                                 # eID: CN electronic identity
+com.oplus.ohome                               # OHome: Smart home hub
+com.oplus.pay                                 # OPPO Pay: Payment service (CN)
+com.oplus.phonenoareainquire                  # Number Area Lookup: CN phone number region lookup
+com.ted.number                                # Number Identification: CN caller-ID / number tagging
+com.tencent.soter.soterserver                 # Tencent SOTER: Fingerprint payment for WeChat (CN)
+
+# --- Media & Content ---
+com.coloros.karaoke                           # Karaoke: Karaoke effects service
+com.heytap.music                              # Music: HeyTap music
+com.heytap.reader                             # Reader: E-book store
+com.heytap.yoli                               # Yoli Video: Short video feed
+
+# --- Store & Promotions ---
+com.heytap.market                             # App Market: HeyTap app store; pushes app promotions
+com.heytap.vip                                # HeyTap VIP: Membership and points
+com.nearme.gamecenter                         # Game Center: Game store and promotions
+com.nearme.instant.card                       # Quick App Cards: Promo cards for Quick Apps
+com.nearme.instant.platform                   # Quick Apps: Instant-app platform that pushes mini-apps and promos
+com.oppo.instant.local.service                # Quick Apps Service: Local service for Quick Apps
+com.oppo.market                               # App Market (legacy): Older OPPO app store

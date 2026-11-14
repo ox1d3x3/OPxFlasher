@@ -1,0 +1,23 @@
+# ColorOS 16 CN: Breeno / AI
+# The Breeno assistant and AI suite.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- AI & Breeno ---
+com.aiunit.aon                                # AI Always-On: Attention / gesture detection for AI features  [caution]
+com.coloros.colordirectservice                # Screen Recognition: Breeno screen text/image recognition
+com.heytap.speechassist                       # Breeno Assistant: Voice assistant
+com.oplus.aicall                              # AI Call: AI call assistant / translation
+com.oplus.aimemory                            # AI Memory: Stores personal context for AI features  [caution]
+com.oplus.aipaper                             # AI Wallpaper: AI wallpaper generator
+com.oplus.aiunit                              # AI Unit: AI engine used by Gallery AI edits, Notes summaries  [caution]
+com.oplus.aiwidgets                           # AI Widgets: AI widget suite
+com.oplus.aiwriter                            # AI Writer: AI writing tools
+com.oplus.matrix                              # Matrix: AI service component  [caution]
+com.oplus.obrain                              # OBrain: On-device AI model service  [caution]
+com.oplus.ovoicemanager                       # Voice Manager: Voice wake-up manager
+com.oplus.ovoicemanager.wakeup                # Voice Wake-up: Hotword detection
+com.oplus.voice.crs                           # Voice CRS: Voice recognition service  [caution]

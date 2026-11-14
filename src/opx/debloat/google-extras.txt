@@ -1,0 +1,27 @@
+# Google extras
+# Optional Google apps (Meet, YouTube Music, TV, One, Gemini...). Play services stay.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- Google ---
+com.google.android.apps.bard                  # Gemini: Gemini assistant app
+com.google.android.apps.docs                  # Google Drive: Drive app
+com.google.android.apps.googleassistant       # Assistant: Assistant shortcut app
+com.google.android.apps.magazines             # Google News: News app
+com.google.android.apps.photos                # Google Photos: Photos backup  [caution]
+com.google.android.apps.photosgo              # Gallery Go: Lightweight photo app
+com.google.android.apps.podcasts              # Google Podcasts: Podcasts app
+com.google.android.apps.subscriptions.red     # Google One: Storage subscription app
+com.google.android.apps.tachyon               # Google Meet: Video calling
+com.google.android.apps.youtube.music         # YouTube Music: Music app
+com.google.android.feedback                   # Google Feedback: Crash/feedback reporter
+com.google.android.keep                       # Google Keep: Notes app
+com.google.android.play.games                 # Google Play Games: Games hub
+com.google.android.safetycore                 # Android SafetyCore: On-device content classification
+com.google.android.videos                     # Google TV: Movies app
+com.google.android.youtube                    # YouTube: YouTube app  [caution]
+com.google.ar.core                            # ARCore: AR services
+com.google.ar.lens                            # Google Lens: Lens app

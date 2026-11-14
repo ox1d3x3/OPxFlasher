@@ -1,0 +1,22 @@
+# ColorOS 16 CN: Minimal
+# Ads, telemetry and partner stubs only. Safe for everyone.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- Ads & Analytics ---
+com.coloros.activation                        # Activation Stats: Sends device activation data
+com.coloros.bootreg                           # Boot Registration: First-boot registration ping
+com.heytap.habit.analysis                     # Habit Analysis: Analyses usage habits for recommendations
+com.oplus.logkit                              # Log Kit: Diagnostic log collection tool
+com.oplus.statistics.rom                      # ROM Statistics: Uploads usage statistics
+com.opos.ads                                  # OPPO Ads Service: System ad SDK that serves ads in feeds, store and system apps
+com.oppo.ctautoregist                         # CT Auto Register: China Telecom auto-registration
+
+# --- Partner Bloat ---
+com.facebook.appmanager                       # Facebook App Manager: Preinstalled Facebook updater
+com.facebook.services                         # Facebook Services: Preinstalled Facebook services
+com.facebook.system                           # Facebook App Installer: Preinstalled Facebook installer
+com.netflix.partner.activation                # Netflix Activation: Partner activation stub

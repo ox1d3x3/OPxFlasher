@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -90,11 +91,22 @@ class AppsTab(QWidget):
         self.restore_all_btn.clicked.connect(self.restore_all)
         self.import_btn = QPushButton(tr("Remove from list..."))
         self.import_btn.setToolTip(tr("Remove the apps in a shared debloat list (one package per line)"))
-        self.import_btn.clicked.connect(self.remove_from_list)
+        self.import_btn.clicked.connect(lambda: self.remove_from_list())
+        self.builtin_btn = QPushButton(tr("Built-in lists"))
+        self.builtin_btn.setToolTip(tr("Debloat lists that come with OPxFlasher (drafts, reversible)"))
+        menu = QMenu(self.builtin_btn)
+        for title, about, path in ap.builtin_lists():
+            act = menu.addAction(title)
+            act.setToolTip(about)
+            act.setStatusTip(about)
+            act.triggered.connect(lambda _=False, p=path: self.remove_from_list(p))
+        menu.setToolTipsVisible(True)
+        self.builtin_btn.setMenu(menu)
         self.export_btn = QPushButton(tr("Save my list..."))
         self.export_btn.setToolTip(tr("Save what you removed as a list to share or reuse"))
         self.export_btn.clicked.connect(self.export_list)
-        for b in (self.remove_btn, self.restore_btn, self.restore_all_btn, self.import_btn, self.export_btn):
+        for b in (self.remove_btn, self.restore_btn, self.restore_all_btn, self.builtin_btn, self.import_btn,
+                  self.export_btn):
             row.addWidget(b)
         row.addStretch(1)
         layout.addLayout(row)
@@ -124,6 +136,7 @@ class AppsTab(QWidget):
         self.restore_all_btn.setEnabled(loaded and bool(mine))
         self.export_btn.setEnabled(live and bool(mine))
         self.import_btn.setEnabled(loaded)
+        self.builtin_btn.setEnabled(loaded)
 
     def _selected(self) -> list[ap.App]:
         out = []
@@ -229,10 +242,11 @@ class AppsTab(QWidget):
         if packages:
             self._run([], packages)
 
-    def remove_from_list(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, tr("Choose a debloat list"), "", "Text files (*.txt);;All files (*)")
+    def remove_from_list(self, path: Path | str | None = None) -> None:
         if not path:
-            return
+            path, _ = QFileDialog.getOpenFileName(self, tr("Choose a debloat list"), "", "Text files (*.txt);;All files (*)")
+            if not path:
+                return
         try:
             wanted = ap.read_list(Path(path))
         except (OSError, UnicodeDecodeError, ap.AppError) as e:

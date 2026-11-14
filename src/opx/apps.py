@@ -85,7 +85,15 @@ def keep_reason(package: str, extra_keep: list[str] | None = None) -> str:
     if package in KEEP or package.startswith(KEEP_PREFIXES):
         return "Needed by Android"
     for pattern in extra_keep or []:
-        if package == pattern or (pattern.endswith("*") and package.startswith(pattern[:-1])):
+        if pattern.startswith("*") and pattern.endswith("*") and len(pattern) > 2:
+            hit = pattern[1:-1] in package
+        elif pattern.startswith("*"):
+            hit = package.endswith(pattern[1:])
+        elif pattern.endswith("*"):
+            hit = package.startswith(pattern[:-1])
+        else:
+            hit = package == pattern
+        if hit:
             return "Needed by this phone (device profile)"
     return ""
 
@@ -172,6 +180,18 @@ def restore(adb: Tool, serial: str, package: str) -> None:
     if not res.ok or "installed for user" not in text:
         raise AppError(f"{package}: {text or 'restore failed'}")
     _save_undo(serial, [p for p in removed_by_us(serial) if p != package])
+
+
+BUILTIN_LISTS = Path(__file__).parent / "debloat"
+
+
+def builtin_lists() -> list[tuple[str, str, Path]]:
+    """The lists that ship with OPxFlasher: (title, one-line description, path)."""
+    out = []
+    for f in sorted(BUILTIN_LISTS.glob("*.txt")):
+        head = [ln[1:].strip() for ln in f.read_text("utf-8").splitlines()[:2] if ln.startswith("#")]
+        out.append((head[0] if head else f.stem, head[1] if len(head) > 1 else "", f))
+    return out
 
 
 def read_list(path: Path) -> list[str]:

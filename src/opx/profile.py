@@ -190,8 +190,8 @@ def validate(raw: dict, builtin: bool = False) -> list[str]:
     if fuse and not (isinstance(fuse, str) and re.fullmatch(r"\d+\.\d+\.\d+\.\d+", fuse)):
         errors.append('rollback_fuse must be an OS version like "16.0.3.501"')
     keep = raw.get("keep_apps", [])
-    if not isinstance(keep, list) or not all(isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_.]+\*?", k) for k in keep):
-        errors.append("keep_apps must be a list of package names (a trailing * matches a prefix)")
+    if not isinstance(keep, list) or not all(isinstance(k, str) and re.fullmatch(r"\*?[A-Za-z0-9_.]+\*?", k) for k in keep):
+        errors.append("keep_apps must be a list of package names (pkg, prefix*, or *contains*)")
     for i, issue in enumerate(raw.get("known_issues", [])):
         if not isinstance(issue, dict) or not isinstance(issue.get("match"), dict) or not issue.get("message"):
             errors.append(f"known_issues[{i}] needs match and message")

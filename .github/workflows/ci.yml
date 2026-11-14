@@ -92,7 +92,8 @@ jobs:
           need = ["opx/profiles/oplus-generic.json", "opx/profiles/oneplus-13.json",
                   "opx/profiles/oneplus-13t.json", "opx/profiles/oneplus-15.json",
                   "opx/recovery/update-binary.sh", "opx/recovery/rom-install.sh", "opx/locales/template.json",
-                  "opx/gui/assets/icon.svg"]
+                  "opx/gui/assets/icon.svg", "opx/debloat/coloros16-cn-2-recommended.txt",
+                  "opx/debloat/google-extras.txt"]
           need += [f"opx/gui/assets/icon-{s}.png" for s in (16, 24, 32, 48, 64, 128, 256)]
           missing = [n for n in need if n not in names]
           print("\n".join(sorted(n for n in names if n.startswith("opx/") and not n.endswith(".py"))))

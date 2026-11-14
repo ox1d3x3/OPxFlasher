@@ -392,11 +392,26 @@ The **Apps** tab (or `opx apps`) removes system apps you don't use, **for your u
 nothing on the system partition changes, **Restore** puts an app back at any time, and a
 factory reset brings everything back. No root needed. Apps Android can't run without
 (System UI, Settings, the phone app, the package installer, ...) are locked, and a device
-profile can lock more (`keep_apps`).
+profile can lock more (`keep_apps`: exact names, `prefix*` or `*contains*`). On OPPO / OnePlus /
+realme phones that includes the ColorOS core services (athena, battery, security, cosa, smart
+engine, scene service ...), Play services, WebView, overlays and root managers.
+
+**Built-in lists** (drafts for ColorOS 16 CN, to be confirmed on a OnePlus 13; from the OP Debloater
+catalog). Each shows exactly which apps it will remove and asks first:
+
+| List | What it removes |
+|---|---|
+| Minimal | Ads, telemetry and partner stubs. Safe for everyone. |
+| Recommended | Minimal plus stores, CN media, browser feeds, Breeno voice. |
+| Aggressive | Recommended plus caution-level extras (marked `[caution]` in the file). |
+| Third-party apps | Douyin, Weibo, JD, Baidu and other preinstalled China apps. |
+| Breeno / AI | The Breeno assistant and AI suite. |
+| HeyTap / OPPO China services | HeyTap accounts, cloud, wallet and other China services. |
+| Google extras | Optional Google apps (Meet, YouTube Music, TV, One, Gemini ...). Play services stay. |
 
 - Remove or restore selected apps; **Restore all I removed** undoes everything OPxFlasher removed on this phone.
-- Share lists: **Save my list...** writes what you removed (one package per line); **Remove from list...** applies someone else's list, skipping anything locked or not on your phone.
-- Command line: `opx apps list [--removed] [--search X]`, `opx apps remove <pkg>... | --from list.txt`,
+- **Built-in lists** menu, or share lists: **Save my list...** writes what you removed (one package per line); **Remove from list...** applies someone else's list, skipping anything locked or not on your phone.
+- Command line: `opx apps list [--removed] [--search X]`, `opx apps remove <pkg>... | --from list.txt` (the built-in lists are in OPxFlasher's `debloat` folder),
   `opx apps restore <pkg>... | --all`, `opx apps export list.txt`.
 
 ## Diagnostics

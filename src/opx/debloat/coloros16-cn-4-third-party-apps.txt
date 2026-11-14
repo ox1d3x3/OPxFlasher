@@ -1,0 +1,30 @@
+# ColorOS 16 CN: preinstalled third-party apps
+# Douyin, Weibo, JD, Baidu and other China apps the ROM ships with. Ordinary apps: safe to remove.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped. Sources: community lists, incl. aiy365/oneplus-coloros-debloat (MIT).
+
+# --- Third-party apps preinstalled on China ROMs ---
+com.ss.android.ugc.aweme          # Douyin
+com.ss.android.article.news       # Toutiao
+com.smile.gifmaker                # Kuaishou
+com.sina.weibo                    # Weibo
+com.xingin.xhs                    # Xiaohongshu (RED)
+com.zhihu.android                 # Zhihu
+com.jingdong.app.mall             # JD
+com.sankuai.meituan               # Meituan
+com.xunmeng.pinduoduo             # Pinduoduo
+com.baidu.BaiduMap                # Baidu Maps
+com.baidu.searchbox               # Baidu
+com.youku.phone                   # Youku
+com.UCMobile                      # UC Browser
+com.ximalaya.ting.android         # Himalaya (audio)
+com.dragon.read                   # Fanqie Novel
+com.tongcheng.android             # Tongcheng Travel
+
+# --- OnePlus / HeyTap extras you can live without ---
+com.oneplus.member                # OnePlus membership
+com.oppo.store                    # OPPO / OnePlus Store
+com.oplus.play                    # Instant games
+com.oplus.tips                    # Tips

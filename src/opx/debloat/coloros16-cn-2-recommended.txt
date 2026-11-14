@@ -1,0 +1,84 @@
+# ColorOS 16 CN: Recommended
+# Minimal plus common bloat: stores, CN media, browser feeds, Breeno voice.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- AI & Breeno ---
+com.heytap.speechassist                       # Breeno Assistant: Voice assistant
+
+# --- Ads & Analytics ---
+com.android.traceur                           # System Tracing: Developer tracing tool
+com.coloros.activation                        # Activation Stats: Sends device activation data
+com.coloros.bootreg                           # Boot Registration: First-boot registration ping
+com.heytap.habit.analysis                     # Habit Analysis: Analyses usage habits for recommendations
+com.oplus.crashbox                            # Crash Box: Crash report uploader
+com.oplus.logkit                              # Log Kit: Diagnostic log collection tool
+com.oplus.logtrial                            # Log Trial: Diagnostic log upload
+com.oplus.olc                                 # Log Collector: Background log and crash collection
+com.oplus.onetrace                            # OneTrace: Performance trace collection
+com.oplus.statistics.rom                      # ROM Statistics: Uploads usage statistics
+com.opos.ads                                  # OPPO Ads Service: System ad SDK that serves ads in feeds, store and system apps
+com.oppo.ctautoregist                         # CT Auto Register: China Telecom auto-registration
+
+# --- Browser & Search ---
+com.android.browser                           # Browser (stock): AOSP browser
+com.coloros.browser                           # Browser (ColorOS): Stock ColorOS browser
+com.heytap.browser                            # Browser: HeyTap browser with news feed
+
+# --- Customisation ---
+com.heytap.pictorial                          # Lock Screen Magazine: Rotating lock-screen wallpapers with ads
+
+# --- Ecosystem ---
+com.baidu.input_oppo                          # Baidu Keyboard: Preinstalled CN keyboard (kept automatically if it is your active keyboard)
+com.finshell.wallet                           # Wallet: OPPO/HeyTap wallet (CN)
+com.heytap.opluscarlink                       # CarLink: Car connection
+com.heytap.smarthome                          # Smart Home: IoT control app
+com.oplus.ocar                                # OCar: Car connection
+com.oplus.ohome                               # OHome: Smart home hub
+com.oplus.omoji                               # Omoji: Avatar stickers
+com.oplus.pay                                 # OPPO Pay: Payment service (CN)
+com.tencent.soter.soterserver                 # Tencent SOTER: Fingerprint payment for WeChat (CN)
+
+# --- Media & Content ---
+andes.oplus.documentsreader                   # Documents Reader: Office/PDF viewer
+com.coloros.karaoke                           # Karaoke: Karaoke effects service
+com.coloros.video                             # Video Player: Stock video player
+com.heytap.music                              # Music: HeyTap music
+com.heytap.reader                             # Reader: E-book store
+com.heytap.yoli                               # Yoli Video: Short video feed
+
+# --- Partner Bloat ---
+com.facebook.appmanager                       # Facebook App Manager: Preinstalled Facebook updater
+com.facebook.services                         # Facebook Services: Preinstalled Facebook services
+com.facebook.system                           # Facebook App Installer: Preinstalled Facebook installer
+com.netflix.partner.activation                # Netflix Activation: Partner activation stub
+com.redteamobile.roaming                      # RedteaGO Roaming: Preinstalled paid roaming eSIM
+
+# --- Store & Promotions ---
+com.heytap.market                             # App Market: HeyTap app store; pushes app promotions
+com.heytap.vip                                # HeyTap VIP: Membership and points
+com.nearme.gamecenter                         # Game Center: Game store and promotions
+com.nearme.instant.card                       # Quick App Cards: Promo cards for Quick Apps
+com.nearme.instant.platform                   # Quick Apps: Instant-app platform that pushes mini-apps and promos
+com.oneplus.bbs                               # OnePlus Community: Forum app
+com.oneplus.store                             # OnePlus Store: OnePlus shop app
+com.oplus.contentportal                       # Content Portal: Recommended content hub
+com.oplus.member                              # Member Center: Membership / rewards
+com.oppo.instant.local.service                # Quick Apps Service: Local service for Quick Apps
+com.oppo.market                               # App Market (legacy): Older OPPO app store
+
+# --- System Extras ---
+com.android.bookmarkprovider                  # Bookmark Provider: Unused bookmark provider
+com.android.egg                               # Android Easter Egg: Version easter egg
+
+# --- Tools ---
+com.coloros.childrenspace                     # Kid Space: Children mode
+com.coloros.familyguard                       # Family Guard: Parental monitoring
+com.coloros.operationManual                   # User Manual: Built-in user guide
+com.coloros.smartdrive                        # Driving Mode: Driving mode
+
+# --- Updates ---
+com.oplus.upgradeguide                        # Upgrade Guide: Post-update tutorial screens

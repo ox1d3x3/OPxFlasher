@@ -283,3 +283,23 @@ def test_download_refuses_a_redirect_off_the_official_servers(tmp_path, monkeypa
 
     with pytest.raises(catalog.CatalogError, match="evil.example"):
         catalog.download(r, tmp_path, opener=opener)
+
+
+@pytest.mark.parametrize(("url", "ok"), [
+    ("https://android.googleapis.com/packages/ota-api/package/791a2a5f55308aa4b577f05ec6ca2583151581b2.zip", True),
+    ("https://r3---sn-ab5l6n7s.gvt1.com/edgedl/ota/x.zip", True),  # Google's download network (redirects)
+    ("https://ota.googlezip.net/packages/ota-api/package/x.zip", True),
+    ("https://component-ota-in.allawnos.com/x.zip", True),
+    ("https://android.googleapis.com/other/x.zip", False),  # only the OTA-package path
+    ("https://android.googleapis.com/packages/ota-api/../../x.zip", False),
+    ("https://evil.android.googleapis.com/packages/ota-api/x.zip", False),
+    ("https://android.googleapis.com.evil.example/packages/ota-api/x.zip", False),
+    ("http://android.googleapis.com/packages/ota-api/x.zip", False),
+    ("https://bigota.d.miui.com/x.zip", False),  # not a OnePlus / OPPO phone
+])
+def test_official_hosts_include_oneplus_north_america(url, ok):
+    if ok:
+        catalog.otadl.check_host(url, catalog.otadl.OFFICIAL_HOSTS)
+    else:
+        with pytest.raises(catalog.otadl.DownloadError):
+            catalog.otadl.check_host(url, catalog.otadl.OFFICIAL_HOSTS)

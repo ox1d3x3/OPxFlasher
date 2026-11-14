@@ -112,7 +112,11 @@ def _refused(status: int, body: bytes) -> str:
 # Where OPPO / OnePlus / realme packages are served from (and their signed CDN links).
 OFFICIAL_HOSTS = ("allawnfs.com", "allawnofs.com", "allawnos.com", "allawntech.com", "oneplus.com",
                   "oneplus.net", "oppo.com", "coloros.com", "heytapdownload.com", "realme.com",
-                  "realmemobile.com")
+                  "realmemobile.com", "android.googleapis.com/packages/ota-api/",
+                  "ota.googlezip.net/packages/", "dl.google.com", "gvt1.com")
+# An entry with a "/" is an exact host plus a path prefix: OnePlus North America (CPH2655 ...) builds
+# are published through Google's OTA service: only its OTA-package path is accepted, plus Google's own
+# download networks it may redirect to (googlezip, dl.google.com, gvt1.com: nobody else can publish there).
 
 
 def check_host(url: str, hosts: tuple[str, ...] | None) -> None:
@@ -121,7 +125,14 @@ def check_host(url: str, hosts: tuple[str, ...] | None) -> None:
         return
     parts = urllib.parse.urlsplit(url)
     host = (parts.hostname or "").lower().rstrip(".")
-    if parts.scheme != "https" or not any(host == h or host.endswith("." + h) for h in hosts):
+
+    def allowed(entry: str) -> bool:
+        if "/" in entry:
+            want_host, _, prefix = entry.partition("/")
+            return host == want_host and parts.path.startswith("/" + prefix) and ".." not in parts.path
+        return host == entry or host.endswith("." + entry)
+
+    if parts.scheme != "https" or not any(allowed(h) for h in hosts):
         raise DownloadError(f"Refusing to download from {host or url!r}: not an official OPPO / OnePlus server.")
 
 

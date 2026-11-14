@@ -1,0 +1,164 @@
+# ColorOS 16 CN: Aggressive
+# Recommended plus caution-level extras. Read the notes before using it.
+# Removed for your user only (pm uninstall -k --user 0): nothing on the system partition changes.
+# Apps tab > Restore / Restore all brings them back (so does a factory reset).
+# DRAFT: to be confirmed on a OnePlus 13 (PJZ110) running ColorOS 16 CN. Packages that aren't on
+# the phone are skipped; protected apps are always refused.
+# Source: OP Debloater catalog by Ox1d3x3 (github.com/ox1d3x3/op-debloat). Risk: safe / caution.
+
+# --- AI & Breeno ---
+com.coloros.colordirectservice                # Screen Recognition: Breeno screen text/image recognition
+com.heytap.speechassist                       # Breeno Assistant: Voice assistant
+com.oplus.aicall                              # AI Call: AI call assistant / translation
+com.oplus.aimemory                            # AI Memory: Stores personal context for AI features  [caution]
+com.oplus.aipaper                             # AI Wallpaper: AI wallpaper generator
+com.oplus.aiwidgets                           # AI Widgets: AI widget suite
+com.oplus.aiwriter                            # AI Writer: AI writing tools
+com.oplus.ovoicemanager                       # Voice Manager: Voice wake-up manager
+com.oplus.ovoicemanager.wakeup                # Voice Wake-up: Hotword detection
+
+# --- Ads & Analytics ---
+com.android.adservices.api                    # Android AdServices: Privacy Sandbox ad APIs (topics, attribution)  [caution]
+com.android.federatedcompute.services         # Federated Compute: Federated learning jobs  [caution]
+com.android.ondevicepersonalization.services  # On-device Personalization: Privacy Sandbox personalization  [caution]
+com.android.traceur                           # System Tracing: Developer tracing tool
+com.coloros.activation                        # Activation Stats: Sends device activation data
+com.coloros.bootreg                           # Boot Registration: First-boot registration ping
+com.heytap.habit.analysis                     # Habit Analysis: Analyses usage habits for recommendations
+com.heytap.openid                             # OpenID: Advertising/device ID provider; some HeyTap logins use it  [caution]
+com.oplus.crashbox                            # Crash Box: Crash report uploader
+com.oplus.feedback                            # Feedback: Feedback and bug report app
+com.oplus.gleanerservice                      # Gleaner Service: Usage data collection  [caution]
+com.oplus.logkit                              # Log Kit: Diagnostic log collection tool
+com.oplus.logtrial                            # Log Trial: Diagnostic log upload
+com.oplus.olc                                 # Log Collector: Background log and crash collection
+com.oplus.onetrace                            # OneTrace: Performance trace collection
+com.oplus.postmanservice                      # Postman Service: Diagnostics / feedback upload channel  [caution]
+com.oplus.qualityprotect                      # Quality Protect: Stability / quality telemetry  [caution]
+com.oplus.statistics.rom                      # ROM Statistics: Uploads usage statistics
+com.opos.ads                                  # OPPO Ads Service: System ad SDK that serves ads in feeds, store and system apps
+com.oppo.ctautoregist                         # CT Auto Register: China Telecom auto-registration
+
+# --- Browser & Search ---
+com.android.browser                           # Browser (stock): AOSP browser
+com.coloros.browser                           # Browser (ColorOS): Stock ColorOS browser
+com.heytap.browser                            # Browser: HeyTap browser with news feed
+
+# --- Customisation ---
+com.heytap.colorfulengine                     # Colorful Engine: Live / AI wallpaper engine  [caution]
+com.heytap.pictorial                          # Lock Screen Magazine: Rotating lock-screen wallpapers with ads
+
+# --- Ecosystem ---
+com.baidu.input_oppo                          # Baidu Keyboard: Preinstalled CN keyboard (kept automatically if it is your active keyboard)
+com.finshell.wallet                           # Wallet: OPPO/HeyTap wallet (CN)
+com.heytap.accessory                          # Accessories: Needed for some earbud / watch pairing  [caution]
+com.heytap.cloud                              # HeyTap Cloud: Cloud backup and sync  [caution]
+com.heytap.health                             # HeyTap Health: Needed for OPPO watch / band
+com.heytap.mydevices                          # My Devices: Connected-device hub  [caution]
+com.heytap.opluscarlink                       # CarLink: Car connection
+com.heytap.smarthome                          # Smart Home: IoT control app
+com.heytap.tas                                # HeyTap TAS: Service framework; restore if account or cloud features break  [caution]
+com.oplus.eid                                 # eID: CN electronic identity
+com.oplus.ocar                                # OCar: Car connection
+com.oplus.ohome                               # OHome: Smart home hub
+com.oplus.omoji                               # Omoji: Avatar stickers
+com.oplus.pay                                 # OPPO Pay: Payment service (CN)
+com.oplus.phonenoareainquire                  # Number Area Lookup: CN phone number region lookup
+com.ted.number                                # Number Identification: CN caller-ID / number tagging
+com.tencent.soter.soterserver                 # Tencent SOTER: Fingerprint payment for WeChat (CN)
+
+# --- Gaming ---
+com.oplus.games                               # Games / Game Assistant: Game toolbox and game mode tweaks  [caution]
+com.oplus.gtmode                              # GT Mode: Performance mode toggle app
+
+# --- Google ---
+com.google.android.apps.magazines             # Google News: News app
+com.google.android.apps.podcasts              # Google Podcasts: Podcasts app
+com.google.android.apps.subscriptions.red     # Google One: Storage subscription app
+com.google.android.apps.tachyon               # Google Meet: Video calling
+com.google.android.apps.youtube.music         # YouTube Music: Music app
+com.google.android.feedback                   # Google Feedback: Crash/feedback reporter
+com.google.android.play.games                 # Google Play Games: Games hub
+com.google.android.safetycore                 # Android SafetyCore: On-device content classification
+com.google.android.videos                     # Google TV: Movies app
+
+# --- Media & Content ---
+andes.oplus.documentsreader                   # Documents Reader: Office/PDF viewer
+com.coloros.karaoke                           # Karaoke: Karaoke effects service
+com.coloros.video                             # Video Player: Stock video player
+com.heytap.music                              # Music: HeyTap music
+com.heytap.reader                             # Reader: E-book store
+com.heytap.yoli                               # Yoli Video: Short video feed
+
+# --- Partner Bloat ---
+com.agoda.mobile.consumer                     # Agoda: Preinstalled Agoda
+com.amazon.mShop.android.shopping             # Amazon Shopping: Preinstalled Amazon
+com.block.juggle                              # Block Juggle: Preinstalled game
+com.booking                                   # Booking.com: Preinstalled Booking
+com.einnovation.temu                          # Temu: Preinstalled Temu
+com.facebook.appmanager                       # Facebook App Manager: Preinstalled Facebook updater
+com.facebook.katana                           # Facebook: Preinstalled Facebook app
+com.facebook.services                         # Facebook Services: Preinstalled Facebook services
+com.facebook.system                           # Facebook App Installer: Preinstalled Facebook installer
+com.linkedin.android                          # LinkedIn: Preinstalled LinkedIn
+com.microsoft.appmanager                      # Link to Windows: Phone Link companion; keep if you use it  [caution]
+com.microsoft.deviceintegrationservice        # Microsoft Device Integration: Phone Link service  [caution]
+com.microsoftsdk.crossdeviceservicebroker     # Cross Device Service: Phone Link broker  [caution]
+com.netflix.mediaclient                       # Netflix: Preinstalled Netflix
+com.netflix.partner.activation                # Netflix Activation: Partner activation stub
+com.redteamobile.roaming                      # RedteaGO Roaming: Preinstalled paid roaming eSIM
+
+# --- Smart Services ---
+com.coloros.assistantscreen                   # Assistant Screen: Shelf / smart assistant page  [caution]
+com.oplus.cardigitalkey                       # Car Digital Key: Phone-as-car-key
+com.oplus.travelengine                        # Travel Engine: Trip / flight smart cards
+
+# --- Store & Promotions ---
+com.heytap.market                             # App Market: HeyTap app store; pushes app promotions
+com.heytap.vip                                # HeyTap VIP: Membership and points
+com.nearme.gamecenter                         # Game Center: Game store and promotions
+com.nearme.instant.card                       # Quick App Cards: Promo cards for Quick Apps
+com.nearme.instant.platform                   # Quick Apps: Instant-app platform that pushes mini-apps and promos
+com.oneplus.bbs                               # OnePlus Community: Forum app
+com.oneplus.store                             # OnePlus Store: OnePlus shop app
+com.oplus.contentportal                       # Content Portal: Recommended content hub
+com.oplus.member                              # Member Center: Membership / rewards
+com.oppo.instant.local.service                # Quick Apps Service: Local service for Quick Apps
+com.oppo.market                               # App Market (legacy): Older OPPO app store
+
+# --- System Extras ---
+com.android.bips                              # Default Print Service: Built-in printing
+com.android.bookmarkprovider                  # Bookmark Provider: Unused bookmark provider
+com.android.dreams.basic                      # Basic Daydreams: Screensaver
+com.android.dreams.phototable                 # Photo Screensaver: Screensaver
+com.android.egg                               # Android Easter Egg: Version easter egg
+com.android.virtualization.terminal           # Linux Terminal: Android 16 Linux VM terminal
+
+# --- System Services ---
+com.oplus.phonemanagerlite                    # Phone Manager Lite: Cleanup / optimisation app  [caution]
+
+# --- Tools ---
+com.coloros.backuprestore                     # Backup & Restore: Local backup  [caution]
+com.coloros.childrenspace                     # Kid Space: Children mode
+com.coloros.compass2                          # Compass: Compass app
+com.coloros.familyguard                       # Family Guard: Parental monitoring
+com.coloros.findmyphone                       # Find My Phone: HeyTap device finder  [caution]
+com.coloros.floatassistant                    # Floating Ball: Assistive floating ball
+com.coloros.healthcheck                       # Phone Diagnostics: Hardware self-check
+com.coloros.ocrscanner                        # Scanner: Document scanner
+com.coloros.operationManual                   # User Manual: Built-in user guide
+com.coloros.securepay                         # Payment Protection: Secure payment environment  [caution]
+com.coloros.smartdrive                        # Driving Mode: Driving mode
+com.coloros.smartsidebar                      # Smart Sidebar: Edge panel  [caution]
+com.coloros.systemclone                       # System Cloner: Second-space / cloned system
+com.coloros.translate                         # Translate: Translation app
+com.heytap.datamigration                      # Phone Clone: Only needed when migrating phones
+com.oneplus.brickmode                         # Zen Mode: OnePlus Zen Mode
+com.oplus.consumerIRApp                       # IR Remote: Infrared remote control
+com.oplus.riderMode                           # Rider Mode: Riding mode
+
+# --- Updates ---
+com.coloros.sau                               # System App Updater (legacy): Silently updates preloaded apps  [caution]
+com.oplus.sau                                 # System App Updater: Silently updates preloaded apps  [caution]
+com.oplus.sauhelper                           # SAU Helper: Helper for silent app updates  [caution]
+com.oplus.upgradeguide                        # Upgrade Guide: Post-update tutorial screens
