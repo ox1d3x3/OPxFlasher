@@ -439,9 +439,9 @@ def test_recovery_zip_keeps_only_network_files_vbmeta_does_not_check(tmp_path):
 def test_self_signed_region_image_is_not_counted_as_checked_by_vbmeta(tmp_path):
     """my_region carrying only its own AVB footer (as OPPO's do) self-verifies: the phone's old copy,
     footer and all, stays consistent, so it can be kept. Same answer for the OTA and the folder."""
+    import romfactory as rf
     from test_verify import boot_set
 
-    import romfactory as rf
     from opx.rom.verify import avb_protected
 
     region_data = os.urandom(4096 * 2)
