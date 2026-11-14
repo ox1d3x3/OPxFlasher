@@ -181,7 +181,7 @@ def fetch_platform_tools(dest: Path | None = None, progress=None) -> Path:
         with zipfile.ZipFile(zip_path) as zf:
             for member in zf.namelist():
                 target = (Path(tmp) / member).resolve()
-                if not str(target).startswith(str(Path(tmp).resolve())):
+                if not target.is_relative_to(Path(tmp).resolve()):
                     raise RuntimeError(f"Unsafe path in archive: {member}")
             zf.extractall(tmp)
         src = Path(tmp) / "platform-tools"

@@ -126,3 +126,26 @@ def test_qcom_arb():
     assert legacy.value is None and "Legacy" in legacy.note
     with pytest.raises(qcom.QcomError):
         qcom.read_arb(b"not an elf at all" * 4)
+
+
+@pytest.mark.parametrize("bad", ["../../evil", "-w", "a/b", ""])
+def test_payload_partition_names_are_checked(tmp_path, bad):
+    p = tmp_path / "payload.bin"
+    p.write_bytes(rf.build_payload({"boot": b"\1" * 4096, bad: b"\2" * 4096}))
+    with pytest.raises(RomError, match="partition name"):
+        open_rom(p)
+
+
+def test_folder_skips_files_that_are_not_partition_names(tmp_path):
+    (tmp_path / "rom").mkdir()
+    (tmp_path / "rom" / "boot.img").write_bytes(BOOT)
+    (tmp_path / "rom" / "boot (copy).img").write_bytes(BOOT)
+    rom = open_rom(tmp_path / "rom")
+    assert {i.name for i in rom.images} == {"boot"} and any("boot (copy).img" in n for n in rom.notes)
+
+
+def test_avb_footer_must_point_at_a_vbmeta():
+    vb = bytearray(rf.build_vbmeta(1))
+    vb[:4] = b"XXXX"
+    with pytest.raises(avb.AvbError, match="magic"):
+        avb.parse(rf.with_footer(b"\0" * 8192, bytes(vb)))

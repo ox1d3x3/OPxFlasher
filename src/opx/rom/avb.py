@@ -74,6 +74,8 @@ def _parse_vbmeta(data: bytes, from_footer: bool) -> Vbmeta:
         _hash_off, _hash_size, _sig_off, _sig_size, _pk_off, _pk_size, _pkmd_off, _pkmd_size,
         desc_off, desc_size, rollback_index, flags, rollback_location, release, _reserved,
     ) = f
+    if magic != b"AVB0":
+        raise AvbError("not a vbmeta image (bad magic)")
     aux_start = HEADER_SIZE + auth_size
     if aux_start + aux_size > len(data):
         raise AvbError("vbmeta blocks extend past the end of the image")

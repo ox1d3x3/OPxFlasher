@@ -61,7 +61,7 @@ def _assert_read_only(cmd: str) -> None:
         raise UnsafeCommand("dd with of= is never allowed in read-only mode")
     if tokens[0] == "blockdev" and tokens[1:2] != ["--getsize64"]:
         raise UnsafeCommand("only 'blockdev --getsize64' is allowed")
-    for bad in (";", "&&", "||", "|", "`", "$(", ">", "<", "\n"):
+    for bad in (";", "&", "|", "`", "$", ">", "<", "'", '"', "\\", "\n", "\r"):
         # 2>/dev/null is the only redirection we add, and only to dd.
         if bad in cmd.replace("2>/dev/null", ""):
             raise UnsafeCommand(f"shell metacharacter {bad!r} not allowed")

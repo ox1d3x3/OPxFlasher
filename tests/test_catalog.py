@@ -58,6 +58,12 @@ class Resp(io.BytesIO):
         self.close()
 
 
+@pytest.fixture(autouse=True)
+def _test_download_host(monkeypatch):
+    # the fake server below lives at ota.example; real downloads only go to official hosts
+    monkeypatch.setattr(catalog, "DOWNLOAD_HOSTS", (*catalog.otadl.OFFICIAL_HOSTS, "ota.example"))
+
+
 class Server:
     def __init__(self, files=None, etag='"v1"'):
         self.files = files or {}
@@ -251,3 +257,29 @@ def test_user_mirrors_order_normalize_and_cli(tmp_path, monkeypatch, capsys):
     assert cli.main(["ota", "mirrors", "--remove", "https://mine.example/api/ota.php"]) == 0
     assert store["catalog_mirrors"] == []
     assert "your mirror" not in capsys.readouterr().out.split("Remove")[-1]
+
+
+def test_download_only_from_official_hosts(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "DOWNLOAD_HOSTS", catalog.otadl.OFFICIAL_HOSTS)
+    r = rel(1)
+    r.source_url = "https://evil.example/new.zip"
+    with pytest.raises(catalog.CatalogError, match="not an official"):
+        catalog.download(r, tmp_path, opener=Server())
+    for bad in ("https://allawnfs.com.evil.example/x.zip", "https://notallawnfs.com/x.zip",
+                "http://gauss-x.allawnfs.com/x.zip"):
+        with pytest.raises(catalog.otadl.DownloadError):
+            catalog.otadl.check_host(bad, catalog.otadl.OFFICIAL_HOSTS)
+    catalog.otadl.check_host("https://gauss-componentotamanual.allawnofs.com/x.zip", catalog.otadl.OFFICIAL_HOSTS)
+    catalog.otadl.check_host("https://component-ota-eu.allawnos.com/x.zip", catalog.otadl.OFFICIAL_HOSTS)
+
+
+def test_download_refuses_a_redirect_off_the_official_servers(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "DOWNLOAD_HOSTS", catalog.otadl.OFFICIAL_HOSTS)
+    r = rel(1)
+    r.source_url = "https://component-ota-cn.allawntech.com/new.zip"
+
+    def opener(req, timeout=None):  # "redirected" to somewhere else
+        return Resp(PKG[:4096], {"Content-Length": str(len(PKG))}, url="https://evil.example/new.zip")
+
+    with pytest.raises(catalog.CatalogError, match="evil.example"):
+        catalog.download(r, tmp_path, opener=opener)

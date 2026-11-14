@@ -24,6 +24,9 @@ _LOGICAL = re.compile(r"^(system|system_ext|system_dlkm\w*|product|vendor|vendor
 _SUPER_PIECE = re.compile(r"^super(?:[._-]?img)?[._-](\d+)(?:\.img)?$|^super_(\d+)$|^super\.(\d+)$")
 
 
+PARTITION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,71}")
+
+
 class RomError(ValueError):
     pass
 
@@ -40,6 +43,12 @@ class RomImage:
     pieces: list[Path] = field(default_factory=list)  # sparse pieces of one image (split super)
     in_super: object = None  # lp.Partition, for a logical partition inside the ROM's super.img
     guessed: bool = False  # logical/physical decided from the name only
+
+    def __post_init__(self):
+        # Names come from untrusted ROM data and end up in file names and fastboot
+        # arguments: no paths, no option-looking names.
+        if not PARTITION_NAME.fullmatch(self.name or ""):
+            raise RomError(f"This ROM names a partition {self.name!r}, which isn't a valid partition name.")
 
 
 @dataclass
@@ -247,6 +256,9 @@ def _folder_images(files: list[Path], notes: list[str]) -> list[RomImage]:
         if _SUPER_PIECE.match(f.name.lower()) and f.name.lower() != "super.img":
             pieces.append(f)
             continue
+        if not PARTITION_NAME.fullmatch(f.stem):
+            notes.append(f"Skipped {f.name}: not a partition name.")
+            continue
         is_sp = sparse.is_sparse(f)
         size = sparse.raw_size(f) if is_sp else f.stat().st_size
         images.append(RomImage(name=f.stem, size=size, logical=None, file=f, sparse=is_sp))
@@ -319,6 +331,9 @@ def _image_zip(path: Path, zf: zipfile.ZipFile, names: list[str]) -> RomInfo:
                 _, _, blk, total, _ = sparse.header(fh)
             size = blk * total
         name = base[:-4] if base.lower().endswith(".img") else base
+        if not PARTITION_NAME.fullmatch(name):
+            info.notes.append(f"Skipped {base}: not a partition name.")
+            continue
         info.images.append(RomImage(name=name, size=size, logical=None, members=[n], sparse=is_sp))
     sup = info.image("super")
     if sup is not None:

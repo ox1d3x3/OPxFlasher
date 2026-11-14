@@ -29,6 +29,7 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -108,8 +109,25 @@ def _refused(status: int, body: bytes) -> str:
     return f"The official server didn't send a zip ({what}). Refresh the ROM list and try again."
 
 
-def probe(url: str, headers: dict[str, str], opener=None) -> Target:
+# Where OPPO / OnePlus / realme packages are served from (and their signed CDN links).
+OFFICIAL_HOSTS = ("allawnfs.com", "allawnofs.com", "allawnos.com", "allawntech.com", "oneplus.com",
+                  "oneplus.net", "oppo.com", "coloros.com", "heytapdownload.com", "realme.com",
+                  "realmemobile.com")
+
+
+def check_host(url: str, hosts: tuple[str, ...] | None) -> None:
+    """With `hosts`, refuse any link (before or after redirects) that isn't https on one of them."""
+    if hosts is None:
+        return
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if parts.scheme != "https" or not any(host == h or host.endswith("." + h) for h in hosts):
+        raise DownloadError(f"Refusing to download from {host or url!r}: not an official OPPO / OnePlus server.")
+
+
+def probe(url: str, headers: dict[str, str], opener=None, hosts: tuple[str, ...] | None = None) -> Target:
     """Follow the link like the updater and look at the first bytes."""
+    check_host(url, hosts)
     opener = opener or urllib.request.urlopen
     req = urllib.request.Request(url, headers={**headers, "Range": "bytes=0-3"})
     try:
@@ -124,6 +142,7 @@ def probe(url: str, headers: dict[str, str], opener=None) -> Target:
         if not head.startswith(b"PK"):
             raise DownloadError(_refused(status, head))
         final = resp.geturl() if hasattr(resp, "geturl") else url
+        check_host(final, hosts)
         md5 = _md5_header(resp.headers.get("x-amz-meta-filemd5", ""))
         crange = resp.headers.get("Content-Range", "")
         if status == 206 and "/" in crange and crange.rsplit("/", 1)[1].isdigit():
@@ -148,8 +167,9 @@ def _make_sparse(fh) -> None:
 
 
 class _Job:
-    def __init__(self, url, out, headers, target, md5, connections, opener, cancel, stage):
+    def __init__(self, url, out, headers, target, md5, connections, opener, cancel, stage, hosts=None):
         self.source = url
+        self.hosts = hosts
         self.headers = headers
         self.target = target
         self.md5 = md5
@@ -215,7 +235,7 @@ class _Job:
                 raise DownloadError("The official server keeps refusing the download link.")
             self.renewals += 1
         self.stage("The download link expired; asking the official server for a new one...")
-        fresh = probe(self.source, self.headers, self.opener)
+        fresh = probe(self.source, self.headers, self.opener, self.hosts)
         if self.target.size and fresh.size and fresh.size != self.target.size:
             raise DownloadError("The official server now sends a different file; start the download again.")
         with self.lock:
@@ -310,18 +330,20 @@ def _verify(path: Path, md5: str, size: int, progress: Progress | None, cancel) 
 
 def fetch(url: str, out: Path, headers: dict[str, str], *, size: int = 0, md5: str = "",
           connections: int = CONNECTIONS, progress: Progress | None = None, stage: Stage | None = None,
-          cancel: Callable[[], bool] | None = None, opener=None) -> Path:
-    """Download `url` to `out` (resumable). Raises Paused when cancelled, DownloadError otherwise."""
+          cancel: Callable[[], bool] | None = None, opener=None,
+          hosts: tuple[str, ...] | None = None) -> Path:
+    """Download `url` to `out` (resumable). Raises Paused when cancelled, DownloadError otherwise.
+    With `hosts`, every link (including redirects and renewed links) must be on one of them."""
     opener = opener or urllib.request.urlopen
     stage = stage or (lambda s: None)
     out.parent.mkdir(parents=True, exist_ok=True)
     stage("Asking the official server for the package...")
-    target = probe(url, headers, opener)
+    target = probe(url, headers, opener, hosts)
     if size and target.size and size != target.size:
         raise DownloadError(f"The server's package is {target.size:,} bytes but the catalog says {size:,}.")
     target.size = target.size or size
     md5 = (md5 or target.md5).lower()
-    job = _Job(url, out, headers, target, md5, connections, opener, cancel, stage)
+    job = _Job(url, out, headers, target, md5, connections, opener, cancel, stage, hosts)
     total = target.size
     stage(f"Downloading over {len(job.segments)} connection(s)"
           + ("" if target.ranges else " (this server can't resume)") + "...")
@@ -348,7 +370,7 @@ def fetch(url: str, out: Path, headers: dict[str, str], *, size: int = 0, md5: s
         if isinstance(job.error, DownloadError):
             raise job.error
         raise DownloadError(f"Download failed: {job.error}") from job.error
-    if cancel and cancel() or (total and job.done < total):
+    if (cancel and cancel()) or (total and job.done < total):
         if not target.ranges:
             job.part.unlink(missing_ok=True)
             raise Paused("Download cancelled.")

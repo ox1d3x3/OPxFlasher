@@ -102,7 +102,10 @@ class DiagTab(QWidget):
         self.win._set_busy(True)
         job = Job(lambda emit=None: bootlogs.collect(self.win.session, Path(folder), emit=emit))
         job.kwargs["emit"] = job.signals.event.emit
-        self.win.run_job(job, self._logs_saved, self._failed, lambda text: self.win.say(f"Logs: {text}..."))
+        self.win.run_job(job, self._logs_saved, self._failed, self._logs_progress)
+
+    def _logs_progress(self, text) -> None:  # bound method: Qt runs it on the UI thread
+        self.win.say(f"Logs: {text}...")
 
     def _logs_saved(self, path) -> None:
         self.win._set_busy(False)

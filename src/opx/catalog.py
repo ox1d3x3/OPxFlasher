@@ -32,6 +32,8 @@ API = "https://roms.danielspringer.at/api/ota.php"
 MIRRORS = ("https://ota.ox1de.xyz/api/ota.php",)
 SITE = "https://roms.danielspringer.at"
 CREDIT = "OTA catalog by Daniel Springer (roms.danielspringer.at)"
+# Catalog links may only point at OPPO / OnePlus / realme servers (a mirror can't redirect downloads).
+DOWNLOAD_HOSTS = otadl.OFFICIAL_HOSTS
 USER_AGENT = f"OPxFlasher/{__version__} (+https://github.com/ox1d3x3/OPxFlasher)"
 
 
@@ -314,7 +316,7 @@ def download(release: Release, dest_dir: Path,
             release.source_url, dest_dir / release.filename,
             otadl.updater_headers(release.model, android or "16", build),
             size=release.size, md5=release.md5, connections=connections,
-            progress=progress, stage=stage, cancel=cancel, opener=opener)
+            progress=progress, stage=stage, cancel=cancel, opener=opener, hosts=DOWNLOAD_HOSTS)
     except otadl.Paused as e:
         raise DownloadPaused(str(e)) from e
     except otadl.DownloadError as e:

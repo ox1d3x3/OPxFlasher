@@ -67,7 +67,7 @@ def test_vbmeta_with_verity_disabled(adb, fastboot, phone, fb_state, tmp_path):
     ("persist", b"x" * 512, "never flashed"),
     ("userdata", b"x" * 512, "never flashed"),
     ("system", b"x" * 512, "inside 'super'"),
-])
+], ids=["vbmeta-as-boot", "boot-as-vbmeta", "unknown-dtbo", "too-large", "persist", "userdata", "system"])
 def test_refused_and_nothing_written(adb, fastboot, phone, fb_state, tmp_path, partition, data, why):
     s, plan, _ = go(adb, fastboot, tmp_path, partition, data)
     assert not plan.ok and any(why in p for p in plan.problems), plan.problems
