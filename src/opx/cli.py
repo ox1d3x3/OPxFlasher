@@ -524,10 +524,10 @@ def cmd_flash(args) -> int:
     )
     backup = Path(args.backup) if args.backup else None
     if fl.region_change(report) and not args.no_restore_region:
-        options.restore_from_backup = [
+        options.restore_from_backup = fl.keepable(report, [
             n for n in session.profile.conditional
             if fl.backup_images(backup, n) and n not in options.include_optional
-        ]
+        ])
         if options.restore_from_backup:
             print("\nRegion change: your phone's own " + ", ".join(options.restore_from_backup)
                   + " will be restored from the backup after flashing (keeps mobile signal).")

@@ -386,6 +386,10 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         checks.append(fuse)
 
     # 7. plan items and sizes
+    from opx.rom.verify import avb_protected
+
+    protected = avb_protected(rom)
+    must_match = {"odm"} | protected  # region files the new build's vbmeta checks: always the ROM's
     items: list[PlanItem] = []
     logical = (rom.payload.logical_names if rom.payload else set()) | dev.logical
     too_big = []
@@ -395,15 +399,20 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
             items.append(PlanItem(img.name, img.size, "skip", "-", note="never flashed (device identity / data)"))
             continue
         conditional_note = "off unless you choose it: keeps the phone's own region / signal file"
+        optional = prof.is_conditional(img.name) and img.name not in must_match
+        if prof.is_conditional(img.name) and not optional:
+            conditional_note = ("written with the ROM: build content" if img.name == "odm" and img.name not in protected
+                                else "written with the ROM: its vbmeta checks it at boot, so an old copy would fail")
         if is_logical:
-            if prof.is_conditional(img.name):
+            if optional:
                 items.append(PlanItem(img.name, img.size, "conditional", "super (logical)", note=conditional_note, logical=True))
             else:
-                items.append(PlanItem(img.name, img.size, "super", "super (logical)", logical=True))
+                items.append(PlanItem(img.name, img.size, "super", "super (logical)", logical=True,
+                                      note=conditional_note if prof.is_conditional(img.name) else ""))
             continue
         device_size = dev.size_of(img.name) if dev.source != "none" else None
-        action = "conditional" if prof.is_conditional(img.name) else "flash"
-        note = conditional_note if action == "conditional" else ""
+        action = "conditional" if optional else "flash"
+        note = conditional_note if prof.is_conditional(img.name) else ""
         if device_size is not None and img.size > device_size:
             too_big.append(img.name)
             note = "image is larger than the partition"

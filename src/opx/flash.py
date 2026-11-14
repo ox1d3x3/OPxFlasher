@@ -132,6 +132,13 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def keepable(report: Report | None, names) -> list[str]:
+    """Of `names`, the region files this ROM leaves optional (so the phone's own copy can be kept
+    or restored from a backup). Ones the ROM's vbmeta checks at boot always come from the ROM."""
+    optional = {i.partition for i in report.items if i.action == "conditional"} if report else set()
+    return [n for n in names if n in optional]
+
+
 def region_change(report: Report | None) -> bool:
     return bool(report) and any(c.name == "Variant" and c.status == BLOCK for c in report.checks)
 
@@ -234,7 +241,14 @@ def prepare(
             "This ROM is for a different region/variant. Converting needs a data wipe (factory reset); "
             "the phone would not boot with the old data."
         )
-    restore_physical, restore_logical = _restore_targets(options, device.profile, backup_folder, chosen, problems)
+    from_rom = {i.partition for i in items if device.profile.is_conditional(i.partition) and i.action != "conditional"}
+    for name in dict.fromkeys(options.restore_from_backup):
+        if name in from_rom:
+            problems.append(f"{name} can't come from your backup with this ROM: its vbmeta checks {name} at boot, "
+                            "so an old copy would fail verification. It's written from the ROM.")
+    restore_physical, restore_logical = _restore_targets(
+        options, device.profile, backup_folder, chosen | from_rom, problems,
+        skip=from_rom)
 
     steps = _assemble(
         rom_physical=physical,
@@ -258,9 +272,11 @@ def prepare(
     )
 
 
-def _restore_targets(options, profile, backup_folder, chosen, problems) -> tuple[list[str], list[str]]:
+def _restore_targets(options, profile, backup_folder, chosen, problems, skip=frozenset()) -> tuple[list[str], list[str]]:
     restore_physical, restore_logical = [], []
     for name in dict.fromkeys(options.restore_from_backup):
+        if name in skip:
+            continue  # already reported
         if not profile.is_conditional(name):
             problems.append(
                 f"{name} can't be restored by OPxFlasher; only region files ({', '.join(profile.conditional)}) can."

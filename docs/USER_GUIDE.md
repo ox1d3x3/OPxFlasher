@@ -84,8 +84,10 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 | Sizes | an image is bigger than its partition, or the dynamic groups don't fit in `super` |
 
 `persist`, `modemst*`, `fsg`, `ocdt`, `devinfo`, `oplusreserve*`, `userdata`,
-`metadata` and `frp` are always skipped. `oplusstanvbk`, `my_region` and `odm` are marked **optional** (region /
-signal files), to be restored from your own backup.
+`metadata` and `frp` are always skipped. `oplusstanvbk` and `my_region` are the region / signal files:
+they're **optional** (left as the phone has them, or restored from your own backup), unless the
+ROM's vbmeta checks them at boot. Then they're always written from the ROM, because the phone's old
+copy would fail verification with the new vbmeta. `odm` is build content and is always written.
 
 > **Qualcomm ARB is experimental.** The reader has not been validated against real
 > OnePlus 13 firmware yet, so for now it always blocks and shows the raw numbers.
@@ -198,11 +200,13 @@ device, OPxFlasher:
 
 - requires a data wipe (the phone wouldn't boot with the old data),
 - flashes the new firmware, then writes the phone's **own** `oplusstanvbk`
-  (both slots) and `my_region` back **from your backup**, so the modem keeps the
-  setup that works with your SIM.
+  (both slots), and `my_region` when the new ROM's vbmeta doesn't check it, back
+  **from your backup**, so the modem keeps the setup that works with your SIM.
 
 **Signal restore on its own** (no ROM), for after an update took the signal away:
-the *Signal / region* tab or `opx region restore`.
+the *Signal / region* tab or `opx region restore`. Restore `oplusstanvbk` first; restore
+`my_region` only from a backup of the build that's installed now, because the installed vbmeta may
+check it at boot.
 
 Rules that always apply:
 
@@ -349,6 +353,10 @@ install from a custom recovery, keeping your data:
   - no system update is half-applied,
   - every partition exists and is big enough, and `lptools` is available (for system, vendor, odm...),
   - **every file in the zip** matches its SHA-256.
+
+  **Your network files stay yours:** `oplusstanvbk` (and `my_region` when the ROM's vbmeta doesn't
+  check it at boot) isn't in the zip, so the phone keeps its own copy, exactly as when flashing from
+  the PC. The image folder still contains them for OPxFlasher to decide.
 
   Then it writes the current slot (firmware, boot images, the logical partitions resized inside
   super, `vbmeta` last) and reads everything back. Images over 1 GiB are stored in parts, because

@@ -64,6 +64,7 @@ class Item:
     kind: str  # "physical", "logical" or "auto" (decided on the phone: by-name partition, else logical)
     size: int
     image: RomImage
+    keep_on_phone: bool = False  # left out of the recovery zip: the phone keeps its own copy
 
 
 @dataclass
@@ -74,10 +75,15 @@ class Plan:
     recovery_ok: bool = True
     recovery_problem: str = ""
     warnings: list[str] = field(default_factory=list)
+    kept: list[str] = field(default_factory=list)  # network files the recovery zip leaves to the phone
 
     @property
     def total(self) -> int:
         return sum(i.size for i in self.items)
+
+    @property
+    def zip_total(self) -> int:
+        return sum(i.size for i in self.items if not i.keep_on_phone)
 
 
 def _profile(rom: RomInfo):
@@ -133,9 +139,21 @@ def plan(rom: RomInfo) -> Plan:
         items.append(Item(img.name, kind, img.size, img))
     if not items:
         raise ConvertError("There are no images to convert.")
+    # Network / region files (oplusstanvbk ...): the recovery zip keeps the phone's own copy, as
+    # OPxFlasher does when flashing from the PC. Only those this ROM's vbmeta doesn't check at boot:
+    # an old copy of a protected one (my_region, odm) would fail verification with the new vbmeta.
+    from opx.rom.verify import avb_protected
+
+    protected = avb_protected(rom)
+    kept = []
+    for it in items:
+        # odm is build content (HALs, firmware config), never just region settings: always written
+        if prof.is_conditional(it.name) and it.name != "odm" and it.name not in protected:
+            it.keep_on_phone = True
+            kept.append(it.name)
     items.sort(key=lambda i: (i.kind == "physical" and i.name in AVB_ORDER_LAST,
                               AVB_ORDER_LAST.index(i.name) if i.name in AVB_ORDER_LAST else 0))
-    p = Plan(items, skipped)
+    p = Plan(items, skipped, kept=kept)
     p.boards = list(dict.fromkeys(b for b in [rom.codename, *prof.recovery_boards] if b))
     meta = rom.metadata
     if not (rom.codename and rom.product) or is_generic_fingerprint(rom.fingerprint):
@@ -289,8 +307,11 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
             stage(w)
         if p.skipped:
             stage(f"Left out (never written by OPxFlasher): {', '.join(p.skipped)}")
+        if make_zip and p.kept:
+            stage(f"Recovery zip keeps the phone's own {', '.join(p.kept)} (network / signal).")
 
-        total = p.total * (2 if make_zip else 1)
+        # one pass to extract / hash what's made, one more to pack what goes in the zip
+        total = (p.total if make_folder else p.zip_total) + (p.zip_total if make_zip else 0)
         done = 0
 
         def tick(what: str, n: int) -> None:
@@ -315,8 +336,9 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                     script.external_attr = 0o755 << 16
                     zf.writestr(script, SCRIPT.read_bytes().replace(b"\r\n", b"\n"), zipfile.ZIP_DEFLATED)
                     zf.writestr("META-INF/com/google/android/updater-script", "# OPxFlasher: see update-binary\n")
-                for n, item in enumerate(p.items, 1):
-                    stage(f"{item.name} ({n} of {len(p.items)})")
+                todo = [i for i in p.items if make_folder or not i.keep_on_phone]
+                for n, item in enumerate(todo, 1):
+                    stage(f"{item.name} ({n} of {len(todo)})")
                     img = item.image
                     direct = img.file is not None and not img.sparse and not img.pieces and not make_folder
                     if direct:
@@ -339,7 +361,7 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                             raise ConvertError(f"{item.name} doesn't match its recorded SHA-256.")
                     rec = {"name": item.name, "kind": item.kind, "size": item.size, "sha256": sha,
                            "file": f"{item.name}.img", "parts": []}
-                    if zf is not None:
+                    if zf is not None and not item.keep_on_phone:
                         rec["parts"] = _add_parts(zf, path, item, chunk, tick)
                         if not direct and not make_folder:
                             path.unlink()
@@ -354,8 +376,9 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                     "chunk": chunk, "images": records, "left_out": p.skipped,
                 }
                 if zf is not None:
-                    zf.writestr("opx/rom.list", _install_list(rom, p, records, chunk))
-                    zf.writestr(FULLROM_JSON, json.dumps(manifest, indent=2))
+                    in_zip = [r for r in records if r["name"] not in p.kept]
+                    zf.writestr("opx/rom.list", _install_list(rom, p, in_zip, chunk))
+                    zf.writestr(FULLROM_JSON, json.dumps(dict(manifest, images=in_zip, kept_on_phone=p.kept), indent=2))
                     zf.writestr("SHA256SUMS", "".join(f"{pt['sha256']}  {pt['entry']}\n"
                                                        for r in records for pt in r["parts"]))
             finally:

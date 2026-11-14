@@ -157,3 +157,34 @@ def test_restore_resumes_after_failure(adb, fastboot, phone, fb_state, tmp_path)
     fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
     assert (phone / "mapper" / "my_region_a").read_bytes() == orig["region"]
     assert fb_state.read()["log"].count("flash oplusstanvbk_a") == 1
+
+
+def test_region_file_checked_by_the_roms_vbmeta_always_comes_from_the_rom(adb, fastboot, phone, tmp_path):
+    """my_region protected by the new ROM's vbmeta: keeping or restoring the old copy would fail
+    verification at boot, so it's written from the ROM; oplusstanvbk can still be restored."""
+    region = b"R" * 4096
+    parts = {**IN_PARTS, "my_region": region,
+             "vbmeta": rf.build_vbmeta(1, hashtrees=[("my_region", region)])}
+    rom = rom_for(tmp_path, parts=parts)
+    s = open_session("FAKE0001", adb)
+    report = pn.build_report(rom, pn.device_from_session(s))
+    item = next(i for i in report.items if i.partition == "my_region")
+    assert item.action == "super" and "vbmeta checks it" in item.note
+    assert fl.keepable(report, RESTORE) == ["oplusstanvbk"]
+    options = fl.FlashOptions(wipe_data=True, restore_from_backup=RESTORE, **CONVERT)
+    plan, *_ = prepare(adb, fastboot, tmp_path, options, rom=rom)
+    assert any("my_region can't come from your backup" in p for p in plan.problems)
+    options = fl.FlashOptions(wipe_data=True, restore_from_backup=fl.keepable(report, RESTORE), **CONVERT)
+    (tmp_path / "b2").mkdir()
+    plan, *_ = prepare(adb, fastboot, tmp_path / "b2", options, rom=rom)
+    assert not any("my_region" in p for p in plan.problems)
+    labels = " ".join(st.label for st in plan.steps)
+    assert "oplusstanvbk" in labels
+
+
+def test_odm_is_always_flashed_with_the_rom(adb, phone, tmp_path):
+    rom = rom_for(tmp_path, parts={**IN_PARTS, "odm": b"O" * 8192})
+    report = pn.build_report(rom, pn.device_from_session(open_session("FAKE0001", adb)))
+    odm = next(i for i in report.items if i.partition == "odm")
+    assert odm.action in ("flash", "super") and "build content" in odm.note
+    assert fl.keepable(report, ["odm"]) == []

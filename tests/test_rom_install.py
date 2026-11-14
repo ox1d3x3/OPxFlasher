@@ -93,6 +93,10 @@ def test_installs_the_rom(rom_zip, tmp_path):
     for name, data in parts.items():
         if name == "persist":
             continue
+        if name == "my_region":  # network file not checked by this ROM's vbmeta: the phone keeps its own
+            assert (phone.mapper / "my_region_a").read_bytes() == b"\xee" * 4096
+            assert "my_region" not in out
+            continue
         if name in LOGICAL:
             assert (phone.mapper / f"{name}_a").read_bytes() == padded(data), name
         else:
@@ -177,11 +181,11 @@ def test_security_patch_comparison_when_no_dates(tmp_path):
     src = tmp_path / "kit"
     src.mkdir()
     (src / "boot.img").write_bytes(os.urandom(4096))
-    (src / "my_region.img").write_bytes(os.urandom(4096))
+    (src / "system.img").write_bytes(os.urandom(4096))
     (src / "vbmeta_system.img").write_bytes(rf.build_vbmeta(1, props={
         "com.android.build.system.fingerprint": fp, "com.android.build.system.security_patch": "2026-08-01"}))
     z = cv.convert(open_rom(src), tmp_path / "out")["zip"]
-    parts = {"boot": b"x" * 4096, "my_region": b"x" * 4096, "vbmeta_system": b"x" * 4096}
+    parts = {"boot": b"x" * 4096, "system": b"x" * 4096, "vbmeta_system": b"x" * 4096}
 
     for installed, ok in ((("2026-07-01", "other"), True), (("2026-08-01", fp), True),
                           (("2026-08-01", "OnePlus/PJZ110/dodge:16/X/U.0:user/release-keys"), False),
@@ -194,8 +198,8 @@ def test_security_patch_comparison_when_no_dates(tmp_path):
                                               "ro.system.build.fingerprint": fp_installed})
         code, out = phone.install(z)
         assert (code == 0) == ok, (installed, out)
-        if ok:  # 'auto' images: boot found as a physical partition, my_region inside super
-            assert "resize my_region_a 4096" in phone.log.read_text()
+        if ok:  # 'auto' images: boot found as a physical partition, system inside super
+            assert "resize system_a 4096" in phone.log.read_text()
             assert (phone.block / "boot_a").read_bytes().startswith((src / "boot.img").read_bytes())
 
 

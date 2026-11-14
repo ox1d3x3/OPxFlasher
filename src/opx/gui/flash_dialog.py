@@ -94,10 +94,11 @@ class FlashDialog(QDialog):
                 "Keep mobile signal: restore this phone's own region files from the backup (recommended)"
             )
             self.keep_region_box.setChecked(True)
+            kept = fl.keepable(report, device.profile.conditional) or ["none"]
             note = QLabel(
-                "Your oplusstanvbk and my_region are written back after the new firmware, so the modem keeps "
-                "the setup that works with your SIM. Changing region needs a factory reset, so Wipe data is "
-                "switched on and locked."
+                f"Written back from your backup after the new firmware: {', '.join(kept)}, so the modem keeps "
+                "the setup that works with your SIM. Region files this ROM's vbmeta checks at boot always come "
+                "from the ROM. Changing region needs a factory reset, so Wipe data is switched on and locked."
             )
             note.setStyleSheet("color:#9aa3b5")
             note.setWordWrap(True)
@@ -210,7 +211,8 @@ class FlashDialog(QDialog):
         backup = self.backup_edit.text().strip()
         restore = []
         if self.keep_region_box is not None and self.keep_region_box.isChecked():
-            restore = [n for n in self.device.profile.conditional if fl.backup_images(backup, n)]
+            restore = fl.keepable(self.report, [n for n in self.device.profile.conditional
+                                                if fl.backup_images(backup, n)])
         return fl.FlashOptions(
             restore_from_backup=restore,
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
