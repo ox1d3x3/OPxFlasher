@@ -328,13 +328,16 @@ install from a custom recovery, keeping your data:
 - **First it tells you what the ROM is:** type, phone and model, build, Android version, security
   patch, how many images (firmware vs. inside super), anything a full ROM normally has that's
   missing, and which partitions are never written (identity and personal data are always left out).
+- **Names end with the region** (CN, IN, EU, NA, GLO ...), from the phone model, e.g.
+  `PJZ110_11.C.93_1930_202608031342-fullrom-CN.zip` or `CPH2649_11.H.05_3050_202610210133-fullrom-IN`.
+  When the region can't be told for sure, it's left off rather than guessed.
 - **Already converted?** If the output is already in that folder, OPxFlasher asks: **Verify and
   use** it (fully verified first, never reused if damaged) or **Replace** it. *Download and
   convert* verifies and reuses it automatically.
 - **What to make:** the **OPxFlasher image folder** is ticked by default; tick the **recovery zip**
   too if you want to install from OrangeFox / TWRP / AERA (`--folder` / `--no-zip` on the command
   line).
-- **Recovery zip** (`<name>-fullrom.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
+- **Recovery zip** (`<name>-fullrom-<REGION>.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
   flash it. Before writing anything the installer checks:
   - it's the phone the ROM is for (its device codename; the chip platform name, shared by many
     phones, never counts), and the **same variant** (it never changes region, which would need a
@@ -350,7 +353,7 @@ install from a custom recovery, keeping your data:
   Then it writes the current slot (firmware, boot images, the logical partitions resized inside
   super, `vbmeta` last) and reads everything back. Images over 1 GiB are stored in parts, because
   some recoveries can't unzip bigger files.
-- **Image folder** (`<name>-fullrom/`): plain images plus `opxflasher-rom.json`, for fastboot or
+- **Image folder** (`<name>-fullrom-<REGION>/`): plain images plus `opxflasher-rom.json`, for fastboot or
   OPxFlasher. **Use in ROM check** loads the result, so OPxFlasher checks it against your phone
   before flashing, with all the usual safety checks.
 - A ROM that doesn't say which phone it's for, or how new it is (some image kits), only gets an

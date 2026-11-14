@@ -4,14 +4,14 @@ Input: anything opx.rom.ota.open_rom reads that holds a complete image set: a
 full OTA zip / payload.bin, an image folder, a fastboot flasher-kit zip, or a
 super.img set. Output:
 
-- ``<name>-fullrom.zip``: every image, raw (sparse expanded), split into
+- ``<name>-fullrom-<REGION>.zip``: every image, raw (sparse expanded), split into
   parts of at most 1 GiB (recovery ``unzip`` tools struggle with bigger
   entries), plus an installer (``META-INF/com/google/android/update-binary``,
   ``opx/recovery/rom-install.sh``) for TWRP-based recoveries (OrangeFox,
   TWRP, AERA). The installer refuses unless the phone is the right board and
   variant, isn't mid-update, and the ROM is not older than the installed
   Android (anti-rollback fuse); it verifies every part, writes, and reads back.
-- ``<name>-fullrom/``: the same images as plain files (fastboot / OPxFlasher).
+- ``<name>-fullrom-<REGION>/``: the same images as plain files (fastboot / OPxFlasher).
 
 Both carry ``opxflasher-rom.json`` (identity, sizes, SHA-256 of every image and
 part), so OPxFlasher reads them with the same checks as the original OTA.
@@ -20,6 +20,7 @@ Identity and personal-data partitions (profile ``never_flash``) are never put in
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
@@ -153,6 +154,45 @@ def plan(rom: RomInfo) -> Plan:
     return p
 
 
+REGION_CODES = {"china": "CN", "india": "IN", "eu": "EU", "europe": "EU", "na": "NA", "north america": "NA",
+                "global": "GLO", "indonesia": "ID", "japan": "JP", "taiwan": "TW", "malaysia": "MY"}
+
+
+@functools.lru_cache(maxsize=1)
+def _all_variants() -> dict[str, str]:
+    """Model number -> region name, from every phone profile."""
+    from opx import profile as profiles
+
+    out: dict[str, str] = {}
+    for pid in profiles.all_profile_ids():
+        try:
+            out.update(profiles.load(pid).variants or {})
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def region_code(rom: RomInfo) -> str:
+    """Short region of the ROM (CN, IN, EU, NA, GLO ...) for file names; "" when it can't be told.
+    From the phone profile's variants (model -> region), else the build's region tag (CN01)."""
+    product = (rom.product or "").upper()
+    if product:
+        variants = _all_variants()
+        for model in sorted(variants, key=len, reverse=True):  # CPH2649IN -> CPH2649
+            if product.startswith(model.upper()):
+                name = str(variants[model]).strip()
+                return REGION_CODES.get(name.lower(), re.sub(r"[^A-Z]", "", name.upper())[:3])
+    meta = rom.metadata or {}
+    for text in (rom.path.name, meta.get("post-display-id", ""), meta.get("post-build-incremental", "")):
+        m = re.search(r"\((CN)\d\d\)", text or "")  # (EX01) etc. are shared by several regions
+        if m:
+            return m.group(1)
+    return ""
+
+
+_SUFFIX = re.compile(r"-fullrom(?:-[A-Z]{2,3})?$")
+
+
 def output_name(rom: RomInfo) -> str:
     stem = rom.path.name
     for ext in (".zip", ".bin"):
@@ -160,15 +200,22 @@ def output_name(rom: RomInfo) -> str:
             stem = stem[: -len(ext)]
     if stem in ("payload", "OTA_FILES_HERE", "images") and rom.product:
         stem = f"{rom.product}_{rom.build_incremental or rom.android}"
-    stem = stem.removesuffix("-fullrom")
+    stem = _SUFFIX.sub("", stem)
     return re.sub(r"[^A-Za-z0-9._()+-]+", "_", stem).strip("_") or "rom"
+
+
+def output_paths(rom: RomInfo, out_dir: Path) -> tuple[Path, Path]:
+    """(recovery zip, image folder): <name>-fullrom[-REGION].zip and <name>-fullrom[-REGION]."""
+    region = region_code(rom)
+    tail = f"-fullrom-{region}" if region else "-fullrom"
+    base = output_name(rom) + tail
+    return Path(out_dir) / f"{base}.zip", Path(out_dir) / base
 
 
 def existing_outputs(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False) -> dict[str, Path]:
     """Outputs convert() would make that are already there: {"zip": path, "folder": path}."""
-    base = output_name(rom)
-    want = {"zip": (make_zip, Path(out_dir) / f"{base}-fullrom.zip"),
-            "folder": (make_folder, Path(out_dir) / f"{base}-fullrom")}
+    zip_out, folder_out = output_paths(rom, out_dir)
+    want = {"zip": (make_zip, zip_out), "folder": (make_folder, folder_out)}
     return {kind: path for kind, (wanted, path) in want.items() if wanted and path.exists()}
 
 
@@ -214,9 +261,7 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
     stage = stage or (lambda s: None)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    base = output_name(rom)
-    zip_out = out_dir / f"{base}-fullrom.zip"
-    folder_out = out_dir / f"{base}-fullrom"
+    zip_out, folder_out = output_paths(rom, out_dir)
     for target in ([zip_out] if make_zip else []) + ([folder_out] if make_folder else []):
         if target.exists() and replace:
             shutil.rmtree(target) if target.is_dir() else target.unlink()

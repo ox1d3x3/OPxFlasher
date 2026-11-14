@@ -131,7 +131,7 @@ def test_convert_ota_to_zip_and_folder(tmp_path):
     stages = []
     made = cv.convert(rom, tmp_path / "out", make_zip=True, make_folder=True, chunk=MB, stage=stages.append)
     z, folder = made["zip"], made["folder"]
-    assert z.name == "PJZ110_16.0.10.501(CN01)-fullrom.zip" and folder.name == "PJZ110_16.0.10.501(CN01)-fullrom"
+    assert z.name == "PJZ110_16.0.10.501(CN01)-fullrom-CN.zip" and folder.name == "PJZ110_16.0.10.501(CN01)-fullrom-CN"
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [folder.name, z.name]  # nothing left over
     with zipfile.ZipFile(z) as zf:
         names = set(zf.namelist())
@@ -306,7 +306,7 @@ def test_cli_detect_and_convert(tmp_path, capsys):
     assert "Full OTA zip" in out and "PJZ110" in out
     assert cli.main(["rom", "convert", str(ota), "--out", str(tmp_path / "out"), "--folder"]) == 0
     out = capsys.readouterr().out
-    assert "-fullrom.zip" in out and "-fullrom" in out and "OrangeFox" in out
+    assert "-fullrom-CN.zip" in out and "-fullrom-CN" in out and "OrangeFox" in out
     assert cli.main(["rom", "convert", str(ota), "--out", str(tmp_path / "out")]) == 1  # exists already
     junk = tmp_path / "x.txt"
     junk.write_text("x")
@@ -385,3 +385,28 @@ def test_existing_outputs_are_verified_and_reused_or_replaced(tmp_path):
         cv.convert_or_reuse(open_rom(ota), out, make_folder=True, make_zip=False)
     fixed = cv.convert(open_rom(ota), out, make_zip=False, make_folder=True, replace=True)
     cv.verify_existing(fixed)
+
+
+@pytest.mark.parametrize(("product", "name", "want"), [
+    ("PJZ110", "PJZ110_11.C.93_1930_202608031342.zip", "PJZ110_11.C.93_1930_202608031342-fullrom-CN"),
+    ("CPH2649IN", "CPH2649_11.H.05_3050_202610210133.zip", "CPH2649_11.H.05_3050_202610210133-fullrom-IN"),
+    ("CPH2653", "CPH2653_11.F.05_3050_202610210134.zip", "CPH2653_11.F.05_3050_202610210134-fullrom-EU"),
+    ("CPH2655", "x.zip", "x-fullrom-NA"),
+    ("CPH2747", "y.zip", "y-fullrom-GLO"),  # OnePlus 15 Global
+    ("", "z.zip", "z-fullrom"),  # unknown: no region rather than a guess
+])
+def test_output_names_carry_the_region(tmp_path, product, name, want):
+    from opx.rom.ota import RomInfo
+
+    rom = RomInfo(path=tmp_path / name, kind="ota-zip")
+    rom.metadata = {"post-build": f"OnePlus/{product}/dodge:16/X/1:user/release-keys"} if product else {}
+    zip_out, folder = cv.output_paths(rom, tmp_path)
+    assert folder.name == want and zip_out.name == want + ".zip"
+
+
+def test_converting_a_converted_rom_keeps_one_suffix(tmp_path):
+    from opx.rom.ota import RomInfo
+
+    rom = RomInfo(path=tmp_path / "PJZ110_X-fullrom-CN.zip", kind="fullrom")
+    rom.metadata = {"post-build": "OnePlus/PJZ110/dodge:16/X/1:user/release-keys"}
+    assert cv.output_paths(rom, tmp_path)[1].name == "PJZ110_X-fullrom-CN"
