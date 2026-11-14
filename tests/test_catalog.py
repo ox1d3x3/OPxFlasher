@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import urllib.error
+import urllib.parse
 import zipfile
 
 import pytest
@@ -161,3 +162,58 @@ def test_cli_ota_list_and_download(tmp_path, monkeypatch, capsys):
     assert cli.main(["ota", "download", "--model", "PJZ110", "--id", "bbb222", "--out", str(tmp_path)]) == 0
     assert "MD5 verified" in capsys.readouterr().out
     assert (tmp_path / rel(1).filename).read_bytes() == PKG
+
+
+def test_mirror_is_used_when_the_catalog_is_down(tmp_path):
+    asked = []
+
+    def opener(req, timeout=None):
+        asked.append(req.full_url)
+        if req.full_url.startswith(catalog.API):
+            raise urllib.error.URLError("down")
+        return Resp(json.dumps(SAMPLE).encode(), {"ETag": '"m"'})
+
+    rels = catalog.fetch(model="PJZ110", cache=tmp_path, opener=opener, mirrors=("https://mirror.example/api/ota.php",))
+    assert len(rels) == 3 and asked[1].startswith("https://mirror.example/api/ota.php?model=PJZ110")
+
+
+def test_snapshot_save_load_and_offline_fallback(tmp_path, monkeypatch):
+    full = {"api_version": "1", "releases": SAMPLE["releases"][:2]}  # full list capped: EU missing
+
+    def opener(req, timeout=None):
+        url = req.full_url
+        if "device=" in url:
+            dev = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["device"][0]
+            return Resp(json.dumps({"releases": [r for r in SAMPLE["releases"] if r["device"] == dev]}).encode())
+        return Resp(json.dumps(full).encode())
+
+    seen = []
+    res = catalog.snapshot(tmp_path / "snap.json", opener=opener, progress=lambda d, i, n: seen.append(d))
+    assert res["count"] == 3 and res["devices"] == 1 and seen == ["OP 13"]
+    doc = json.loads((tmp_path / "snap.json").read_text())
+    assert doc["snapshot"]["format"] == "opxflasher-catalog-snapshot" and doc["count"] == 3
+    assert {r["id"] for r in doc["releases"]} == {"aaa111", "bbb222", "ccc333"}
+
+    # everything down, nothing cached: the snapshot answers, filtered like the API
+    def down(req, timeout=None):
+        raise urllib.error.URLError("down")
+
+    rels = catalog.fetch(model="CPH2653", cache=tmp_path / "empty", opener=down, mirrors=(),
+                         snapshot=tmp_path / "snap.json")
+    assert [r.id for r in rels] == ["ccc333"]
+    assert [r.id for r in catalog.fetch(model="PJZ110", latest=True, cache=tmp_path / "empty", opener=down,
+                                        mirrors=(), snapshot=tmp_path / "snap.json")] == ["bbb222"]
+    with pytest.raises(catalog.CatalogError, match="Can't reach"):
+        catalog.fetch(model="PJZ110", cache=tmp_path / "empty", opener=down, mirrors=(), snapshot=tmp_path / "none.json")
+    (tmp_path / "bad.json").write_text("{")
+    with pytest.raises(catalog.CatalogError, match="isn't a readable"):
+        catalog.load_snapshot(tmp_path / "bad.json")
+
+
+def test_cli_ota_snapshot(tmp_path, monkeypatch, capsys):
+    from opx import cli
+
+    monkeypatch.setattr(catalog.urllib.request, "urlopen", Server())
+    assert cli.main(["ota", "snapshot", "--out", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Saved 3 releases" in out and (tmp_path / "opx-catalog-snapshot.json").exists()

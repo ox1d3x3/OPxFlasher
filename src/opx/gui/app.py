@@ -528,6 +528,9 @@ class MainWindow(QMainWindow):
         tools = bar.addMenu(tr("&Tools"))
         act(tools, tr("Download adb and fastboot"), self.download_tools)
         act(tools, tr("Official ROMs..."), self.open_catalog)
+        act(tools, tr("Save ROM catalog snapshot..."), self.save_catalog_snapshot,
+            tip=tr("Keep a copy of the whole official-ROM list, for when the catalog is down"))
+        act(tools, tr("Use a ROM catalog snapshot..."), self.use_catalog_snapshot)
         act(tools, tr("Read a logs zip..."), lambda: self.diag_tab.read_logs())
         tools.addSeparator()
         lang = tools.addMenu(tr("Language"))
@@ -1167,6 +1170,46 @@ class MainWindow(QMainWindow):
         if event:
             job.kwargs["emit"] = job.signals.event.emit
         self.run_job(job, done, failed, event)
+
+    def save_catalog_snapshot(self) -> None:
+        from opx import catalog
+
+        path, _ = QFileDialog.getSaveFileName(self, tr("Save ROM catalog snapshot"),
+                                              str(Path.home() / "opx-catalog-snapshot.json"), "JSON (*.json)")
+        if not path:
+            return
+        self._set_busy(True)
+        self.say("Saving the ROM catalog...")
+        self.run_job(Job(catalog.snapshot, Path(path)), self._snapshot_saved)
+
+    def _snapshot_saved(self, res) -> None:
+        from opx import settings
+
+        self._set_busy(False)
+        self.say(f"Catalog snapshot: {res['count']} releases for {res['devices']} devices -> {res['path']}")
+        try:
+            settings.put("catalog_snapshot", str(res["path"]))  # used when every catalog server is down
+        except OSError:
+            pass
+        QMessageBox.information(self, tr("ROM catalog snapshot"),
+                                f"{res['count']} releases for {res['devices']} devices saved to\n{res['path']}\n\n"
+                                + tr("If the catalog is ever down, Official ROMs uses this list (downloads still "
+                                     "come from OPPO's servers)."))
+
+    def use_catalog_snapshot(self) -> None:
+        from opx import catalog, settings
+
+        path, _ = QFileDialog.getOpenFileName(self, tr("Use a ROM catalog snapshot"), str(Path.home()),
+                                              "JSON (*.json)")
+        if not path:
+            return
+        try:
+            n = len(catalog.load_snapshot(Path(path)))
+            settings.put("catalog_snapshot", path)
+        except (catalog.CatalogError, OSError) as e:
+            QMessageBox.warning(self, tr("ROM catalog snapshot"), str(e))
+            return
+        self.say(f"Catalog snapshot set: {path} ({n} releases), used when the catalog is down.")
 
     def open_catalog(self) -> None:
         model = self.session.props.get("ro.product.model", "") if self.session else ""

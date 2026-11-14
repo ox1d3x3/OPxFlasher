@@ -246,6 +246,13 @@ How the download works:
   A package that fails the MD5 or isn't a complete zip is deleted.
 - **Logged.** Every step goes into the app's log, so **Export log...** shows what happened.
 
+**If the catalog goes away.** **Tools → Save ROM catalog snapshot...** keeps the whole list (every
+phone, region and build with its official link, size and MD5) in one JSON file; save one now and
+then. When the catalog can't be reached, OPxFlasher tries the mirror at `ota.ox1de.xyz`, then the
+last list it downloaded, then your snapshot (**Tools → Use a ROM catalog snapshot...** picks a
+different one). Downloads always come straight from OPPO / OnePlus servers; the snapshot only
+holds the links. Command line: `opx ota snapshot --out <folder>`.
+
 - **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.

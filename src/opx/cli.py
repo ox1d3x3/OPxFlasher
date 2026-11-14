@@ -68,6 +68,19 @@ def cmd_devices(args) -> int:
 def cmd_ota(args) -> int:
     from opx import catalog
 
+    if args.action == "snapshot":
+        out = Path(args.out if args.out != "." else "opx-catalog-snapshot.json")
+        if out.is_dir():
+            out = out / "opx-catalog-snapshot.json"
+        try:
+            res = catalog.snapshot(out, progress=lambda d, i, n: print(f"\r  {i}/{n} {d:<20}", end="", flush=True))
+        except catalog.CatalogError as e:
+            print(f"\n{e}")
+            return 1
+        print(f"\nSaved {res['count']} releases for {res['devices']} devices to {res['path']}")
+        print(f"{catalog.CREDIT}. Use it when the catalog is down: OPxFlasher > Tools > Use a ROM catalog snapshot.")
+        return 0
+
     model = args.model
     if not (model or args.device):
         model = open_session(_pick_adb_serial(args.serial)).props.get("ro.product.model", "")
@@ -1095,7 +1108,8 @@ def build_parser() -> argparse.ArgumentParser:
     t.set_defaults(fn=cmd_tools)
 
     ota = sub.add_parser("ota", help="official ROMs from Daniel Springer's OTA catalog")
-    ota.add_argument("action", choices=("list", "download"))
+    ota.add_argument("action", choices=("list", "download", "snapshot"),
+                     help="snapshot: save the whole catalog to a file (--out), for when it's down")
     ota.add_argument("--model", help="model number, e.g. PJZ110 (default: the connected phone's)")
     ota.add_argument("--device", help="device name as in the catalog, e.g. 'OP 13'")
     ota.add_argument("--region", help="region code, e.g. CN, EU, IN, GLO")

@@ -27,6 +27,8 @@ from opx import __version__, otadl
 from opx.tools import user_tools_dir
 
 API = "https://roms.danielspringer.at/api/ota.php"
+# Mahabub's self-hosted mirror (same API), asked only when the main catalog can't be reached
+MIRRORS = ("https://ota.ox1de.xyz/api/ota.php",)
 SITE = "https://roms.danielspringer.at"
 CREDIT = "OTA catalog by Daniel Springer (roms.danielspringer.at)"
 USER_AGENT = f"OPxFlasher/{__version__} (+https://github.com/ox1d3x3/OPxFlasher)"
@@ -89,12 +91,50 @@ def _request(url: str, headers: dict | None = None):
 
 
 def fetch(model: str = "", device: str = "", region: str = "", latest: bool = False,
-          cache: Path | None = None, opener=None) -> list[Release]:
-    """Releases matching the filters, newest version last (catalog order)."""
+          cache: Path | None = None, opener=None, mirrors: tuple[str, ...] | None = None,
+          snapshot: Path | None = None) -> list[Release]:
+    """Releases matching the filters, newest version last (catalog order).
+
+    Tries the catalog, then each mirror, then the last copy on disk, then a saved
+    snapshot (settings 'catalog_snapshot'). Mirrors serve the same API."""
+    errors = []
+    for base in (API, *(MIRRORS if mirrors is None else mirrors)):
+        try:
+            return _fetch_from(base, model, device, region, latest, cache, opener, offline_ok=False)
+        except CatalogError as e:
+            errors.append(e)
+    try:  # every server down: the last copy we have
+        return _fetch_from(API, model, device, region, latest, cache, opener, offline_ok=True, network=False)
+    except CatalogError:
+        pass
+    snap = snapshot if snapshot is not None else _snapshot_setting()
+    if snap is not None and snap.exists():
+        return filter_releases(load_snapshot(snap), model, device, region, latest)
+    raise errors[0]
+
+
+def _snapshot_setting() -> Path | None:
+    from opx import settings
+
+    value = settings.get("catalog_snapshot")
+    return Path(value) if value else None
+
+
+def filter_releases(releases: list[Release], model="", device="", region="", latest=False) -> list[Release]:
+    out = [r for r in releases
+           if (not model or r.model.upper() == model.upper())
+           and (not device or r.device.lower() == device.lower())
+           and (not region or r.region.upper() == region.upper())
+           and (not latest or r.is_latest)]
+    return out
+
+
+def _fetch_from(base: str, model, device, region, latest, cache, opener, offline_ok: bool,
+                network: bool = True) -> list[Release]:
     query = {k: v for k, v in (("model", model), ("device", device), ("region", region)) if v}
     if latest:
         query["latest"] = "1"
-    url = API + ("?" + urllib.parse.urlencode(query) if query else "")
+    url = base + ("?" + urllib.parse.urlencode(query) if query else "")
     opener = opener or urllib.request.urlopen
 
     cache = cache or cache_dir()
@@ -104,20 +144,25 @@ def fetch(model: str = "", device: str = "", region: str = "", latest: bool = Fa
     if body_file.exists() and etag_file.exists():
         headers["If-None-Match"] = etag_file.read_text(encoding="utf-8").strip()
 
-    try:
-        with opener(_request(url, headers), timeout=30) as resp:
-            body = resp.read()
-            etag = resp.headers.get("ETag", "")
-    except urllib.error.HTTPError as e:
-        if e.code == 304 and body_file.exists():
-            body, etag = body_file.read_bytes(), ""
-        else:
-            raise CatalogError(f"The OTA catalog answered HTTP {e.code}.") from e
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        if body_file.exists():  # offline: use the last copy we have
-            body, etag = body_file.read_bytes(), ""
-        else:
-            raise CatalogError(f"Can't reach the OTA catalog: {e}") from e
+    if not network:
+        if not body_file.exists():
+            raise CatalogError("No saved copy of the catalog.")
+        body, etag = body_file.read_bytes(), ""
+    else:
+        try:
+            with opener(_request(url, headers), timeout=20) as resp:
+                body = resp.read()
+                etag = resp.headers.get("ETag", "")
+        except urllib.error.HTTPError as e:
+            if e.code == 304 and body_file.exists():
+                body, etag = body_file.read_bytes(), ""
+            else:
+                raise CatalogError(f"The OTA catalog answered HTTP {e.code}.") from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            if offline_ok and body_file.exists():
+                body, etag = body_file.read_bytes(), ""
+            else:
+                raise CatalogError(f"Can't reach the OTA catalog: {e}") from e
 
     try:
         data = json.loads(body)
@@ -130,6 +175,61 @@ def fetch(model: str = "", device: str = "", region: str = "", latest: bool = Fa
     if etag:
         etag_file.write_text(etag, encoding="utf-8")
     return releases
+
+
+# --- snapshots: the whole catalog in one file (back-pocket copy / mirror seed) ---------------
+
+SNAPSHOT_FORMAT = "opxflasher-catalog-snapshot"
+
+
+def snapshot(out: Path, opener=None, progress=None) -> dict:
+    """Save every release the catalog lists to `out` (same JSON shape as the API, plus
+    a 'snapshot' header), so it can be used offline or served by a mirror as-is.
+    Asks for the whole list, then each device on its own (in case the full list is
+    capped), and merges by release id. Returns {"count", "devices", "path"}."""
+    seen: dict[str, dict] = {}
+
+    def grab(query: dict) -> list[dict]:
+        url = API + ("?" + urllib.parse.urlencode(query) if query else "")
+        try:
+            with (opener or urllib.request.urlopen)(_request(url, {"Accept": "application/json"}), timeout=60) as r:
+                data = json.loads(r.read())
+            return list(data["releases"])
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
+            raise CatalogError(f"Can't read the OTA catalog ({url}): {e}") from e
+
+    for r in grab({}):
+        seen.setdefault(str(r.get("id")), r)
+    devices = sorted({str(r.get("device")) for r in seen.values() if r.get("device")})
+    for i, dev in enumerate(devices, 1):
+        if progress:
+            progress(dev, i, len(devices))
+        for r in grab({"device": dev}):
+            seen.setdefault(str(r.get("id")), r)
+    releases = sorted(seen.values(), key=lambda r: (str(r.get("device")), str(r.get("model")),
+                                                     str(r.get("build_timestamp")), str(r.get("version"))))
+    for r in releases:  # every entry must still parse
+        Release.from_json(r)
+    from datetime import datetime, timezone
+
+    doc = {"api_version": "1", "count": len(releases), "releases": releases,
+           "snapshot": {"format": SNAPSHOT_FORMAT, "source": API, "credit": CREDIT,
+                        "saved_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "tool": USER_AGENT, "devices": devices}}
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.name + ".part")
+    tmp.write_text(json.dumps(doc, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(out)
+    return {"count": len(releases), "devices": len(devices), "path": out}
+
+
+def load_snapshot(path: Path) -> list[Release]:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return [Release.from_json(r) for r in data["releases"]]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise CatalogError(f"{Path(path).name} isn't a readable catalog snapshot.") from e
 
 
 def for_phone(model: str, **kw) -> list[Release]:

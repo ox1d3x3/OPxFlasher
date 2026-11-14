@@ -35,6 +35,7 @@ opx verify backups/<folder>                  # re-check a backup offline
 ```sh
 opx ota list [--model PJZ110]                # official ROMs (Daniel Springer's catalog)
 opx ota download --id <id> --out ~/Downloads [--connections 4]   # resumes if run again
+opx ota snapshot --out ~/Backups               # whole ROM catalog in one file (for when it's down)
 opx rom detect <file-or-folder>                # what is it? phone, build, contents, what's missing
 opx rom convert <rom> --out ~/ROMs [--folder] [--no-zip]   # full ROM: recovery zip and/or image folder
 

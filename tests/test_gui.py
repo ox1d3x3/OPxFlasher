@@ -910,3 +910,28 @@ def test_gui_convert_refuses_incremental(window, tmp_path):
     dlg = cdlg.ConvertDialog(win, win._dialog_job, str(ota))
     settle(app)
     assert not dlg.convert_btn.isEnabled() and "incremental" in dlg.status.text()
+
+
+def test_gui_catalog_snapshot_menu(window, monkeypatch, tmp_path):
+    from opx import catalog, settings
+    from opx.gui import app as gui
+
+    app, win = window
+    monkeypatch.setattr(settings, "path", lambda: tmp_path / "settings.json")
+    snap = tmp_path / "snap.json"
+    monkeypatch.setattr(gui.QFileDialog, "getSaveFileName", lambda *a, **k: (str(snap), ""))
+    monkeypatch.setattr(catalog, "snapshot", lambda out: {"count": 3, "devices": 1, "path": out})
+    shown = []
+    monkeypatch.setattr(gui.QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    win.save_catalog_snapshot()
+    settle(app)
+    assert shown and "3 releases" in shown[0] and settings.get("catalog_snapshot") == str(snap)
+    assert "Catalog snapshot: 3 releases" in win.log.toPlainText()
+
+    other = tmp_path / "other.json"
+    other.write_text('{"releases": []}')
+    monkeypatch.setattr(gui.QFileDialog, "getOpenFileName", lambda *a, **k: (str(other), ""))
+    win.use_catalog_snapshot()
+    assert settings.get("catalog_snapshot") == str(other)
+    menu = [a.text() for a in win.menuBar().actions()[2].menu().actions()]
+    assert "Save ROM catalog snapshot..." in menu and "Use a ROM catalog snapshot..." in menu
