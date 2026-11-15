@@ -119,6 +119,7 @@ QMenu::item:selected { background: #2b3040; }
 QMenu::item:disabled { color: #6b7280; }
 QMenu::separator { height: 1px; background: #262b36; margin: 5px 8px; }
 QLabel#statusText { font-weight: 600; }
+QLabel#romInfo { background: #0d0f14; border: 1px solid #262b36; border-radius: 8px; padding: 7px 10px; }
 """
 
 
@@ -391,6 +392,19 @@ class MainWindow(QMainWindow):
         rom_row.addWidget(pick_folder)
         rom_row.addWidget(self.catalog_btn)
         rom_form.addLayout(rom_row)
+        # what the chosen ROM is, as soon as it's chosen (before Check ROM)
+        self.rom_info = QLabel("")
+        self.rom_info.setObjectName("romInfo")
+        self.rom_info.setWordWrap(True)
+        self.rom_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.rom_info.hide()
+        rom_form.addWidget(self.rom_info)
+        self.rom_info_gen = 0
+        self.rom_info_timer = QTimer(self)
+        self.rom_info_timer.setSingleShot(True)
+        self.rom_info_timer.setInterval(350)
+        self.rom_info_timer.timeout.connect(self._detect_rom_info)
+        self.rom_edit.textChanged.connect(lambda _t: self.rom_info_timer.start())
 
         cmp_row = QHBoxLayout()
         self.cmp_group = QButtonGroup(self)
@@ -454,6 +468,7 @@ class MainWindow(QMainWindow):
         self.reasons.hide()
         rom_layout.addWidget(self.verdict)
         rom_layout.addWidget(self.reasons)
+        self.rom_summary.hide()  # the details live in the ROM box now
         rom_layout.addWidget(self.rom_summary)
         rom_split = QSplitter(Qt.Vertical)
         self.checks_table = make_table(["Result", "Check", "Details"], stretch=2)
@@ -1344,6 +1359,33 @@ class MainWindow(QMainWindow):
             self.rom_edit.setText(str(dlg.result_path))
             self.check_rom()
 
+    def _detect_rom_info(self) -> None:
+        from opx.rom import detect
+
+        path = self.rom_edit.text().strip()
+        self.rom_info_gen += 1
+        if not path or not Path(path).exists():
+            self.rom_info.hide()
+            return
+        self.rom_info.setText(tr("Reading the ROM..."))
+        self.rom_info.show()
+        gen = self.rom_info_gen
+        job = Job(lambda: (gen, detect.summary(detect.detect(path))))
+        self.run_job(job, self._rom_info_ready, self._rom_info_failed)
+
+    def _rom_info_ready(self, result) -> None:
+        gen, (first, second) = result
+        if gen != self.rom_info_gen:
+            return  # another ROM was chosen meanwhile
+        if not first:  # not a ROM
+            self.rom_info.setText(f'<span style="color:#ff6b63">{escape(second)}</span>')
+            return
+        self.rom_info.setText(f"<b>{escape(first)}</b><br>"
+                              f'<span style="color:#9aa3b5">{escape(second)}</span>')
+
+    def _rom_info_failed(self, exc) -> None:
+        self.rom_info.setText(f'<span style="color:#ff6b63">{escape(str(exc))}</span>')
+
     def check_rom(self) -> None:
         rom_path = self.rom_edit.text().strip()
         if not rom_path:
@@ -1376,16 +1418,11 @@ class MainWindow(QMainWindow):
         # the table below has the details; the banner only names what to fix
         self.reasons.setText("Fix first: " + ", ".join(c.name for c in blocks) if report.verdict == "BLOCKED" else "")
         self.reasons.setVisible(report.verdict == "BLOCKED")
-        r = report.rom
         from opx.rom import detect
 
         found = detect.describe(rom)
-        self.rom_summary.setText(
-            f"{found.label}" + (" (incremental)" if found.full is False else "") + " · "
-            f"ROM: {r['product'] or '?'} / {r['codename'] or '?'}, Android {r['android'] or '?'}, "
-            f"patch {r['security_patch'] or '?'}, full package: {r['full']}, {r['images']} images"
-            + (f" · missing {', '.join(found.missing)}" if found.missing else "")
-        )
+        first, second = detect.summary(found)  # the same details as in the ROM box, for the log / tests
+        self.rom_summary.setText(f"{first}\n{second}")
         self.say(f"Detected: {found.label}" + (f" for {found.product}" if found.product else "")
                  + (f", missing {', '.join(found.missing)}" if found.missing else ""))
         for note in found.notes:

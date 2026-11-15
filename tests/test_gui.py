@@ -910,7 +910,7 @@ def test_gui_convert_to_full_rom(window, tmp_path, monkeypatch):
             break
     assert "Detected: OPxFlasher full ROM (zip) for PJZ110" in win.log.toPlainText()
     assert "  Note: OPxFlasher full ROM, converted from" in win.log.toPlainText()
-    assert win.rom_summary.text().startswith("OPxFlasher full ROM (zip)")
+    assert "OPxFlasher full ROM (zip)" in win.rom_summary.text()
 
 
 def test_gui_convert_refuses_incremental(window, tmp_path):
@@ -1077,3 +1077,33 @@ def test_gui_closing_a_busy_dialog_stops_the_job_instead(window, tmp_path):
     dlg._failed(vd.vf.VerifyCancelled())
     dlg.reject()
     assert not dlg.isVisible()
+
+
+def test_gui_rom_box_shows_what_the_rom_is_as_soon_as_it_is_chosen(window, tmp_path):
+    from test_convert import LOGICAL, make_ota
+    from test_verify import boot_set
+
+    app, win = window
+    ota, _ = make_ota(tmp_path, parts={**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}})
+    named = ota.with_name("PJZ110_11.C.93_1930_202608031342.zip")
+    ota.rename(named)
+    win.rom_info_timer.setInterval(0)  # no typing pause in the test
+    win.rom_edit.setText(str(named))
+    for _ in range(100):
+        settle(app, 5)
+        if "OS:" in win.rom_info.text():
+            break
+    text = win.rom_info.text()
+    assert not win.rom_info.isHidden() and "OS: Android" in text and "OTA 11.C.93" in text
+    assert "For: PJZ110 (CN" in text and "Full OTA" in text and "images" in text
+    bad = tmp_path / "notes.txt"
+    bad.write_text("hi")
+    win.rom_edit.setText(str(bad))
+    for _ in range(100):
+        settle(app, 5)
+        if "OS:" not in win.rom_info.text() and "Reading" not in win.rom_info.text():
+            break
+    assert "#ff6b63" in win.rom_info.text()  # not a ROM: said plainly, in the box
+    win.rom_edit.setText("")
+    settle(app, 80)
+    assert win.rom_info.isHidden()

@@ -9,6 +9,7 @@ flashed by OPxFlasher or converted to a full ROM.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,3 +146,35 @@ def describe(rom: RomInfo) -> Detection:
         d.missing += [n for n in CORE_LOGICAL if n not in names]
     d.notes = list(rom.notes)
     return d
+
+
+def ota_version(d: Detection) -> str:
+    """OPPO's short OTA version (11.C.93, 11.F.05 ...) from the package's name or build, if it has one."""
+    for text in (d.path.name, getattr(d.rom, "path", Path("")).name if d.rom else "", d.build):
+        m = re.search(r"_(\d{2}\.[A-Z]\.\d{2,3})(?:_|$)", text or "")
+        if m:
+            return m.group(1)
+    return ""
+
+
+def summary(d: Detection) -> tuple[str, str]:
+    """Two short lines for the ROM box: what's in it (OS / patch / version / phone) and what it is."""
+    if not d.ok:
+        return "", d.problem
+    from opx import convert as cv
+
+    region = cv.region_code(d.rom) if d.rom else ""
+    os_part = " · ".join(x for x in (
+        f"Android {d.android}" if d.android else "",
+        f"patch {d.security_patch}" if d.security_patch else "",
+        f"OTA {ota_version(d)}" if ota_version(d) else "",
+    ) if x) or "unknown"
+    phone = " ".join(x for x in (d.product, f"({', '.join(y for y in (region, d.device) if y)})"
+                                 if region or d.device else "") if x)
+    kind = d.label + (" · incremental" if d.full is False else " · full" if d.full else "")
+    count = len(d.physical) + len(d.logical)
+    n = d.total_size
+    size = f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
+    first = f"OS: {os_part}" + (f"   ·   For: {phone}" if phone else "")
+    second = f"{kind} · {count} images · {size}" + (f" · missing {', '.join(d.missing)}" if d.missing else "")
+    return first, second
