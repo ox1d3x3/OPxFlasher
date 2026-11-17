@@ -435,7 +435,7 @@ def cmd_plan(args) -> int:
     elif args.offline:
         dev_state = pn.no_device()
     else:
-        dev_state = pn.device_from_session(open_session(_pick_adb_serial(args.serial)))
+        dev_state = pn.device_for_session(open_session(_pick_adb_serial(args.serial)))
     report = pn.build_report(rom, dev_state)
     if args.json:
         print(report.to_json())

@@ -28,7 +28,8 @@ def phone(fake_device):
     return fake_device
 
 
-def rom_zip(tmp_path, vb_index=2, arb=1, codename="testdevice", product="PJZ110", extra=None, incremental=False, dtbo_size=4096):
+def rom_zip(tmp_path, vb_index=2, arb=1, codename="testdevice", product="PJZ110", extra=None, incremental=False, dtbo_size=4096,
+            meta=None):
     parts = {
         "vbmeta": rf.build_vbmeta(vb_index),
         "xbl_config": rf.build_qcom_elf(arb=arb),
@@ -41,8 +42,8 @@ def rom_zip(tmp_path, vb_index=2, arb=1, codename="testdevice", product="PJZ110"
     # incremental: delta data for system (the metadata label alone no longer decides)
     payload = rf.build_payload(parts, groups={"main": ["system", "my_region"]},
                                incremental={"system"} if incremental else None)
-    meta = rf.ota_metadata(codename=codename, product=product, incremental=incremental)
-    return open_rom(rf.build_ota_zip(tmp_path / "rom.zip", payload, meta))
+    metadata = rf.ota_metadata(codename=codename, product=product, incremental=incremental, **(meta or {}))
+    return open_rom(rf.build_ota_zip(tmp_path / "rom.zip", payload, metadata))
 
 
 def report_for(adb, rom):
@@ -179,3 +180,75 @@ def test_read_only_while_planning(adb, phone, tmp_path):
     report_for(adb, rom_zip(tmp_path))
     for cmd in (tmp_path / "commands.log").read_text().splitlines():
         _assert_read_only(cmd[7:-1] if cmd.startswith("su -c '") else cmd)
+
+
+# --- issue #45: hardware project, and phones without root -------------------------------
+
+PROJECT_META = {"oplus_project_numbers": "24875", "oplus_hex_nv_id": "1B"}
+
+
+def set_props(phone, **changes):
+    props = json.loads((phone / "props.json").read_text())
+    props.update(changes)
+    (phone / "props.json").write_text(json.dumps(props))
+
+
+def detail(report, name):
+    return next(c.detail for c in report.checks if c.name == name)
+
+
+def test_nv_hex():
+    assert pn.nv_hex("00011011") == "1B"  # ro.build.oplus_nv_id, as bits
+    assert pn.nv_hex("1B") == "1B" and pn.nv_hex("1b") == "1B"  # an OTA's oplus_hex_nv_id
+    assert pn.nv_hex("") == "" and pn.nv_hex("zz") == "ZZ"
+
+
+def test_same_project_passes(adb, phone, tmp_path):
+    set_props(phone, **{"ro.boot.prjname": "24875", "ro.build.oplus_nv_id": "00011011"})
+    r = report_for(adb, rom_zip(tmp_path, meta=PROJECT_META))
+    assert status(r, "Project") == "pass"
+    assert "NV id: ROM 1B, phone 1B" in detail(r, "Project")
+
+
+def test_cross_flashed_phone_is_warned(adb, phone, tmp_path):
+    """A 13T board (24821) running 13s India firmware: same product, other hardware project."""
+    set_props(phone, **{"ro.boot.prjname": "24821", "ro.build.oplus_nv_id": "00011011"})
+    r = report_for(adb, rom_zip(tmp_path, meta=PROJECT_META))
+    assert status(r, "Project") == "warn"
+    text = detail(r, "Project")
+    assert "project 24875" in text and "project 24821" in text
+    assert "cross-flashed" in text and "Local install" in text and "relock" in text
+
+
+def test_project_list_and_missing_facts(adb, phone, tmp_path):
+    set_props(phone, **{"ro.boot.prjname": "24821"})
+    r = report_for(adb, rom_zip(tmp_path, meta={"oplus_project_numbers": "24821,24875"}))
+    assert status(r, "Project") == "pass" and "NV id" not in detail(r, "Project")
+    # a ROM that names no project, or a phone that reports none: no check at all
+    r = report_for(adb, rom_zip(tmp_path))
+    assert "Project" not in {c.name for c in r.checks}
+
+
+def test_phone_without_root_is_compared_from_props(adb, phone, tmp_path, monkeypatch):
+    from opx import flash as fl
+
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    set_props(phone, **{"ro.boot.prjname": "24821", "ro.build.oplus_nv_id": "00011011"})
+    session = open_session("FAKE0001", adb)
+    dev = pn.device_for_session(session)
+    assert dev.source == "props" and "without root" in dev.label
+    r = pn.build_report(rom_zip(tmp_path, meta=PROJECT_META), dev)
+    assert r.verdict == "BLOCKED"
+    assert status(r, "Root") == "block" and status(r, "Phone") == "info"
+    assert status(r, "Device match") == "pass" and status(r, "Project") == "warn"
+    names = {c.name for c in r.checks}
+    # nothing claims to have read a partition it couldn't
+    assert not any(n.startswith(("AVB ", "Qualcomm ARB")) for n in names)
+    assert "Partition sizes" not in names
+    assert "with root" in detail(r, "Anti-rollback")
+    assert [c.name for c in r.checks if c.status == "block"] == ["Root"]
+    assert fl.hard_blocks(r, [fl.OVERRIDE_QCOM_UNVALIDATED]) != []
+
+
+def test_rooted_phone_still_reads_partitions(adb, phone):
+    assert pn.device_for_session(open_session("FAKE0001", adb)).source == "live"

@@ -38,6 +38,8 @@ PROP_KEYS = {
     "slot_suffix": "ro.boot.slot_suffix",
     "verified_boot": "ro.boot.verifiedbootstate",
     "serial": "ro.serialno",
+    "project": "ro.boot.prjname",  # OPPO hardware project (stays with the board, whatever firmware runs)
+    "nv_id": "ro.build.oplus_nv_id",  # region / carrier NV id, as bits ("00011011" = 0x1B)
 }
 
 Event = dict

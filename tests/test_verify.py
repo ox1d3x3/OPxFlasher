@@ -52,6 +52,19 @@ def test_full_ota_verifies_every_block(tmp_path):
     assert seen  # progress was reported
 
 
+
+def test_identity_and_summary_name_the_hardware_project(tmp_path):
+    """Issue #45: the ROM's own project number is shown, so a cross-flashed phone's owner can compare."""
+    from opx.rom import detect
+
+    parts = {**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}}
+    payload = rf.build_payload(parts, groups={"qti_dynamic_partitions": LOGICAL})
+    meta = rf.ota_metadata(codename="dodge", oplus_project_numbers="24875", oplus_hex_nv_id="1B")
+    ota = rf.build_ota_zip(tmp_path / "ota.zip", payload, meta)
+    rep = vf.verify(ota, deep=False)
+    assert "hardware project 24875" in next(f.text for f in rep.findings if f.area == "Identity")
+    assert "project 24875" in detect.summary(detect.detect(ota))[1]
+
 def test_damaged_payload_fails(tmp_path):
     parts = {**boot_set(), **{n: os.urandom(8192) for n in LOGICAL}}
     payload = rf.build_payload(parts, groups={"qti_dynamic_partitions": LOGICAL}, corrupt="system")

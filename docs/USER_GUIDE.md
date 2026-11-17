@@ -71,6 +71,10 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
   it only checks the ROM itself (type, which phone it's for, its anti-rollback indexes) and asks you
   to connect the phone; nothing about the phone is guessed. Problems are listed first, then what
   passed, then notes.
+- A phone **without root** is compared with what Android reports about it (model, variant, build,
+  hardware project). Its partitions can't be read, so the anti-rollback numbers and partition sizes
+  aren't compared, and the check stops at *Root*: flashing needs root (for the backup first) and an
+  unlocked bootloader.
 
 | Check | Blocks when |
 |---|---|
@@ -78,6 +82,8 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 | Device match | the ROM's device codename differs from the phone's (e.g. an OnePlus 13 ROM on an OnePlus 15) |
 | Variant | the ROM is for another variant of the same phone (e.g. CN PJZ110 vs EU CPH2653). You can go ahead by confirming it: tick *Yes, I want to flash this other variant* in the app (it starts unticked), or `--accept-variant-change` and typing CHANGE VARIANT on the command line. It's a region change, so a data wipe is required and your own signal files are restored |
 | Known issue | the phone's current firmware is known to be dangerous (e.g. ColorOS 17 CN fastbootd) |
+| Project | never blocks; warns when the ROM is built for another OPPO hardware project than the phone's (see *Cross-flashed phones* below) |
+| Root | the connected phone has no root, so its partitions can't be compared |
 | AVB rollback | the ROM's `vbmeta` rollback index is lower than the phone's |
 | Qualcomm ARB | the ROM's anti-rollback version is lower than the phone's, **or the reader isn't validated yet** |
 | Rollback fuse | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501 or later: the ROM (or backup) is **older than the installed build**, or its age can't be told. Installing an older build there blows a hardware fuse that nothing repairs, so this can't be overridden |
@@ -88,6 +94,24 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 they're **optional** (left as the phone has them, or restored from your own backup), unless the
 ROM's vbmeta checks them at boot. Then they're always written from the ROM, because the phone's old
 copy would fail verification with the new vbmeta. `odm` is build content and is always written.
+
+### Cross-flashed phones (another hardware project)
+
+OPPO and OnePlus number their hardware: the phone's board reports its **project**
+(`ro.boot.prjname`, e.g. 24821), and a full OTA lists the projects it's built for
+(`oplus_project_numbers`, e.g. 24875). Some shops convert one phone into another, for example an
+OnePlus 13T (project 24821) running OnePlus 13s India firmware (CPH2723, project 24875). The
+model and build then match the ROM, but the board doesn't.
+
+On such a phone the phone's **own updater refuses** packages for another project: *Software
+update* finds nothing, and *Local install* fails after a few seconds without installing anything.
+OPxFlasher shows the ROM's project (in *Verify ROM* and next to the selected package) and the ROM
+check warns when it differs from the phone's, with the NV id (region / carrier) of both.
+OPxFlasher doesn't get around the phone's updater. Flashing from the bootloader (fastboot) doesn't
+go through the updater, so this check isn't made there: OPxFlasher can flash a full ROM for the
+phone's model that way, with root for the backup first and an unlocked bootloader (unlocking erases
+the phone). **Don't relock the bootloader on a cross-flashed phone**: with any partition that
+doesn't match what the bootloader expects, a locked phone won't start.
 
 > **Qualcomm ARB is experimental.** The reader has not been validated against real
 > OnePlus 13 firmware yet, so for now it always blocks and shows the raw numbers.

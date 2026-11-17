@@ -115,7 +115,8 @@ def build_ota_zip(path: Path, payload: bytes, metadata: dict[str, str]) -> Path:
     return path
 
 
-def ota_metadata(codename="testdevice", product="PJZ110", android="16", patch="2026-09-01", incremental=False):
+def ota_metadata(codename="testdevice", product="PJZ110", android="16", patch="2026-09-01", incremental=False,
+                 **extra):
     meta = {
         "ota-type": "AB",
         "pre-device": codename,
@@ -126,6 +127,7 @@ def ota_metadata(codename="testdevice", product="PJZ110", android="16", patch="2
     }
     if incremental:
         meta["pre-build"] = f"OnePlus/{product}/{codename}:{android}/OLD/U.0:user/release-keys"
+    meta.update(extra)  # e.g. oplus_project_numbers="24875", oplus_hex_nv_id="1B"
     return meta
 
 

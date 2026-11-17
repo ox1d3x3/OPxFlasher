@@ -93,6 +93,42 @@ def test_gui_rom_check_tab(window, adb_env, tmp_path):
     assert "ROM check: BLOCKED" in log and "BLOCK Qualcomm ARB" in log
 
 
+
+def test_gui_rom_check_without_root(adb_env, monkeypatch, tmp_path):
+    """Issue #45: an unrooted phone is compared with what Android reports, never offered a flash."""
+    import json
+
+    from test_plan import PROJECT_META, rom_zip
+
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    props = json.loads((adb_env / "props.json").read_text())
+    props.update({"ro.boot.prjname": "24821", "ro.build.oplus_nv_id": "00011011"})
+    (adb_env / "props.json").write_text(json.dumps(props))
+    from opx.gui.app import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.poll_timer.setInterval(10**9)
+    win.refresh_devices()
+    settle(app)
+    try:
+        win.tabs.setCurrentIndex(1)
+        win.rom_edit.setText(str(rom_zip(tmp_path, meta=PROJECT_META).path))
+        win.check_rom()
+        settle(app)
+        assert win.check_device.source == "props"
+        table = win.checks_table
+        checks = {table.item(r, 1).text(): table.item(r, 0).text() for r in range(table.rowCount())}
+        assert checks["Device match"] == "OK" and checks["Root"] == "STOP" and checks["Project"] == "Warning"
+        assert not win.flash_btn.isEnabled()
+    finally:
+        QThreadPool.globalInstance().waitForDone(10000)
+        win.close()
+        win.deleteLater()
+        settle(app, 5)
+
 def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
     import sys
 

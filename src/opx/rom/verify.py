@@ -163,8 +163,10 @@ def _package(rep: VerifyReport, rom: RomInfo, d: Detection) -> None:
     else:
         rep.add(OK, "Package", f"Full package, {len(d.physical) + len(d.logical)} images, {_size(d.total_size)}.")
     if rom.codename and rom.product:
+        project = rom.metadata.get("oplus_project_numbers", "")
         rep.add(OK, "Identity", f"For {rom.product} ({rom.codename}), Android {rom.android or '?'}, "
-                                f"patch {rom.security_patch or '?'}" + (f", {d.build}" if d.build else "") + ".")
+                                f"patch {rom.security_patch or '?'}" + (f", {d.build}" if d.build else "")
+                                + (f", hardware project {project}" if project else "") + ".")
     else:
         rep.add(WARN, "Identity", "The ROM doesn't say which phone it's for. OPxFlasher can still compare it with "
                                   "your phone, but a recovery zip can't be made from it.")

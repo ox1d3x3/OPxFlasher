@@ -1795,8 +1795,8 @@ def run_rom_check(rom_path: str, backup: str, session: Session | None):
     rom = open_rom(rom_path)
     if backup:
         device = pn.device_from_backup(Path(backup))
-    elif session is not None and session.access.usable:
-        device = pn.device_from_session(session)
+    elif session is not None:
+        device = pn.device_for_session(session)  # without root: what Android reports
     else:
         device = pn.no_device()
     return rom, device, pn.build_report(rom, device)

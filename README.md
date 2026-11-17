@@ -146,7 +146,8 @@ bundled, because they can't be redistributed.
 
 **Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU or APatch,
 or a custom recovery). Every flash needs a backup of the phone, so root is needed at least once to
-make it. Reboots, debloat, Android logs and ROM checks against an existing backup work without root.
+make it. Reboots, debloat, Android logs and ROM checks against an existing backup work without root;
+a ROM check against an unrooted phone compares what Android reports (model, build, hardware project).
 
 **Will it touch my photos and apps?** No. Personal data is never backed up and never flashed. Only
 an explicit factory reset, which you choose and confirm, erases it.

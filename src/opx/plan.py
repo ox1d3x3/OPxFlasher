@@ -32,7 +32,7 @@ PASS, INFO, WARN, BLOCK = "pass", "info", "warn", "block"
 
 @dataclass
 class DeviceState:
-    source: str  # "live", "backup", "none"
+    source: str  # "live" (rooted phone), "props" (phone without root), "backup", "none"
     label: str
     facts: dict[str, str]
     props: dict[str, str]
@@ -93,6 +93,59 @@ def device_from_session(session: Session) -> DeviceState:
         reader=reader,
         size_lookup=size_lookup,
     )
+
+
+def device_from_props(session: Session) -> DeviceState:
+    """A connected phone without root: only what Android reports (model, build, patch, project...).
+    Partitions can't be read, so anti-rollback numbers and sizes stay unknown."""
+    facts = device_facts(session.props)
+    return DeviceState(
+        source="props",
+        label=f"{facts.get('model')} ({session.serial}), connected without root",
+        facts=facts,
+        props=session.props,
+        profile=session.profile,
+        logical=set(),
+        reader=lambda name: None,
+        size_lookup=lambda name: None,
+    )
+
+
+def device_for_session(session: Session) -> DeviceState:
+    """The richest comparison the phone allows: partitions with root, Android's own facts without."""
+    return device_from_session(session) if session.access.usable else device_from_props(session)
+
+
+def nv_hex(value: str) -> str:
+    """ro.build.oplus_nv_id ("00011011") or an OTA's oplus_hex_nv_id ("1B") as upper-case hex."""
+    value = (value or "").strip()
+    try:
+        if value and set(value) <= {"0", "1"} and len(value) >= 4:
+            return f"{int(value, 2):X}"
+        return f"{int(value, 16):X}" if value else ""
+    except ValueError:
+        return value.upper()
+
+
+def project_check(rom: RomInfo, dev: DeviceState) -> Check | None:
+    """OPPO OTAs name the hardware projects they're built for; the phone's updater refuses others."""
+    wanted = [p for p in re.split(r"[,\s]+", rom.metadata.get("oplus_project_numbers", "")) if p]
+    phone = dev.facts.get("project", "").strip()
+    if not wanted or not phone:
+        return None
+    rom_nv, dev_nv = nv_hex(rom.metadata.get("oplus_hex_nv_id", "")), nv_hex(dev.facts.get("nv_id", ""))
+    nv = f" NV id: ROM {rom_nv}, phone {dev_nv}." if rom_nv and dev_nv else ""
+    if phone in wanted:
+        return Check("Project", PASS, f"Built for project {', '.join(wanted)}; the phone is {phone}.{nv}")
+    same_firmware = rom.product and dev.facts.get("product", "").upper() == rom.product.upper()
+    return Check(
+        "Project", WARN,
+        f"This ROM is built for hardware project {', '.join(wanted)}; the phone's hardware is project {phone}."
+        + nv + (" The phone runs this ROM's firmware line on other hardware (cross-flashed)." if same_firmware else "")
+        + " The phone's own updater (Software update, Local install) refuses packages for another project, "
+          "so it can't install this ROM itself. Flashing from the bootloader doesn't go through the updater, so "
+          "this check isn't made there; keep your backups, and don't relock the bootloader on a cross-flashed "
+          "phone.")
 
 
 def device_from_backup(folder: Path) -> DeviceState:
@@ -286,10 +339,15 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
 
     # 2. which phone
     alone = dev.source == "none"  # only the ROM's own checks; nothing about the phone is guessed
+    no_parts = alone or dev.source == "props"  # no partitions to read (no phone, or no root)
     if alone:
         add("Phone", BLOCK, "Connect your phone (rooted, over ADB) or choose a backup to compare this ROM with it.")
     else:
         add("Phone", INFO, dev.label)
+    if dev.source == "props":
+        add("Root", BLOCK, "No root: the phone's partitions can't be read, so its anti-rollback numbers and partition "
+                           "sizes aren't compared. The other checks use what Android reports. Flashing needs root "
+                           "(for the backup first) and an unlocked bootloader.")
 
     dev_codename = dev.facts.get("codename", "")
     if not rom.codename:
@@ -315,6 +373,10 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         elif rom.product and dev_product:
             add("Variant", PASS, f"Same variant: {prof.variant_name(dev_product)}.")
 
+    project = None if alone else project_check(rom, dev)
+    if project:
+        checks.append(project)
+
     # 3. firmware already known to be dangerous on the phone
     for issue in prof.issues_for(dev.props):
         add("Known issue", BLOCK if issue.severity == "danger" else WARN, issue.message)
@@ -337,10 +399,10 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         except (RomError, PayloadError) as e:
             add(f"AVB {name}", BLOCK, f"Couldn't read {name} from the ROM: {e}")
             continue
-        dev_idx = _avb_index(dev.read_current(name)) if dev.source != "none" else None
+        dev_idx = _avb_index(dev.read_current(name)) if not no_parts else None
         if rom_idx is None:
             add(f"AVB {name}", BLOCK, f"No AVB metadata in the ROM's {name}.")
-        elif alone:
+        elif no_parts:
             alone_idx.append(f"{name} {rom_idx}")
         elif dev_idx is None:
             add(f"AVB {name}", BLOCK, f"ROM rollback index {rom_idx}; the phone's current {name} couldn't be read.")
@@ -351,10 +413,10 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
 
     if alone_idx:
         add("Anti-rollback", INFO, "AVB rollback indexes: " + ", ".join(alone_idx)
-            + ". Compared with your phone once it's connected.")
+            + (". Compared with your phone once it's connected." if alone else ". Compared with your phone with root."))
 
-    # 6. Qualcomm anti-rollback (experimental): only meaningful against a phone
-    for name in [] if alone else prof.qcom_arb_images:
+    # 6. Qualcomm anti-rollback (experimental): only meaningful against a phone's partitions
+    for name in [] if no_parts else prof.qcom_arb_images:
         if not rom.image(name):
             continue
         try:
@@ -410,7 +472,7 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
                 items.append(PlanItem(img.name, img.size, "super", "super (logical)", logical=True,
                                       note=conditional_note if prof.is_conditional(img.name) else ""))
             continue
-        device_size = dev.size_of(img.name) if dev.source != "none" else None
+        device_size = dev.size_of(img.name) if not no_parts else None
         action = "conditional" if optional else "flash"
         note = conditional_note if prof.is_conditional(img.name) else ""
         if device_size is not None and img.size > device_size:
@@ -421,14 +483,14 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
 
     if too_big:
         add("Partition sizes", BLOCK, "Larger than the phone's partition: " + ", ".join(too_big))
-    elif dev.source != "none":
+    elif not no_parts:
         unknown = [i.partition for i in items if i.action in ("flash", "conditional") and not i.logical and i.device_size is None]
         if unknown:
             add("Partition sizes", WARN, "Sizes not known for: " + ", ".join(unknown))
         else:
             add("Partition sizes", PASS, "Every image fits its partition.")
 
-    if rom.payload and rom.payload.groups and dev.source != "none":
+    if rom.payload and rom.payload.groups and not no_parts:
         super_size = dev.size_of("super")
         needed = sum(g.size for g in rom.payload.groups)
         if super_size is not None and needed > super_size:

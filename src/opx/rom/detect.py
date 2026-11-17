@@ -176,5 +176,6 @@ def summary(d: Detection) -> tuple[str, str]:
     n = d.total_size
     size = f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
     first = f"OS: {os_part}" + (f"   ·   For: {phone}" if phone else "")
-    second = f"{kind} · {count} images · {size}" + (f" · missing {', '.join(d.missing)}" if d.missing else "")
+    project = d.rom.metadata.get("oplus_project_numbers", "") if d.rom else ""
+    second = f"{kind} · {count} images · {size}" + (f" · project {project}" if project else "") + (f" · missing {', '.join(d.missing)}" if d.missing else "")
     return first, second
