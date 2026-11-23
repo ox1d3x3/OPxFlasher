@@ -223,7 +223,7 @@ class CatalogDialog(QDialog):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        resuming = self.folder is not None and (self.folder / (rel.filename + ".part")).exists()
+        resuming = self.folder is not None and catalog.partial_download(self.folder, rel) is not None
         folder = str(self.folder) if resuming else QFileDialog.getExistingDirectory(
             self, "Save the ROM in", str(default_download_dir()))
         if not folder:

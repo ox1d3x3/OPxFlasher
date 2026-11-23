@@ -127,6 +127,39 @@ def test_download_checks_md5_and_size(tmp_path):
     assert seen[-1] == (len(PKG), len(PKG))
 
 
+
+def test_download_names_end_with_the_os_version():
+    r = rel(1)
+    assert r.filename == "PJZ110_11.F.70_5700_202610010000-16-0-5-700.zip"
+    assert r.legacy_filename == "PJZ110_11.F.70_5700_202610010000.zip"
+    # no OPPO package name: the catalog version already shows it, so it isn't repeated
+    plain = catalog.Release(id="x", device="OP 13", region="CN", model="PJZ110", version="PJZ110_17.0.1.202(CN01)")
+    assert plain.filename == "PJZ110_17.0.1.202(CN01).zip"
+    assert catalog.version_tag("CPH2653_16.0.10.600(EX01)") == "16-0-10-600"
+    assert catalog.version_tag("PJZ110_11.F.07_2070_202610080010") == ""
+    assert catalog.has_version("a-17-0-1-202", "17-0-1-202") and not catalog.has_version("a-17-0-1-2020", "17-0-1-202")
+    assert not catalog.has_version("x_117.0.1.202", "17-0-1-202")
+
+
+def test_download_paused_under_the_old_name_resumes_under_the_new(tmp_path, monkeypatch):
+    r = rel(1)
+    (tmp_path / (r.legacy_filename + ".part")).write_bytes(b"half")
+    (tmp_path / (r.legacy_filename + ".part.json")).write_text("{}")
+    assert catalog.partial_download(tmp_path, r) == tmp_path / (r.legacy_filename + ".part")
+    seen = {}
+
+    def fetch(url, out, headers, **kw):
+        seen["out"] = out
+        seen["files"] = sorted(p.name for p in tmp_path.iterdir())
+        return out
+
+    monkeypatch.setattr(catalog.otadl, "fetch", fetch)
+    catalog.download(r, tmp_path)
+    # the partial file and its resume state carry on under the new name
+    assert seen["out"] == tmp_path / r.filename
+    assert seen["files"] == [r.filename + ".part", r.filename + ".part.json"]
+    assert catalog.partial_download(tmp_path, r) == tmp_path / (r.filename + ".part")
+
 def test_download_rejects_wrong_md5_and_cleans_up(tmp_path):
     bad = PKG[:-1] + b"X"
     srv = Server({"https://ota.example/new.zip": bad})

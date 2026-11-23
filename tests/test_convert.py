@@ -407,6 +407,24 @@ def test_output_names_carry_the_region(tmp_path, product, name, want):
     assert folder.name == want and zip_out.name == want + ".zip"
 
 
+
+@pytest.mark.parametrize(("name", "meta", "want"), [
+    # a download from Official ROMs already ends with the version: it's kept, not repeated
+    ("PJZ110_11.F.07_2070_202610080010-17-0-1-202.zip", {}, "PJZ110_11.F.07_2070_202610080010-17-0-1-202-fullrom-CN"),
+    # an older download: the version comes from the ROM's own metadata
+    ("PJZ110_11.F.07_2070_202610080010.zip", {"post-display-id": "PJZ110_17.0.1.202(CN01)"},
+     "PJZ110_11.F.07_2070_202610080010-17-0-1-202-fullrom-CN"),
+    ("PJZ110_17.0.1.202(CN01).zip", {}, "PJZ110_17.0.1.202(CN01)-fullrom-CN"),  # already in the name
+    ("PJZ110_11.F.07_2070_202610080010.zip", {}, "PJZ110_11.F.07_2070_202610080010-fullrom-CN"),  # unknown: none
+    ("PJZ110_X-17-0-1-202-fullrom-CN.zip", {}, "PJZ110_X-17-0-1-202-fullrom-CN"),  # converted again
+])
+def test_output_names_carry_the_os_version(tmp_path, name, meta, want):
+    from opx.rom.ota import RomInfo
+
+    rom = RomInfo(path=tmp_path / name, kind="ota-zip")
+    rom.metadata = {"post-build": "OnePlus/PJZ110/dodge:17/X/1:user/release-keys", **meta}
+    assert cv.output_paths(rom, tmp_path)[1].name == want
+
 def test_converting_a_converted_rom_keeps_one_suffix(tmp_path):
     from opx.rom.ota import RomInfo
 

@@ -4,7 +4,8 @@ Input: anything opx.rom.ota.open_rom reads that holds a complete image set: a
 full OTA zip / payload.bin, an image folder, a fastboot flasher-kit zip, or a
 super.img set. Output:
 
-- ``<name>-fullrom-<REGION>.zip``: every image, raw (sparse expanded), split into
+- ``<name>-fullrom-<REGION>.zip`` (``<name>`` ends with the OS version when it's known,
+  e.g. ``-17-0-1-202``): every image, raw (sparse expanded), split into
   parts of at most 1 GiB (recovery ``unzip`` tools struggle with bigger
   entries), plus an installer (``META-INF/com/google/android/update-binary``,
   ``opx/recovery/rom-install.sh``) for TWRP-based recoveries (OrangeFox,
@@ -33,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from opx import __version__, lp
+from opx.catalog import has_version, version_tag
 from opx.flash import AVB_ORDER_LAST
 from opx.rom.ota import (
     FULLROM_JSON,
@@ -219,7 +221,20 @@ def output_name(rom: RomInfo) -> str:
     if stem in ("payload", "OTA_FILES_HERE", "images") and rom.product:
         stem = f"{rom.product}_{rom.build_incremental or rom.android}"
     stem = _SUFFIX.sub("", stem)
+    tag = rom_version_tag(rom)
+    if tag and not has_version(stem, tag):
+        stem += f"-{tag}"  # PJZ110_11.F.07_..._202610080010-17-0-1-202: the name says which build it is
     return re.sub(r"[^A-Za-z0-9._()+-]+", "_", stem).strip("_") or "rom"
+
+
+def rom_version_tag(rom: RomInfo) -> str:
+    """The ROM's OS version for file names ("17-0-1-202"), from its name or metadata; "" if unknown."""
+    meta = rom.metadata or {}
+    for text in (rom.path.name, meta.get("post-display-id", ""), meta.get("version_name", "")):
+        tag = version_tag(text)
+        if tag:
+            return tag
+    return ""
 
 
 def output_paths(rom: RomInfo, out_dir: Path) -> tuple[Path, Path]:

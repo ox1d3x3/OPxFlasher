@@ -332,7 +332,9 @@ holds the links. Command line: `opx ota snapshot --out <folder>`, `opx ota mirro
 - **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.
-  - **Download only** saves the full OTA zip (MD5 checked) and runs the ROM check on it.
+  - **Download only** saves the full OTA zip (MD5 checked) and runs the ROM check on it. The file is
+    OPPO's package name followed by the OS version, so you can see which build it is, e.g.
+    `PJZ110_11.F.07_2070_202610080010-17-0-1-202.zip` for PJZ110_17.0.1.202(CN01).
   - **Download and convert** also makes the full ROM you tick under *Convert for*:
     **OPxFlasher (image folder)** is ticked by default; tick **OrangeFox / AERA (recovery zip)**
     to get a recovery zip as well. If converting fails or is stopped, the download is kept.
@@ -356,9 +358,11 @@ install from a custom recovery, keeping your data:
 - **First it tells you what the ROM is:** type, phone and model, build, Android version, security
   patch, how many images (firmware vs. inside super), anything a full ROM normally has that's
   missing, and which partitions are never written (identity and personal data are always left out).
-- **Names end with the region** (CN, IN, EU, NA, GLO ...), from the phone model, e.g.
-  `PJZ110_11.C.93_1930_202608031342-fullrom-CN.zip` or `CPH2649_11.H.05_3050_202610210133-fullrom-IN`.
-  When the region can't be told for sure, it's left off rather than guessed.
+- **Names show the OS version and end with the region** (CN, IN, EU, NA, GLO ...), from the phone
+  model, e.g. `PJZ110_11.F.07_2070_202610080010-17-0-1-202-fullrom-CN.zip` or
+  `CPH2649_11.H.05_3050_202610210133-17-0-0-102-fullrom-IN`. The version comes from the package's name
+  or its metadata; when the version or the region can't be told for sure, it's left off rather than
+  guessed.
 - **Already converted?** If the output is already in that folder, OPxFlasher asks: **Verify and
   use** it (fully verified first, never reused if damaged) or **Replace** it. *Download and
   convert* verifies and reuses it automatically.

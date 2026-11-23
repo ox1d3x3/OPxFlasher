@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import tempfile
 import urllib.error
 import urllib.parse
@@ -79,10 +81,55 @@ class Release:
         return f"{self.size / 1e9:.2f} GB" if self.size >= 1e9 else f"{self.size / 1e6:.0f} MB"
 
     @property
-    def filename(self) -> str:
+    def legacy_filename(self) -> str:
+        """The name downloads had before it carried the OS version (rc.35 and older)."""
         base = self.ota_version or self.version or self.id
-        safe = "".join(c if c.isalnum() or c in "._-()" else "_" for c in base)
-        return f"{safe}.zip"
+        return "".join(c if c.isalnum() or c in "._-()" else "_" for c in base) + ".zip"
+
+    @property
+    def filename(self) -> str:
+        """OPPO's package name, then the OS version, so the file says which build it is:
+        PJZ110_11.F.07_2070_202610080010-17-0-1-202.zip."""
+        stem = self.legacy_filename[: -len(".zip")]
+        tag = version_tag(self.version) or version_tag(self.ota_version)
+        if tag and not has_version(stem, tag):
+            stem += f"-{tag}"
+        return f"{stem}.zip"
+
+
+_DOTTED_VERSION = re.compile(r"(?<!\d)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,4})(?!\d)")
+
+
+def version_tag(text: str) -> str:
+    """The OS version for file names: 'PJZ110_17.0.1.202(CN01)' -> '17-0-1-202'; '' if there's none."""
+    m = _DOTTED_VERSION.search(text or "")
+    return "-".join(m.groups()) if m else ""
+
+
+def has_version(name: str, tag: str) -> bool:
+    """Does a file name already show this version (17.0.1.202 or 17-0-1-202)?"""
+    dotted = tag.replace("-", ".")
+    return any(re.search(rf"(?<!\d){re.escape(v)}(?!\d)", name) for v in (tag, dotted))
+
+
+def partial_download(folder: Path, release: Release) -> Path | None:
+    """The paused download of this release in `folder`, under its current or its older name."""
+    for name in dict.fromkeys((release.filename, release.legacy_filename)):
+        part = Path(folder) / (name + ".part")
+        if part.exists():
+            return part
+    return None
+
+
+def _adopt_legacy_partial(dest_dir: Path, release: Release) -> None:
+    """A download paused before names carried the version resumes under the new name."""
+    new, old = Path(dest_dir) / release.filename, Path(dest_dir) / release.legacy_filename
+    if new == old or new.with_name(new.name + ".part").exists():
+        return
+    for suffix in (".part", ".part.json"):
+        src = old.with_name(old.name + suffix)
+        if src.exists():
+            os.replace(src, new.with_name(new.name + suffix))
 
 
 def cache_dir() -> Path:
@@ -311,6 +358,7 @@ def download(release: Release, dest_dir: Path,
     cancelled (the partial file stays for resuming), CatalogError otherwise."""
     if not release.source_url.startswith("https://"):
         raise CatalogError("This release has no secure download link.")
+    _adopt_legacy_partial(dest_dir, release)
     try:
         return otadl.fetch(
             release.source_url, dest_dir / release.filename,
