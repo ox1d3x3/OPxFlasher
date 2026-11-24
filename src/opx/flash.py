@@ -157,7 +157,7 @@ def region_change(report: Report | None) -> bool:
 
 @dataclass
 class Step:
-    kind: str  # to-bootloader, preflight, flash, to-fastbootd, snapshot, flash-logical, flash-super, back-to-bootloader, wipe, reboot
+    kind: str  # to-bootloader, preflight, wipe, flash, flash-super, to-fastbootd, snapshot, flash-logical, back-to-bootloader, reboot(-from-fastbootd)
     partition: str = ""
     status: str = "pending"  # pending, done, failed
     detail: str = ""
@@ -189,6 +189,7 @@ class Step:
             "back-to-bootloader": "Reboot back to bootloader",
             "wipe": "Wipe data (factory reset)",
             "reboot": "Reboot to Android",
+            "reboot-from-fastbootd": "Reboot to Android",
         }[self.kind]
 
     @property
@@ -196,7 +197,7 @@ class Step:
         """The mode the phone must be in before this step runs."""
         if self.kind in ("preflight", "flash", "flash-super", "flash-current", "flash-image", "to-fastbootd", "wipe", "reboot"):
             return "bootloader"
-        if self.kind in ("snapshot", "flash-logical", "back-to-bootloader"):
+        if self.kind in ("snapshot", "flash-logical", "back-to-bootloader", "reboot-from-fastbootd"):
             return "fastbootd"
         return None
 
@@ -308,7 +309,14 @@ def _restore_targets(options, profile, backup_folder, chosen, problems, skip=fro
 def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems) -> list[Step]:
     physical = [Step("flash", n) for n in rom_physical] + [Step("flash", n, source="backup") for n in restore_physical]
     physical.sort(key=lambda st: (AVB_ORDER_LAST.index(st.partition) + 1) if st.partition in AVB_ORDER_LAST else 0)
-    steps = [Step("to-bootloader"), Step("preflight"), *physical]
+    steps = [Step("to-bootloader"), Step("preflight")]
+    # The wipe runs first, while the bootloader is still the phone's own. A region conversion writes a
+    # new abl, and a ColorOS / OxygenOS 17 abl is reported to leave bootloader fastboot within a second
+    # on Chinese OnePlus 13 hardware, so a wipe planned after it might never run. Every later step
+    # (fastbootd, reboot) doesn't need the bootloader's fastboot mode.
+    if options.wipe_data:
+        steps.append(Step("wipe"))
+    steps += physical
     if super_image:
         steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
 
@@ -321,9 +329,10 @@ def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_
             hint = " or use a ROM folder that includes super.img" if rom_logical else ""
             problems.append(f"Flashing {names} (logical partitions) needs fastbootd. Allow fastbootd{hint}.")
         else:
-            steps += [Step("to-fastbootd"), Step("snapshot"), *logical, Step("back-to-bootloader")]
-    if options.wipe_data:
-        steps.append(Step("wipe"))
+            steps += [Step("to-fastbootd"), Step("snapshot"), *logical]
+            # finish from fastbootd: going back to the bootloader would go through the new abl
+            steps.append(Step("reboot-from-fastbootd" if options.reboot_after else "back-to-bootloader"))
+            return steps
     if options.reboot_after:
         steps.append(Step("reboot"))
     return steps
@@ -629,7 +638,7 @@ class Runner:
         if step.kind == "wipe":
             fb.wipe_data()
             return "userdata and metadata erased"
-        if step.kind == "reboot":
+        if step.kind in ("reboot", "reboot-from-fastbootd"):
             fb.reboot()
             return "rebooting to Android"
         raise FlashError(f"unknown step {step.kind}")

@@ -147,7 +147,8 @@ Flashing only starts when **every** gate passes:
    Qualcomm ARB reader, which you can override only by typing `ARB CHECKED` after
    checking the numbers yourself. A lower ARB, a lower AVB index, a different
    device or an incremental OTA can never be overridden.
-2. A verified **Critical or Full backup of this phone** is selected (same serial and model).
+2. A verified **Critical or Full backup of this phone** is selected (same serial; the model may differ only
+   when the phone was converted to another region of the same phone).
 3. The phone's current firmware is not known to break the reboot that is needed.
    On ColorOS 17 CN, OPxFlasher refuses to reboot to the bootloader or fastbootd at all.
 4. You type `FLASH`.
@@ -158,11 +159,16 @@ How it flashes:
 - Physical partitions go to **both slots** from the bootloader; `vbmeta` is written last.
 - Logical partitions come from a `super.img` (flashed from the bootloader, no fastbootd),
   or through fastbootd only if you allow it and the firmware isn't flagged.
+- A factory reset (`--wipe`, required for a region conversion) runs **first**, right after the
+  bootloader check, while the bootloader is still the phone's own. With fastbootd, the flash ends
+  there with a plain reboot instead of going back to the bootloader: a ColorOS / OxygenOS 17
+  bootloader is reported to leave fastboot mode within a second on Chinese OnePlus 13 hardware.
 - Never-flash partitions are refused again at the moment of writing.
 - Every step is saved to `journal.json`. The run stops at the first error, and
   `opx flash --resume journal.json` continues without repeating finished steps.
   **Stop** waits for the current step; a running write is never interrupted.
-- Optional: factory reset (`--wipe`), stay in bootloader (`--no-reboot`),
+- Optional: factory reset (`--wipe`), don't reboot at the end (`--no-reboot`: the phone stays in the bootloader,
+  or goes back to it from fastbootd),
   flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
 
 ## Restore the whole ROM from a backup
@@ -299,7 +305,10 @@ flash a single image, such as a recovery, a (patched) boot or init_boot, vendor_
 dtbo or vbmeta, to the current slot, the other slot or both.
 It refuses partitions holding the phone's identity or your data, partitions inside
 `super` (use a full ROM flash), files of the wrong type (e.g. a vbmeta into boot), images
-bigger than the partition, and firmware with a broken bootloader. `--disable-verity`
+bigger than the partition, firmware with a broken bootloader, and the **bootloader chain**
+(`abl`, `xbl`, `xbl_config`, `tz`, `hyp`, ...): one from another build can trip Qualcomm
+anti-rollback, and a phone that can't start its bootloader can't be fixed with fastboot, so
+those are only written as part of a full ROM after the ROM check. `--disable-verity`
 (vbmeta only) flashes with verity and verification off. As for every flash, a Critical or
 Full backup of this phone is required, the image is re-hashed right before writing, and
 you confirm by typing FLASH. If the phone is already in fastboot, the backup tells

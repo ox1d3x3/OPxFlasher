@@ -67,7 +67,10 @@ def test_vbmeta_with_verity_disabled(adb, fastboot, phone, fb_state, tmp_path):
     ("persist", b"x" * 512, "never flashed"),
     ("userdata", b"x" * 512, "never flashed"),
     ("system", b"x" * 512, "inside 'super'"),
-], ids=["vbmeta-as-boot", "boot-as-vbmeta", "unknown-dtbo", "too-large", "persist", "userdata", "system"])
+    ("abl", b"\x7fELF" + b"\0" * 508, "bootloader chain"),
+    ("xbl_config_a", b"\x7fELF" + b"\0" * 508, "bootloader chain"),
+], ids=["vbmeta-as-boot", "boot-as-vbmeta", "unknown-dtbo", "too-large", "persist", "userdata", "system", "abl",
+        "xbl_config"])
 def test_refused_and_nothing_written(adb, fastboot, phone, fb_state, tmp_path, partition, data, why):
     s, plan, _ = go(adb, fastboot, tmp_path, partition, data)
     assert not plan.ok and any(why in p for p in plan.problems), plan.problems
@@ -92,6 +95,12 @@ def test_image_changed_after_check_is_not_written(adb, fastboot, phone, fb_state
     (tmp_path / "x.img").write_bytes(BOOT.replace(b"my-custom", b"evil-swap"))
     with pytest.raises(fl.FlashError, match="changed"):
         run(plan, s, adb, fastboot, tmp_path)
+
+
+def test_boot_chain_names():
+    assert all(sg.boot_chain(n) for n in ("abl", "abl_b", "XBL", "xbl_config", "tz_a", "hyp", "aop_config"))
+    assert not any(sg.boot_chain(n) for n in ("boot", "init_boot", "vbmeta", "dtbo", "recovery", "ablx"))
+    assert sg.boot_chain("modem", extra=["modem"])  # a profile's anti-rollback images count too
 
 
 def test_unknown_image_type_is_a_warning(tmp_path):

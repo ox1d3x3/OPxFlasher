@@ -241,3 +241,20 @@ def test_backup_model_change_needs_same_serial_and_known_variants(adb, phone, tm
     assert any("model" in p for p in fl.check_backup(folder, {"serial": "FAKE0001", "model": "CPH9999"}, prof))
     assert any("serial" in p for p in fl.check_backup(folder, {"serial": "OTHER", "model": "PJZ110"}, prof))
     assert any("model" in p for p in fl.check_backup(folder, {"serial": "OTHER", "model": "CPH2653"}, prof))
+
+
+def test_conversion_wipes_before_the_new_bootloader_and_ends_in_fastbootd(adb, fastboot, phone, fb_state, tmp_path):
+    """A 17 abl may leave bootloader fastboot within a second on CN hardware: nothing after the first
+    write may need the bootloader's fastboot mode."""
+    options = fl.FlashOptions(wipe_data=True, restore_from_backup=RESTORE, **CONVERT)
+    plan, runner, *_ = prepare(adb, fastboot, tmp_path, options, rom=rom_for(tmp_path))
+    kinds = [s.kind for s in plan.steps]
+    assert kinds[:3] == ["to-bootloader", "preflight", "wipe"]
+    first_write = next(i for i, k in enumerate(kinds) if k.startswith("flash"))
+    assert all(s.mode != "bootloader" for s in plan.steps[first_write:] if s.kind.startswith(("to-", "reboot", "wipe"))
+               and s.kind != "to-fastbootd")
+    assert kinds[-1] == "reboot-from-fastbootd" and "back-to-bootloader" not in kinds
+    runner.run()
+    log = fb_state.read()["log"]
+    assert log.index(next(e for e in log if e.startswith("wipe") or e.startswith("erase") or "-w" in e)) < \
+        log.index(next(e for e in log if e.startswith("flash")))

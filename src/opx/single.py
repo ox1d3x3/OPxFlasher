@@ -6,12 +6,15 @@ bootloader, check it's unlocked, re-hash the image, check it fits, write it.
 Refused: never-flash partitions (identity and personal data), partitions inside
 `super` (those need fastbootd; use a full ROM flash), images whose type doesn't
 match the partition (e.g. a vbmeta into boot), images larger than the
-partition, and firmware known to break the bootloader. A backup of this phone
-is required, as for every flash.
+partition, firmware known to break the bootloader, and the bootloader chain
+itself (abl, xbl, tz ...: an image from another build can trip Qualcomm
+anti-rollback, and a phone that can't start its bootloader needs an authorised
+EDL repair). A backup of this phone is required, as for every flash.
 """
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from opx.flash import FlashOptions, FlashPlan, Step, check_backup, sha256_file
@@ -31,6 +34,18 @@ KINDS = {
     "dtbo": DTBO,
 }
 VERITY_FLAGS = ("--disable-verity", "--disable-verification")
+
+# Qualcomm boot-chain and trusted firmware: never flashed one at a time. Each carries an anti-rollback
+# version OPxFlasher can't check against the phone yet, and these are what a phone starts before the
+# bootloader's fastboot mode, so a bad one can't be fixed with fastboot.
+BOOT_CHAIN = ("abl", "xbl", "xbl_*", "tz", "hyp", "devcfg", "aop", "aop_*", "uefi", "uefisecapp", "keymaster",
+              "qupfw", "cpucp", "cpucp_*", "shrm", "imagefv", "rpm", "pmic", "storsec", "featenabler",
+              "multiimgoem", "multiimgqti", "tzsc", "secdata", "apdp", "msadp", "hwfw")
+
+
+def boot_chain(partition: str, extra=()) -> bool:
+    base = partition[:-2] if partition.endswith(("_a", "_b")) else partition
+    return any(fnmatch.fnmatchcase(base.lower(), pat) for pat in (*BOOT_CHAIN, *extra))
 
 
 def expected_magic(partition: str) -> bytes | None:
@@ -86,6 +101,10 @@ def prepare_image_flash(
                         "Flashing is disabled.")
     if device.profile.is_never_flash(partition):
         problems.append(f"{partition} is never flashed: it holds this phone's identity or your personal data.")
+    if boot_chain(partition, device.profile.qcom_arb_images):
+        problems.append(f"{partition} is part of the bootloader chain and isn't flashed on its own: one from another "
+                        "build can trip anti-rollback, and a phone that can't start its bootloader can't be fixed "
+                        "with fastboot. It's only written as part of a full ROM, after the ROM check.")
     if partition in device.logical or partition == "super":
         problems.append(f"{partition} is inside 'super' and needs fastbootd. Use a full ROM flash for it.")
     p, w = check_image(partition, image)
