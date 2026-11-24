@@ -179,6 +179,7 @@ OnePlus 13 hardware comes before the final 0.7.0 release.
 |---|---|
 | [User guide](docs/USER_GUIDE.md) | Every feature: backup, ROM check, flashing, restore, region, root, rescue, apps, diagnostics |
 | [Command-line reference](docs/CLI.md) | All `opx` commands |
+| [Convert to Global](docs/CONVERT_TO_GLOBAL.md) | Step by step: a Chinese OnePlus 13 to Global / EU / India |
 | [Adding a device](docs/ADDING_A_DEVICE.md) | Write and test a profile for a new phone |
 | [Translating](docs/TRANSLATING.md) | Translate the app into your language |
 | [Contributing](CONTRIBUTING.md) | Development setup, tests and pull requests |

@@ -237,7 +237,7 @@ Some phones use a different device codename in each region (OnePlus 13: `OP5D0DL
 `OP5D55L1` EU / India). Those listed in the phone's profile count as the same phone, so a Global ROM on
 a Chinese OnePlus 13 reaches this conversion mode. After converting, the phone reports its new model
 (e.g. CPH2653); your backup from before still counts as this phone's, because the serial number
-matches.
+matches. Step by step: **[Convert to Global](CONVERT_TO_GLOBAL.md)**.
 
 **Signal restore on its own** (no ROM), for after an update took the signal away:
 the *Signal / region* tab or `opx region restore`. Restore `oplusstanvbk` first; restore
