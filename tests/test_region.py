@@ -16,9 +16,9 @@ IN_PARTS = {**ROM_PARTS, "oplusstanvbk": b"I" * 4096, "my_region": b"N" * 4096}
 RESTORE = ["oplusstanvbk", "my_region"]
 
 
-def rom_for(tmp_path, product="CPH2649", parts=None, folder=False):
+def rom_for(tmp_path, product="CPH2649", parts=None, folder=False, codename="testdevice"):
     parts = parts or IN_PARTS
-    meta = rf.ota_metadata(product=product)
+    meta = rf.ota_metadata(product=product, codename=codename)
     if folder:
         d = tmp_path / "romdir"
         (d / "META-INF" / "com" / "android").mkdir(parents=True)
@@ -188,3 +188,56 @@ def test_odm_is_always_flashed_with_the_rom(adb, phone, tmp_path):
     odm = next(i for i in report.items if i.partition == "odm")
     assert odm.action in ("flash", "super") and "build content" in odm.note
     assert fl.keepable(report, ["odm"]) == []
+
+
+def set_props(phone, **changes):
+    props = json.loads((phone / "props.json").read_text())
+    props.update(changes)
+    (phone / "props.json").write_text(json.dumps(props))
+
+
+def test_china_phone_converts_to_global_with_real_codenames(adb, fastboot, phone, fb_state, tmp_path):
+    """A PJZ110 (OP5D0DL1) taking a CPH2653 (OP5D55L1) ROM: the same phone in another region, so it
+    reaches the Variant check (confirmable) instead of a Device match STOP. Afterwards the phone reports
+    CPH2653, and the backup made before the conversion still restores its signal files."""
+    set_props(phone, **{"ro.product.device": "OP5D0DL1", "ro.product.model": "PJZ110", "ro.product.name": "PJZ110"})
+    rom = rom_for(tmp_path, product="CPH2653", codename="OP5D55L1")
+    device = pn.device_from_session(open_session("FAKE0001", adb))
+    report = pn.build_report(rom, device)
+    checks = {c.name: c for c in report.checks}
+    assert checks["Device match"].status == "pass" and "other region" in checks["Device match"].detail
+    assert checks["Variant"].status == "block" and fl.region_change(report)
+
+    options = fl.FlashOptions(wipe_data=True, restore_from_backup=RESTORE, **CONVERT)
+    plan, runner, folder, orig = prepare(adb, fastboot, tmp_path, options, rom=rom)
+    assert plan.ok, plan.problems
+    runner.run()
+    assert fb_state.read()["wiped"] is True
+    assert (phone / "mapper" / "system_a").read_bytes() == rf.pad(ROM_PARTS["system"])
+
+    # now running Global firmware: model and codename changed, serial didn't
+    set_props(phone, **{"ro.product.device": "OP5D55L1", "ro.product.model": "CPH2653", "ro.product.name": "CPH2653"})
+    simulate_ota_overwrite(phone)
+    converted = pn.device_from_session(open_session("FAKE0001", adb))
+    assert converted.facts["model"] == "CPH2653"
+    assert fl.check_backup(folder, converted.facts, converted.profile) == []
+    restore = fl.prepare_restore(converted, folder, fl.FlashOptions(restore_from_backup=RESTORE, allow_fastbootd=True))
+    assert restore.ok, restore.problems
+
+
+def test_other_phone_codenames_still_block(adb, phone, tmp_path):
+    set_props(phone, **{"ro.product.device": "OP5D0DL1"})
+    rom = rom_for(tmp_path, product="CPH2653", codename="OP5D77L1")  # not a OnePlus 13 codename
+    r = pn.build_report(rom, pn.device_from_session(open_session("FAKE0001", adb)))
+    assert next(c for c in r.checks if c.name == "Device match").status == "block"
+
+
+def test_backup_model_change_needs_same_serial_and_known_variants(adb, phone, tmp_path):
+    folder = backup_of(adb, tmp_path)
+    prof = load("oneplus-13")
+    ok = {"serial": "FAKE0001", "model": "CPH2653"}
+    assert fl.check_backup(folder, ok, prof) == []
+    assert any("different phone" in p for p in fl.check_backup(folder, ok))  # no profile: model must match
+    assert any("model" in p for p in fl.check_backup(folder, {"serial": "FAKE0001", "model": "CPH9999"}, prof))
+    assert any("serial" in p for p in fl.check_backup(folder, {"serial": "OTHER", "model": "PJZ110"}, prof))
+    assert any("model" in p for p in fl.check_backup(folder, {"serial": "OTHER", "model": "CPH2653"}, prof))

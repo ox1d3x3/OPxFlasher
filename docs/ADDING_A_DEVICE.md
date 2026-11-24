@@ -25,6 +25,7 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
   "inherits": "oplus-generic",
   "match": { "ro.product.model": ["PJD110", "CPH2581", "CPH2583", "CPH2573"] },
   "variants": { "PJD110": "China", "CPH2581": "EU", "CPH2583": "NA", "CPH2573": "India" },
+  "codenames": ["OP595DL1", "OP595EL1"],
   "recovery_boards": ["waffle"],
   "notes": "Where the variant list came from, anything special about this phone."
 }
@@ -35,6 +36,10 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
 - `known_issues` (optional): builds that brick on certain reboots, e.g.
   `{"match": {"ro.build.display.id": "CPH2581_15.0.0.1*"}, "severity": "danger", "blocks": ["fastbootd"], "message": "..."}`.
   `blocks` may contain `fastbootd` and `bootloader`.
+- `codenames` (optional): the phone's `ro.product.device` in each region, when they differ (OnePlus 13:
+  `OP5D0DL1` China, `OP5D55L1` EU / India). Listed codenames count as the same phone, so a ROM for another
+  region reaches the Variant check (the user confirms the change) instead of a Device match STOP. Leave a
+  region out until you've seen its real value: an unknown codename still stops.
 - `recovery_boards` (optional): the board name custom recoveries report (for restore zips).
 - `keep_apps` (optional): apps the **Apps** tab must never remove on this phone, e.g.
   `["com.oplus.battery", "com.oplus.telephony*"]` (a trailing `*` matches a prefix). Only adds to the built-in list.

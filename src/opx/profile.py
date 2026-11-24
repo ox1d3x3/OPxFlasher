@@ -70,6 +70,7 @@ class Profile:
     conditional: list[str] = field(default_factory=list)
     avb_images: list[str] = field(default_factory=list)
     variants: dict[str, str] = field(default_factory=dict)  # model number -> region name
+    codenames: list[str] = field(default_factory=list)  # OTA codenames of this one phone (they differ by region)
     recovery_boards: list[str] = field(default_factory=list)  # names custom recoveries report (restore zip)
     keep_apps: list[str] = field(default_factory=list)  # packages debloat never removes ("pkg" or "prefix*")
     rollback_fuse: str = ""  # OS version (e.g. "16.0.3.501") from which installing an older build blows a fuse
@@ -87,6 +88,17 @@ class Profile:
         if is_user_data(partition):
             return True
         return any(PartitionRule(p, False).matches(partition) for p in self.never_flash)
+
+    def same_phone(self, a: str, b: str) -> bool:
+        """Are two device codenames the same phone? Equal ones are; different ones only when this
+        profile lists both (e.g. OnePlus 13: OP5D0DL1 China, OP5D55L1 EU / India)."""
+        if a == b:
+            return True
+        known = {c.upper() for c in self.codenames}
+        return bool(a and b and a.upper() in known and b.upper() in known)
+
+    def is_variant(self, model: str) -> bool:
+        return model.upper() in {m.upper() for m in self.variants}
 
     def variant_name(self, model: str) -> str:
         """e.g. "OnePlus 13 China (PJZ110)"; falls back to the model number."""
@@ -107,7 +119,7 @@ GENERIC = "oplus-generic"
 ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
-              "conditional", "avb_images", "variants", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
+              "conditional", "avb_images", "variants", "codenames", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
               "qcom_arb_validated"}
 
 
@@ -183,6 +195,12 @@ def validate(raw: dict, builtin: bool = False) -> list[str]:
     variants = raw.get("variants", {})
     if not isinstance(variants, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in variants.items()):
         errors.append("variants must map model numbers to region names")
+    codenames = raw.get("codenames", [])
+    if not isinstance(codenames, list) or not all(isinstance(c, str) and re.fullmatch(r"[A-Za-z0-9_.-]{2,40}", c)
+                                                  for c in codenames):
+        errors.append("codenames must be a list of device codenames (ro.product.device), e.g. [\"OP5D0DL1\"]")
+    if codenames and pid == GENERIC:
+        errors.append("codenames belong in a device profile, not the generic one")
     boards = raw.get("recovery_boards", [])
     if not isinstance(boards, list) or not all(isinstance(b, str) and b for b in boards):
         errors.append("recovery_boards must be a list of names")
@@ -246,6 +264,7 @@ def _build(raw: dict) -> Profile:
         conditional=raw.get("conditional", []),
         avb_images=raw.get("avb_images", ["vbmeta"]),
         variants=raw.get("variants", {}),
+        codenames=raw.get("codenames", []) if raw.get("id") != GENERIC else [],
         recovery_boards=raw.get("recovery_boards", []),
         keep_apps=raw.get("keep_apps", []),
         rollback_fuse=raw.get("rollback_fuse", ""),

@@ -221,7 +221,7 @@ def prepare_flash(
     reboot_after: bool = True,
 ) -> FlashPlan:
     """purpose: "root" (flash the patched image) or "unroot" (flash stock back)."""
-    problems = check_backup(backup_folder, device.facts)
+    problems = check_backup(backup_folder, device.facts, device.profile)
     blocked = device.profile.blocked_actions(device.props)
     if "bootloader" in blocked:
         problems.append("This phone's current firmware is known to break the bootloader's fastboot mode. Flashing is disabled.")

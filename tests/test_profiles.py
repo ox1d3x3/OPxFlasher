@@ -65,6 +65,7 @@ def test_user_files_never_replace_builtins(user_dir):
     ({**GOOD, "known_issues": [{"match": {}, "message": "x", "blocks": ["edl"]}]}, "blocks"),
     ({**GOOD, "surprise": 1}, "unknown keys"),
     ({**GOOD, "never_flash": ["../etc"]}, "bad partition"),
+    ({**GOOD, "codenames": ["OP5D0DL1", "bad name!"]}, "codenames"),
 ])
 def test_invalid_profiles_are_rejected_and_ignored(user_dir, bad, why):
     f = write(user_dir, bad, "candidate")
@@ -85,3 +86,10 @@ def test_cli_profile_commands(user_dir, tmp_path, capsys):
     assert "oneplus-12" in out and "user" in out and "oneplus-13" in out
     f.write_text(json.dumps({**GOOD, "id": "oneplus-13"}))
     assert cli.main(["profile", "install", str(f)]) == 3
+
+
+def test_one_phone_with_several_region_codenames():
+    p = profiles.load("oneplus-13")
+    assert p.same_phone("OP5D0DL1", "OP5D55L1") and p.same_phone("op5d55l1", "OP5D0DL1")
+    assert p.same_phone("x", "x") and not p.same_phone("OP5D0DL1", "OP5D77L1") and not p.same_phone("", "OP5D0DL1")
+    assert not profiles.load("oneplus-15").same_phone("OP5D0DL1", "OP5D55L1")

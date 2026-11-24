@@ -81,8 +81,12 @@ def overridable_blocks(report: Report, key: str | None = None) -> list:
     return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
 
-def check_backup(folder: Path | None, facts: dict[str, str]) -> list[str]:
-    """A verified Critical or Full backup of this phone is required before flashing."""
+def check_backup(folder: Path | None, facts: dict[str, str], profile: Profile | None = None) -> list[str]:
+    """A verified Critical or Full backup of this phone is required before flashing.
+
+    The serial number says which phone it is. The model changes when the phone is converted to another
+    region (PJZ110 -> CPH2653), so a backup from before the conversion still counts when the serials
+    match and both models are variants of the phone's profile."""
     if folder is None:
         return ["Choose a backup of this phone (Critical or Full) before flashing."]
     manifest_path = Path(folder) / "manifest.json"
@@ -95,9 +99,14 @@ def check_backup(folder: Path | None, facts: dict[str, str]) -> list[str]:
     if manifest.get("mode") not in ("critical", "full"):
         problems.append("Use a Critical or Full backup; Network-only isn't enough to recover from a bad flash.")
     dev = manifest.get("device", {})
-    for key, label in (("serial", "serial"), ("model", "model")):
-        if dev.get(key) and facts.get(key) and dev[key] != facts[key]:
-            problems.append(f"The backup is from a different phone ({label} {dev[key]}, this phone {facts[key]}).")
+    same_serial = bool(dev.get("serial") and facts.get("serial") and dev["serial"] == facts["serial"])
+    if dev.get("serial") and facts.get("serial") and not same_serial:
+        problems.append(f"The backup is from a different phone (serial {dev['serial']}, this phone {facts['serial']}).")
+    if dev.get("model") and facts.get("model") and dev["model"] != facts["model"]:
+        converted = (same_serial and profile is not None
+                     and profile.is_variant(dev["model"]) and profile.is_variant(facts["model"]))
+        if not converted:
+            problems.append(f"The backup is from a different phone (model {dev['model']}, this phone {facts['model']}).")
     parts = manifest.get("partitions", [])
     failed = [p["name"] for p in parts if p.get("status") == "failed"]
     if failed:
@@ -217,7 +226,7 @@ def prepare(
     problems: list[str] = []
     for c in hard_blocks(report, options.overrides):
         problems.append(f"{c.name}: {c.detail}")
-    problems += check_backup(backup_folder, device.facts)
+    problems += check_backup(backup_folder, device.facts, device.profile)
 
     blocked = device.profile.blocked_actions(device.props)
     if "bootloader" in blocked:
@@ -322,7 +331,7 @@ def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_
 
 def prepare_restore(device: DeviceState, backup_folder: Path | None, options: FlashOptions) -> FlashPlan:
     """Restore only the region files from a backup (e.g. after an OTA replaced them). No ROM involved."""
-    problems = check_backup(backup_folder, device.facts)
+    problems = check_backup(backup_folder, device.facts, device.profile)
     blocked = device.profile.blocked_actions(device.props)
     if "bootloader" in blocked:
         problems.append("This phone's current firmware is known to break the bootloader's fastboot mode. Restoring is disabled.")

@@ -30,6 +30,10 @@
     "CPH2655": "NA",
     "CPH2649": "India"
   },
+  "codenames": [
+    "OP5D0DL1",
+    "OP5D55L1"
+  ],
   "recovery_boards": [
     "dodge"
   ],

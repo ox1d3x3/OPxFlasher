@@ -227,6 +227,12 @@ device, OPxFlasher:
   (both slots), and `my_region` when the new ROM's vbmeta doesn't check it, back
   **from your backup**, so the modem keeps the setup that works with your SIM.
 
+Some phones use a different device codename in each region (OnePlus 13: `OP5D0DL1` China,
+`OP5D55L1` EU / India). Those listed in the phone's profile count as the same phone, so a Global ROM on
+a Chinese OnePlus 13 reaches this conversion mode. After converting, the phone reports its new model
+(e.g. CPH2653); your backup from before still counts as this phone's, because the serial number
+matches.
+
 **Signal restore on its own** (no ROM), for after an update took the signal away:
 the *Signal / region* tab or `opx region restore`. Restore `oplusstanvbk` first; restore
 `my_region` only from a backup of the build that's installed now, because the installed vbmeta may

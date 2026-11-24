@@ -356,10 +356,14 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         add("For", INFO, " ".join(x for x in (rom.product, f"({rom.codename})") if x) + ".")
     elif not dev_codename:
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.")
-    elif rom.codename != dev_codename:
+    elif not prof.same_phone(rom.codename, dev_codename):
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', this phone is '{dev_codename}'.")
     else:
-        add("Device match", PASS, f"Both are '{rom.codename}'.")
+        if rom.codename == dev_codename:
+            add("Device match", PASS, f"Both are '{rom.codename}'.")
+        else:
+            add("Device match", PASS, f"Same phone, other region: '{rom.codename}' and '{dev_codename}' are both "
+                                      f"{prof.name}.")
         dev_product = dev.facts.get("product", "")
         if rom.product and dev_product and rom.product.upper() != dev_product.upper():
             add(
@@ -370,6 +374,9 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
                 "and mobile network may need your own backed-up oplusstanvbk and my_region. "
                 "Confirm the variant change to continue.",
             )
+        elif rom.codename != dev_codename:
+            add("Variant", BLOCK, f"This ROM is for another region of {prof.name} ('{rom.codename}'). Flashing it "
+                                  "changes the region: a data wipe is needed. Confirm the variant change to continue.")
         elif rom.product and dev_product:
             add("Variant", PASS, f"Same variant: {prof.variant_name(dev_product)}.")
 

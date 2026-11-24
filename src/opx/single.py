@@ -75,7 +75,7 @@ def prepare_image_flash(
     """Returns the plan and warnings to show the user (plan.problems block it)."""
     check_name(partition)
     image = Path(image)
-    problems = check_backup(backup_folder, device.facts)
+    problems = check_backup(backup_folder, device.facts, device.profile)
     warnings: list[str] = []
     if slot not in SLOTS:
         raise ValueError(slot)
