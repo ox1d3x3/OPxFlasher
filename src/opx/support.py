@@ -37,6 +37,47 @@ def bootloader_text(props: dict[str, str]) -> str:
     }.get(state, "Unknown")
 
 
+def fastboot_info(serial: str) -> dict[str, str]:
+    """What the bootloader / fastbootd tells about the phone (read-only getvars)."""
+    from opx import profile as profiles
+    from opx.fastboot import Fastboot
+    from opx.tools import Tool
+
+    fb = Fastboot(Tool("fastboot", serial=serial), profiles.load("oplus-generic"))
+    info = {}
+    for key in ("product", "current-slot", "unlocked", "is-userspace", "version-bootloader", "secure"):
+        try:
+            info[key] = fb.getvar(key) or ""
+        except Exception:  # noqa: BLE001  a getvar the phone doesn't know is just left out
+            info[key] = ""
+    return info
+
+
+def fastboot_panel(info: dict[str, str], last_props: dict[str, str] | None = None) -> dict[str, str]:
+    """Phone-panel texts for a phone in fastboot. Model and build come from the last time the phone
+    was connected in Android (same serial), marked as such; the bootloader can't tell them."""
+    from opx import backup as bk
+    from opx import profile as profiles
+
+    out = {}
+    if last_props:
+        facts = bk.device_facts(last_props)
+        prof = profiles.detect(last_props)
+        for key in ("model", "build", "android", "security_patch"):
+            if facts.get(key):
+                out[key] = facts[key] + (" (last seen in Android)" if key == "build" else "")
+        out["variant"] = prof.variant_name(facts.get("model", "")) or "-"
+        out["profile"] = prof.name
+    elif info.get("product"):
+        out["model"] = f"board '{info['product']}'"
+    slot = info.get("current-slot", "")
+    if slot:
+        out["slot_suffix"] = "_" + slot.lstrip("_")
+    out["bootloader"] = {"yes": "Unlocked", "no": "Locked"}.get(info.get("unlocked", ""), "Unknown")
+    out["access"] = "fastbootd (Android's userspace fastboot)" if info.get("is-userspace") == "yes" else "bootloader"
+    return out
+
+
 @dataclass
 class BackupInfo:
     folder: Path

@@ -510,7 +510,10 @@ catalog). Each shows exactly which apps it will remove and asks first:
   OnePlus / OPPO phone with a missing or broken USB driver, tells you whether it's the adb or the
   fastboot driver, and explains two fixes: Windows Update's optional driver updates (which often
   include the Android driver), or the Google USB driver (**Get the driver** opens Google's official
-  page) applied in Device Manager. On Linux it checks your user may open the phone (udev rules /
+  page) applied in Device Manager, step by step (**Copy steps** puts them on the clipboard). In
+  **fastbootd**, OnePlus / OPPO phones show up in Windows as **`ossi`**: pick *Android Bootloader
+  Interface* for it in Device Manager (Update driver > Browse my computer > Let me pick > Android
+  Device); if bootloader mode already worked, that driver is already installed. On Linux it checks your user may open the phone (udev rules /
   `plugdev`). It also spots a phone stuck in Qualcomm 9008 (EDL) mode. OPxFlasher never installs
   drivers, opens Windows settings or asks for administrator rights itself; only the driver install
   asks for approval.

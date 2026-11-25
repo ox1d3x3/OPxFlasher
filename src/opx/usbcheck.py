@@ -25,7 +25,7 @@ from pathlib import Path
 VENDORS = {"22D9": "OPPO / OnePlus", "2A70": "OnePlus", "18D1": "Android (fastboot)"}
 QUALCOMM, EDL_PID = "05C6", "9008"
 GOOGLE_DRIVER = "https://developer.android.com/studio/run/win-usb"
-DRIVER_ACTIONS = ("driver-page",)
+DRIVER_ACTIONS = ("driver-page", "copy-steps")
 
 EDL_TEXT = ("A phone is in Qualcomm 9008 (EDL) mode. Neither adb nor fastboot can reach it, and "
             "OPxFlasher doesn't do EDL flashing. Try holding Power + Volume Up + Volume Down for "
@@ -74,22 +74,51 @@ def check_windows(devices: list[dict]) -> list[Finding]:
             found.append(Finding("problem", EDL_TEXT))
     broken = [d for d in phones if d.get("Status") not in ("OK",) or not d.get("Class") or d.get("Class") == "Other"]
     for d in broken:
-        name = d.get("FriendlyName") or "Android device"
-        mode = "fastboot / bootloader" if "bootloader" in name.lower() or _ids(d["InstanceId"])[0] == "18D1" else "adb"
-        entry = "Android Bootloader Interface" if mode.startswith("fastboot") else "Android ADB Interface"
-        found.append(Finding("problem", (
-            f"'{name}' is plugged in but has no working driver (status: {d.get('Status') or 'unknown'}), "
-            f"so {mode} can't see it. Two ways to fix it:\n"
-            "1. Windows Update: open Settings > Windows Update > Advanced options > Optional updates > "
-            "Driver updates. Tick the Android / Google / OnePlus driver and install it.\n"
-            f"2. Or download the Google USB Driver ({GOOGLE_DRIVER}), then open Device Manager (right-click "
-            f"the Start button > Device Manager), right-click the phone > Update driver > Browse my computer "
-            f"> Let me pick > '{entry}'.\n"
-            "Then unplug the phone and plug it back in. Windows asks for administrator approval to install "
-            "a driver; OPxFlasher itself never needs it."), DRIVER_ACTIONS))
+        found.append(Finding("problem", driver_steps(d), DRIVER_ACTIONS))
     if phones and not broken:
         found.append(Finding("ok", "Windows has working drivers for the connected phone."))
     return found
+
+
+def phone_mode(device: dict) -> str:
+    """'fastbootd', 'fastboot' or 'adb', from what Windows calls the device."""
+    name = (device.get("FriendlyName") or "").strip().lower()
+    vid, pid = _ids(device.get("InstanceId", ""))
+    if name == "ossi" or "fastbootd" in name:
+        return "fastbootd"  # OPPO / OnePlus fastbootd shows up as "ossi"
+    if "bootloader" in name or "fastboot" in name or vid == "18D1":
+        return "fastboot"
+    return "adb"
+
+
+def driver_steps(device: dict) -> str:
+    """Step by step, exactly what fixed it on a real OnePlus 13 (Windows 11)."""
+    name = device.get("FriendlyName") or "Android device"
+    status = device.get("Status") or "unknown"
+    mode = phone_mode(device)
+    entry = "Android ADB Interface" if mode == "adb" else "Android Bootloader Interface"
+    vid, pid = _ids(device.get("InstanceId", ""))
+    ident = f" (USB ID {vid}:{pid})" if vid and pid else ""
+    if mode == "fastbootd":
+        head = (f"'{name}'{ident} is the phone in fastbootd: that's OPPO / OnePlus's name for it. Windows doesn't use "
+                "the bootloader's driver for it on its own. If bootloader mode already worked on this PC, the driver "
+                "is installed; you only need to pick it (about 30 seconds):")
+    else:
+        head = (f"'{name}'{ident} is plugged in but has no working driver (status: {status}), so "
+                f"{'fastboot / bootloader' if mode == 'fastboot' else 'adb'} can't see it. Fix it once:")
+    return "\n".join([
+        head,
+        "1. Right-click the Start button > Device Manager.",
+        f"2. Find '{name}' (yellow warning sign, usually under Other devices) > right-click > Update driver.",
+        "3. Browse my computer for drivers > Let me pick from a list of available drivers on my computer.",
+        f"4. Android Device (or Android Phone) > '{entry}' > Next > Yes.",
+        f"   Not in the list? Get the Google USB Driver ({GOOGLE_DRIVER}), unzip it, then in step 3 click "
+        "Have Disk... and choose android_winusb.inf.",
+        "   Or: Settings > Windows Update > Advanced options > Optional updates > Driver updates, and install the "
+        "Android / Google / OnePlus driver.",
+        "5. Unplug the phone, plug it back in, and press Refresh in OPxFlasher.",
+        "Windows asks for administrator approval to install a driver; OPxFlasher itself never needs it.",
+    ])
 
 
 def linux_devices(root: Path = Path("/sys/bus/usb/devices")) -> list[dict]:

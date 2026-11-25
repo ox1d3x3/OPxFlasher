@@ -89,6 +89,7 @@ def test_missing_driver_offers_fixes():
     f = uc.check_windows([NO_DRIVER])[0]
     assert f.actions == uc.DRIVER_ACTIONS
     assert "Windows Update" in f.message and "administrator" in f.message and "Device Manager" in f.message
+    assert "Let me pick" in f.message and "Have Disk" in f.message
     assert "Android ADB Interface" in f.message
     assert "Android Bootloader Interface" in uc.check_windows([FASTBOOT_NO_DRIVER])[0].message
     assert uc.check_windows([OK_PHONE])[0].actions == ()
@@ -99,3 +100,13 @@ def test_never_touches_windows_settings():
     for forbidden in ("ms-settings", "runas", "startfile", "ctypes", "winreg"):
         assert forbidden not in src, forbidden
 
+
+
+def test_fastbootd_shows_up_as_ossi():
+    """What Mahabub's OnePlus 13 showed in fastbootd on Windows 11."""
+    ossi = {"Status": "Error", "Class": None, "FriendlyName": "ossi", "InstanceId": r"USB\VID_18D1&PID_D00D\3B1F"}
+    assert uc.phone_mode(ossi) == "fastbootd"
+    msg = uc.check_windows([ossi])[0].message
+    assert "fastbootd" in msg and "'Android Bootloader Interface'" in msg and "18D1:D00D" in msg
+    assert "already worked" in msg and "Refresh" in msg
+    assert uc.phone_mode(FASTBOOT_NO_DRIVER) == "fastboot" and uc.phone_mode(NO_DRIVER) == "adb"

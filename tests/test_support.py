@@ -113,3 +113,17 @@ def test_about_details_and_cli(capsys):
     assert cli.main(["about"]) == 0
     out = capsys.readouterr().out
     assert "Mahabub Subhany" in out and "github.com/ox1d3x3/OPxFlasher" in out and "Ko-fi" in out
+
+
+def test_fastboot_panel_texts():
+    from opx import support
+
+    info = {"product": "sun", "current-slot": "b", "unlocked": "yes", "is-userspace": "yes"}
+    out = support.fastboot_panel(info)
+    assert out["model"] == "board 'sun'" and out["slot_suffix"] == "_b" and out["bootloader"] == "Unlocked"
+    assert out["access"].startswith("fastbootd")
+    props = {"ro.product.model": "PJZ110", "ro.build.display.id": "PJZ110_16.0.10.501(CN01)",
+             "ro.product.device": "OP5D0DL1", "ro.product.brand": "OnePlus"}
+    out = support.fastboot_panel({"unlocked": "no"}, props)
+    assert out["model"] == "PJZ110" and out["bootloader"] == "Locked"
+    assert out["build"] == "PJZ110_16.0.10.501(CN01) (last seen in Android)"

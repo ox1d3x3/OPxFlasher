@@ -1193,3 +1193,21 @@ def test_gui_style_sheet_finds_the_tick_image():
     assert "CHECK_PNG" not in css
     path = css.split("image: url(", 1)[1].split(")", 1)[0]
     assert Path(path).is_file()
+
+
+def test_gui_panel_in_fastboot_shows_what_it_can(window, monkeypatch, fb_state):
+    import sys
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    assert win.last_facts.get("serial") == "FAKE0001"
+    fb_state(mode="bootloader")
+    win.refresh_devices()
+    settle(app, 300)
+    labels = win.info_labels
+    assert labels["bootloader"].text() == "Unlocked"
+    assert labels["slot_suffix"].text() == "_a"
+    assert labels["model"].text() == "PJZ110" and "last seen in Android" in labels["build"].text()
+    assert labels["access"].text() == "bootloader"

@@ -672,7 +672,8 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.information(self, "USB check", text)
             return
-        labels = {"driver-page": tr("Get the driver")}
+        labels = {"driver-page": tr("Get the driver"), "copy-steps": tr("Copy steps")}
+        self.usb_steps = "\n\n".join(f.message for f in findings if f.actions)
         box = QMessageBox(QMessageBox.Warning, tr("USB check"), text, parent=self)
         buttons = {box.addButton(labels[a], QMessageBox.ActionRole): a for a in dict.fromkeys(actions)}
         box.addButton(QMessageBox.Close)
@@ -690,6 +691,9 @@ class MainWindow(QMainWindow):
         if action == "driver-page":  # a web page only: OPxFlasher never opens Windows settings
             QDesktopServices.openUrl(QUrl(usbcheck.GOOGLE_DRIVER))
             self.say(f"Opened {usbcheck.GOOGLE_DRIVER}")
+        elif action == "copy-steps":
+            QApplication.clipboard().setText(getattr(self, "usb_steps", ""))
+            self.say("Driver steps copied to the clipboard.")
 
     def _usb_failed(self, exc: BaseException) -> None:
         self.usb_btn.setEnabled(True)
@@ -1048,10 +1052,26 @@ class MainWindow(QMainWindow):
                 "fastbootd": "The phone is in fastbootd. Backups need Android (rooted) or a custom recovery.",
             }.get(d.state, f"Backups are not possible in '{d.mode_text}' mode.")
             self._show_banner(msg, "warning")
+            if d.transport == "fastboot":
+                self.fastboot_serial = d.serial
+                self.run_job(Job(support.fastboot_info, d.serial), self._fastboot_info, self._fastboot_info_failed)
             return
         self._set_busy(True)
         self.say(f"Connecting to {d.serial}...")
         self.run_job(Job(open_session, d.serial), self._session_ready)
+
+    def _fastboot_info(self, info: dict) -> None:
+        """Fill the phone panel for a phone in the bootloader / fastbootd."""
+        d = self.selected_device()
+        if d is None or d.transport != "fastboot" or d.serial != getattr(self, "fastboot_serial", None):
+            return  # another phone was picked meanwhile
+        last = self.last_props if self.last_facts.get("serial") == d.serial else None
+        for key, text in support.fastboot_panel(info, last).items():
+            if key in self.info_labels:
+                self.info_labels[key].setText(text)
+
+    def _fastboot_info_failed(self, exc: BaseException) -> None:
+        self.say(f"Couldn't read the phone's details in fastboot: {exc}")
 
     def _session_ready(self, session: Session) -> None:
         self._set_busy(False)
