@@ -78,6 +78,7 @@ class Plan:
     recovery_problem: str = ""
     warnings: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)  # network files the recovery zip leaves to the phone
+    net_from_rom: list[str] = field(default_factory=list)  # network files written from the ROM (vbmeta checks them)
 
     @property
     def total(self) -> int:
@@ -155,7 +156,9 @@ def plan(rom: RomInfo) -> Plan:
             kept.append(it.name)
     items.sort(key=lambda i: (i.kind == "physical" and i.name in AVB_ORDER_LAST,
                               AVB_ORDER_LAST.index(i.name) if i.name in AVB_ORDER_LAST else 0))
-    p = Plan(items, skipped, kept=kept)
+    net_from_rom = [it.name for it in items
+                    if prof.is_conditional(it.name) and it.name != "odm" and not it.keep_on_phone]
+    p = Plan(items, skipped, kept=kept, net_from_rom=net_from_rom)
     p.boards = list(dict.fromkeys(b for b in [rom.codename, *prof.recovery_boards] if b))
     meta = rom.metadata
     if not (rom.codename and rom.product) or is_generic_fingerprint(rom.fingerprint):
@@ -458,6 +461,8 @@ def _install_list(rom: RomInfo, p: Plan, records: list[dict], chunk: int) -> str
         lines.append(f"fingerprint {fp}")
     shown = re.sub(r"[^A-Za-z0-9._()-]", "_", rom.build_incremental or rom.android or "unknown")
     lines.append(f"build {shown}")
+    lines += [f"kept {n}" for n in p.kept]  # shown at the end: the phone's own network files stayed
+    lines += [f"netrom {n}" for n in p.net_from_rom]  # ... or the ROM wrote its own
     for r in records:
         lines.append(f"image {r['kind']} {r['name']} {r['size']} {r['sha256']}")
         for i, pt in enumerate(r["parts"]):

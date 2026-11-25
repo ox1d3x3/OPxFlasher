@@ -95,7 +95,8 @@ def test_installs_the_rom(rom_zip, tmp_path):
             continue
         if name == "my_region":  # network file not checked by this ROM's vbmeta: the phone keeps its own
             assert (phone.mapper / "my_region_a").read_bytes() == b"\xee" * 4096
-            assert "my_region" not in out
+            assert "  my_region" not in out  # not written
+            assert "Mobile network: kept your phone's own my_region." in out
             continue
         if name in LOGICAL:
             assert (phone.mapper / f"{name}_a").read_bytes() == padded(data), name

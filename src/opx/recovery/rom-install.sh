@@ -262,8 +262,18 @@ while read -r kind name dev size; do
   [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
 done < "$TMP/targets"
 
+kept=$(sed -n 's/^kept //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
+written=$(sed -n 's/^netrom //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 cleanup
 ui " "
 ui "Done: $PRODUCT $BUILD is installed. Your data was not touched."
+if [ -n "$kept" ]; then
+  ui "Mobile network: kept your phone's own $kept."
+fi
+if [ -n "$written" ]; then
+  ui "Mobile network: this ROM wrote its own $written (its vbmeta checks them at boot)."
+  ui "If calls or mobile data don't work after booting, restore yours from your backup:"
+  ui "OPxFlasher > Signal / region."
+fi
 ui "Reboot to system. The first boot can take a few minutes."
 exit 0

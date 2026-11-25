@@ -235,8 +235,9 @@ def test_super_image_set_is_split_into_logical_partitions(tmp_path):
         listing = zf.read("opx/rom.list").decode()
         assert "image logical system" in listing
         # this test ROM's vbmeta doesn't check my_region, so the zip keeps the phone's own copy
-        assert "my_region" not in listing and "images/my_region.img" not in zf.namelist()
+        assert "image logical my_region" not in listing and "images/my_region.img" not in zf.namelist()
         assert json.loads(zf.read("opxflasher-rom.json"))["kept_on_phone"] == ["my_region"]
+        assert "kept my_region" in listing and "netrom" not in listing  # for the installer's closing message
 
 
 def test_raw_super_in_folder_is_read_without_converting(tmp_path):
@@ -450,7 +451,8 @@ def test_recovery_zip_keeps_only_network_files_vbmeta_does_not_check(tmp_path):
     made = cv.convert(open_rom(ota), tmp_path / "out", make_zip=True, make_folder=True)
     with zipfile.ZipFile(made["zip"]) as zf:
         listing = zf.read("opx/rom.list").decode()
-    assert " my_region " in listing and " odm " in listing and "oplusstanvbk" not in listing
+    assert " my_region " in listing and " odm " in listing and " oplusstanvbk " not in listing
+    assert "kept oplusstanvbk" in listing and "netrom my_region" in listing  # closing message
     assert (made["folder"] / "oplusstanvbk.img").exists()  # the PC image folder still has it (app decides)
 
 

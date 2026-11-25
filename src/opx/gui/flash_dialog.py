@@ -102,8 +102,15 @@ class FlashDialog(QDialog):
             )
             note.setStyleSheet("color:#9aa3b5")
             note.setWordWrap(True)
+            self.region_warn = QLabel(tr("Without your own region files, mobile network may not work after this "
+                                         "flash. You can still restore them later: Signal / region tab, from your "
+                                         "backup."))
+            self.region_warn.setStyleSheet("color:#f0c24b")
+            self.region_warn.setWordWrap(True)
+            self.region_warn.hide()
             r_layout.addWidget(self.keep_region_box)
             r_layout.addWidget(note)
+            r_layout.addWidget(self.region_warn)
             layout.addWidget(r_box)
             self.wipe_box.setChecked(True)
             self.wipe_box.setEnabled(False)
@@ -196,6 +203,8 @@ class FlashDialog(QDialog):
     def _sync_optional(self) -> None:
         """The ROM's own region files can't be chosen while restoring the phone's."""
         keep = bool(self.keep_region_box and self.keep_region_box.isChecked())
+        if self.keep_region_box is not None:
+            self.region_warn.setVisible(not keep)
         for cb in self.optional_boxes.values():
             if keep:
                 cb.setChecked(False)

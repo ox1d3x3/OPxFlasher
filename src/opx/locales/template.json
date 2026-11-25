@@ -297,6 +297,7 @@
     "What will happen:": "",
     "Which recovery will you flash it in?": "",
     "Wipe data (factory reset) - needed when changing region or OS. ERASES EVERYTHING.": "",
+    "Without your own region files, mobile network may not work after this flash. You can still restore them later: Signal / region tab, from your backup.": "",
     "Won't start?": "",
     "Working...": "",
     "Writes to the phone. Needs a passing ROM check on the connected phone and a backup.": "",
