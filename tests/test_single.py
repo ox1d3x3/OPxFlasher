@@ -188,3 +188,63 @@ def test_cli_reboot(ready, capsys):
     assert cli.main(["reboot", "bootloader"]) == 3  # already there
     assert cli.main(["reboot", "system"]) == 0
     assert state.read()["mode"] == "android"
+
+
+# --- flashing without a backup (typed NO BACKUP) ----------------------------------
+
+
+def test_no_backup_flashes_both_slots_from_android(adb, fastboot, phone, fb_state, tmp_path):
+    s = open_session("FAKE0001", adb)
+    device = pn.device_from_session(s)
+    image = img(tmp_path, "kernel.img", BOOT)
+    plan, _ = sg.prepare_image_flash(device, None, "boot", image)
+    assert not plan.ok and any("backup" in p.lower() for p in plan.problems)  # still required by default
+    plan, warnings = sg.prepare_image_flash(device, None, "boot", image, slot="both", skip_backup=True)
+    assert plan.ok, plan.problems
+    assert any(w.startswith("No backup") for w in warnings)
+    run(plan, s, adb, fastboot, tmp_path)
+    for slot in ("a", "b"):
+        assert (phone / "by-name" / f"boot_{slot}").read_bytes().startswith(BOOT)
+
+
+@pytest.mark.parametrize(("partition", "data", "why"), [
+    ("abl", b"\x7fELF" + b"\0" * 508, "bootloader chain"),
+    ("persist", b"x" * 512, "never flashed"),
+    ("system", b"x" * 512, "inside 'super'"),
+    ("boot", rf.build_vbmeta(2), "not a boot image"),
+])
+def test_no_backup_still_refuses_the_dangerous_ones(adb, phone, tmp_path, partition, data, why):
+    device = pn.device_from_session(open_session("FAKE0001", adb))
+    plan, _ = sg.prepare_image_flash(device, None, partition, img(tmp_path, "x.img", data), skip_backup=True)
+    assert not plan.ok and any(why in p for p in plan.problems)
+
+
+def test_no_backup_still_checks_a_backup_that_is_chosen(adb, phone, tmp_path):
+    folder = backup_of(adb, tmp_path)
+    device = pn.device_from_session(open_session("FAKE0001", adb))
+    device.facts["serial"] = "SOMEONE-ELSE"
+    plan, _ = sg.prepare_image_flash(device, folder, "boot", img(tmp_path, "b.img", BOOT), skip_backup=True)
+    assert not plan.ok and any("different phone" in p for p in plan.problems)
+
+
+def test_phone_already_in_fastboot_without_a_backup(adb, fastboot, phone, fb_state, tmp_path):
+    fb_state(mode="bootloader")
+    device = pn.device_from_fastboot("FAKE0001")
+    assert device.source == "fastboot" and device.profile.id == "oplus-generic"
+    plan, _ = sg.prepare_image_flash(device, None, "system", img(tmp_path, "s.img", b"x" * 512), skip_backup=True)
+    assert not plan.ok  # super partitions are known by name even without the phone's list
+    plan, _ = sg.prepare_image_flash(device, None, "boot", img(tmp_path, "b.img", BOOT), skip_backup=True)
+    assert plan.ok, plan.problems
+    fl.Runner(plan, None, device.profile, adb, fastboot, tmp_path / "j.json", tmp_path / "w", wait_timeout=5).run()
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(BOOT)
+
+
+def test_cli_flash_image_no_backup(ready, capsys, monkeypatch, tmp_path):
+    phone, state, _, _ = ready
+    image = img(tmp_path, "kernel.img", BOOT)
+    args = ["flash-image", "boot", str(image), "--no-backup", "--work", str(tmp_path / "w")]
+    answers(monkeypatch, "FLASH")  # the usual word isn't enough without a backup
+    assert cli.main(args) == 1 and state.read()["log"] == []
+    answers(monkeypatch, "NO BACKUP")
+    assert cli.main(args) == 0
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(BOOT)

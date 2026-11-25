@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from opx.backup import manifest_file
-from opx.flash import FlashOptions, FlashPlan, Step, check_backup, sha256_file
+from opx.flash import FlashOptions, FlashPlan, Step, backup_problems, sha256_file
 from opx.plan import DeviceState
 from opx.rom import payload as pl
 from opx.rom.ota import RomInfo
@@ -219,9 +219,11 @@ def prepare_flash(
     session: RootSession,
     purpose: str,
     reboot_after: bool = True,
+    skip_backup: bool = False,
 ) -> FlashPlan:
-    """purpose: "root" (flash the patched image) or "unroot" (flash stock back)."""
-    problems = check_backup(backup_folder, device.facts, device.profile)
+    """purpose: "root" (flash the patched image) or "unroot" (flash stock back). `skip_backup`: the user
+    typed NO BACKUP (a phone without root can't make one); the stock image of this build is kept for undo."""
+    problems = backup_problems(backup_folder, device, skip_backup, [])
     blocked = device.profile.blocked_actions(device.props)
     if "bootloader" in blocked:
         problems.append("This phone's current firmware is known to break the bootloader's fastboot mode. Flashing is disabled.")

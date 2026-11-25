@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self.devices: list[dev.Device] = []
         self.session: Session | None = None
         self.last_facts: dict[str, str] = {}  # the last connected phone, for log exports
+        self.last_props: dict[str, str] = {}  # ...and its props, to know it again in fastboot
         self.plan: bk.Plan | None = None
         self.cancel_flag = threading.Event()
         self.last_folder: Path | None = None
@@ -1057,6 +1058,7 @@ class MainWindow(QMainWindow):
         self.session = session
         facts = bk.device_facts(session.props)
         self.last_facts = facts
+        self.last_props = dict(session.props)
         for key in ("model", "build", "android", "security_patch", "slot_suffix"):
             self.info_labels[key].setText(facts.get(key) or "-")
         access_text = {

@@ -716,7 +716,8 @@ def _root_flash(args, purpose: str, word: str) -> int:
     session = rt.RootSession.load(work)
     live = open_session(_pick_adb_serial(args.serial or session.device.get("serial")))
     device = pn.device_from_session(live)
-    plan = rt.prepare_flash(device, Path(args.backup) if args.backup else None, session, purpose, not args.no_reboot)
+    plan = rt.prepare_flash(device, Path(args.backup) if args.backup else None, session, purpose, not args.no_reboot,
+                            skip_backup=args.no_backup)
     print(f"{'Root' if purpose == 'root' else 'Unroot'} {device.label} ({rt.MANAGERS[session.manager][0]}, {session.partition}):")
     for i, st in enumerate(plan.steps, 1):
         print(f"  {i:>2}. {st.label}")
@@ -728,7 +729,8 @@ def _root_flash(args, purpose: str, word: str) -> int:
     if args.dry_run:
         print("\nDry run: nothing was written.")
         return 0
-    if not _confirm(word, "\nOnly the current slot is written; the other slot keeps its image."):
+    if not _confirm(word + (" NO BACKUP" if args.no_backup else ""),
+                    "\nOnly the current slot is written; the other slot keeps its image."):
         print("Cancelled. Nothing was written.")
         return 1
     journal = work / f"{purpose}-journal.json"
@@ -1125,11 +1127,18 @@ def cmd_flash_image(args) -> int:
         device = pn.device_from_session(live)
     elif backup and (backup / "manifest.json").exists():
         device = pn.device_from_backup(backup)  # phone already in fastboot: use the backup's facts
+    elif args.no_backup and (fbs := [d for d in scan.devices if d.transport == "fastboot"]):
+        pick = [d for d in fbs if not args.serial or d.serial == args.serial]
+        if len(pick) != 1:
+            print("Several phones in fastboot: pass -s SERIAL." if pick else "That phone isn't in fastboot.")
+            return 2
+        device = pn.device_from_fastboot(pick[0].serial)
     else:
-        print("Connect the phone in Android (USB debugging), or pass --backup so OPxFlasher knows the phone.")
+        print("Connect the phone in Android (USB debugging), or pass --backup so OPxFlasher knows the phone "
+              "(or --no-backup with the phone in fastboot).")
         return 2
     plan, warnings = sg.prepare_image_flash(device, backup, args.partition, Path(args.image), args.slot,
-                                            args.disable_verity, not args.no_reboot)
+                                            args.disable_verity, not args.no_reboot, skip_backup=args.no_backup)
     print(f"Flash one image on {device.label}:")
     for i, st in enumerate(plan.steps, 1):
         print(f"  {i:>2}. {st.label}")
@@ -1143,7 +1152,8 @@ def cmd_flash_image(args) -> int:
     if args.dry_run:
         print("\nDry run: nothing was written.")
         return 0
-    if not _confirm("FLASH", f"\nThis writes {Path(args.image).name} to {args.partition} ({args.slot} slot)."):
+    if not _confirm("NO BACKUP" if args.no_backup else "FLASH",
+                    f"\nThis writes {Path(args.image).name} to {args.partition} ({args.slot} slot)."):
         print("Cancelled. Nothing was written.")
         return 1
     work = Path(args.work)
@@ -1328,7 +1338,9 @@ def build_parser() -> argparse.ArgumentParser:
     fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")
     fi.add_argument("partition", help="partition name without slot suffix, e.g. boot, recovery, vbmeta")
     fi.add_argument("image", help="the .img file")
-    fi.add_argument("--backup", help="a Critical or Full backup of this phone (required)")
+    fi.add_argument("--backup", help="a Critical or Full backup of this phone (required unless --no-backup)")
+    fi.add_argument("--no-backup", action="store_true",
+                    help="flash without a backup (you type NO BACKUP); identity, boot-chain and wrong images still refused")
     fi.add_argument("--slot", choices=("current", "other", "both"), default="current")
     fi.add_argument("--disable-verity", action="store_true", help="vbmeta only: flash with verity/verification off")
     fi.add_argument("--no-reboot", action="store_true", help="stay in the bootloader afterwards")
@@ -1388,7 +1400,9 @@ def build_parser() -> argparse.ArgumentParser:
                            ("unroot", cmd_root_unroot, "flash the stock image back (current slot)")):
         rf_ = rosub.add_parser(name, help=text)
         rf_.add_argument("--work", required=True)
-        rf_.add_argument("--backup", help="your Critical or Full backup of this phone (required)")
+        rf_.add_argument("--backup", help="your Critical or Full backup of this phone (required unless --no-backup)")
+        rf_.add_argument("--no-backup", action="store_true",
+                         help="flash without a backup (a phone without root can't make one); you type ... NO BACKUP")
         rf_.add_argument("-s", "--serial")
         rf_.add_argument("--no-reboot", action="store_true")
         rf_.add_argument("--dry-run", action="store_true")

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -136,8 +137,15 @@ class RootTab(QWidget):
         row.addWidget(self.backup_edit, 1)
         row.addWidget(b)
         l4.addLayout(row)
+        self.no_backup = QCheckBox(tr("Flash without a backup (a phone without root can't make one yet)"))
+        self.no_backup.setToolTip(tr("Only init_boot / boot of the current slot is written, and the stock image "
+                                     "prepared in step 1 is kept for Restore stock image. Make your backups "
+                                     "right after rooting."))
+        self.no_backup.toggled.connect(self._no_backup_toggled)
+        l4.addWidget(self.no_backup)
         row = QHBoxLayout()
-        row.addWidget(QLabel(tr("Type ROOT or UNROOT:")))
+        self.confirm_label = QLabel(tr("Type ROOT or UNROOT:"))
+        row.addWidget(self.confirm_label)
         self.confirm = QLineEdit()
         self.confirm.setMaximumWidth(140)
         row.addWidget(self.confirm)
@@ -201,16 +209,26 @@ class RootTab(QWidget):
         label.setStyleSheet(f"color:{'#5fd38d' if ok else '#ff8a80'}")
         label.setText(text)
 
+    def _no_backup_toggled(self, on: bool) -> None:
+        if on:
+            self.backup_edit.clear()
+        self.backup_edit.setEnabled(not on)
+        self.confirm_label.setText(tr("Type ROOT NO BACKUP or UNROOT NO BACKUP:") if on else tr("Type ROOT or UNROOT:"))
+        self.confirm.setMaximumWidth(220 if on else 140)
+        self.confirm.clear()
+        self.refresh_buttons()
+
     def refresh_buttons(self) -> None:
         win = self.win
         live = win.session is not None and not win.busy
         self.prepare_btn.setEnabled(live)
         self.pull_btn.setEnabled(live and self.session is not None)
         word = self.confirm.text().strip()
+        tail = " NO BACKUP" if self.no_backup.isChecked() else ""
         patched_ok = self.session is not None and self.pull_problems == []
-        self.root_btn.setEnabled(live and patched_ok and word == "ROOT")
-        self.unroot_btn.setEnabled(live and self.session is not None and word == "UNROOT")
-        if not self.backup_edit.text().strip() and win.last_folder:
+        self.root_btn.setEnabled(live and patched_ok and word == "ROOT" + tail)
+        self.unroot_btn.setEnabled(live and self.session is not None and word == "UNROOT" + tail)
+        if not self.backup_edit.text().strip() and win.last_folder and not self.no_backup.isChecked():
             self.backup_edit.setText(str(win.last_folder))
 
     # --- actions --------------------------------------------------------
@@ -281,7 +299,8 @@ class RootTab(QWidget):
             return
         device = pn.device_from_session(win.session)
         backup = self.backup_edit.text().strip()
-        plan = rt.prepare_flash(device, Path(backup) if backup else None, self.session, purpose)
+        plan = rt.prepare_flash(device, Path(backup) if backup else None, self.session, purpose,
+                                skip_backup=self.no_backup.isChecked())
         if not plan.ok:
             QMessageBox.warning(self, "Root", "Blocked:\n\n- " + "\n- ".join(plan.problems))
             return

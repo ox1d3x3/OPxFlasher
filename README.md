@@ -145,8 +145,9 @@ links to the official driver and explains the Windows Update / Device Manager st
 bundled, because they can't be redistributed.
 
 **Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU or APatch,
-or a custom recovery). Every flash needs a backup of the phone, so root is needed at least once to
-make it. Reboots, debloat, Android logs and ROM checks against an existing backup work without root;
+or a custom recovery). Full ROM flashes need a backup of the phone, so root is needed at least once
+to make it. The first root itself, and single images such as a custom recovery, can be flashed
+without a backup if you type `NO BACKUP`. Reboots, debloat, Android logs and ROM checks against an existing backup work without root;
 a ROM check against an unrooted phone compares what Android reports (model, build, hardware project).
 
 **Will it touch my photos and apps?** No. Personal data is never backed up and never flashed. Only

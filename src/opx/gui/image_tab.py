@@ -80,6 +80,13 @@ class ImageTab(QWidget):
         row.addWidget(pick_b)
         form.addLayout(row)
 
+        self.no_backup = QCheckBox(tr("Flash without a backup (I accept the risk)"))
+        self.no_backup.setToolTip(tr("For a phone that can't be backed up yet (no root). Only this one image is "
+                                     "written; identity partitions, the bootloader chain and wrong images are still "
+                                     "refused. You type NO BACKUP to flash."))
+        self.no_backup.toggled.connect(self._no_backup_toggled)
+        form.addWidget(self.no_backup)
+
         self.verity = QCheckBox(tr("Disable verity and verification (vbmeta only; some custom kernels need it)"))
         form.addWidget(self.verity)
         self.reboot_after = QCheckBox(tr("Reboot to Android afterwards"))
@@ -99,7 +106,8 @@ class ImageTab(QWidget):
         layout.addWidget(self.summary)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel(tr("Type FLASH:")))
+        self.confirm_label = QLabel(tr("Type FLASH:"))
+        row.addWidget(self.confirm_label)
         self.confirm = QLineEdit()
         self.confirm.setMaximumWidth(140)
         self.confirm.textChanged.connect(lambda _t: self.refresh_buttons())
@@ -150,6 +158,17 @@ class ImageTab(QWidget):
         if not is_vb:
             self.verity.setChecked(False)
 
+    @property
+    def word(self) -> str:
+        return "NO BACKUP" if self.no_backup.isChecked() else "FLASH"
+
+    def _no_backup_toggled(self, on: bool) -> None:
+        if on:
+            self.backup_edit.clear()
+        self.backup_edit.setEnabled(not on)
+        self.confirm_label.setText(tr("Type NO BACKUP:") if on else tr("Type FLASH:"))
+        self._invalidate()
+
     def _invalidate(self, *_a) -> None:
         self.plan = None
         self.summary.setText("")
@@ -163,6 +182,9 @@ class ImageTab(QWidget):
         d = self.win.selected_device()
         if d is not None and d.transport == "fastboot" and (backup / "manifest.json").exists():
             return pn.device_from_backup(backup)  # phone in fastboot: the backup tells us which phone
+        if d is not None and d.transport == "fastboot" and self.no_backup.isChecked():
+            props = self.win.last_props if self.win.last_facts.get("serial") == d.serial else {}
+            return pn.device_from_fastboot(d.serial, props)
         return None
 
     # --- check and flash --------------------------------------------------------
@@ -170,7 +192,8 @@ class ImageTab(QWidget):
     def check(self) -> None:
         device = self._device()
         if device is None:
-            self.summary.setText("Connect the phone in Android, or put it in fastboot and choose its backup.")
+            self.summary.setText("Connect the phone in Android, or put it in fastboot and choose its backup "
+                                 "(or tick 'Flash without a backup').")
             return
         backup = self.backup_edit.text().strip()
         image = self.image_edit.text().strip()
@@ -180,7 +203,8 @@ class ImageTab(QWidget):
         try:
             self.plan, warnings = sg.prepare_image_flash(
                 device, Path(backup) if backup else None, self.part_combo.currentText().strip(), Path(image),
-                self.slot_combo.currentData(), self.verity.isChecked(), self.reboot_after.isChecked())
+                self.slot_combo.currentData(), self.verity.isChecked(), self.reboot_after.isChecked(),
+                skip_backup=self.no_backup.isChecked())
         except ValueError as e:
             self.plan = None
             self.summary.setText(str(e))
@@ -188,7 +212,7 @@ class ImageTab(QWidget):
         lines = [f"{i}. {s.label}" for i, s in enumerate(self.plan.steps, 1)]
         lines += [f"! {w}" for w in warnings]
         if self.plan.ok:
-            lines.append("Ready. Type FLASH to enable the button.")
+            lines.append(f"Ready. Type {self.word} to enable the button.")
             self.summary.setStyleSheet("")
         else:
             lines.append("Stopped by:")
@@ -200,14 +224,15 @@ class ImageTab(QWidget):
     def refresh_buttons(self) -> None:
         busy = self.win.busy
         self.check_btn.setEnabled(not busy)
-        ready = self.plan is not None and self.plan.ok and self.confirm.text().strip() == "FLASH"
+        ready = self.plan is not None and self.plan.ok and self.confirm.text().strip() == self.word
         self.flash_btn.setEnabled(not busy and ready)
 
     def flash(self) -> None:
         win = self.win
         if not (self.plan and self.plan.ok):
             return
-        work = Path(self.backup_edit.text().strip()).parent / "opx-flash-image"
+        backup = self.backup_edit.text().strip()
+        work = (Path(backup).parent if backup else Path.home() / "OPxFlasher-backups") / "opx-flash-image"
         work.mkdir(parents=True, exist_ok=True)
         device = self._device()
         if device is None:

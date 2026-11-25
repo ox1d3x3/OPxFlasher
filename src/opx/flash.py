@@ -81,6 +81,20 @@ def overridable_blocks(report: Report, key: str | None = None) -> list:
     return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
 
+NO_BACKUP_WARNING = ("No backup: you chose to flash without one. Only this image is written; if the phone doesn't "
+                     "start afterwards, there's no backup of this phone to restore it from.")
+
+
+def backup_problems(folder: Path | None, device, skip: bool, warnings: list[str]) -> list[str]:
+    """check_backup for single-image and root flashes. With `skip` (typed NO BACKUP) a missing or
+    unusable backup doesn't block; a backup that IS chosen is still checked, so the wrong phone's
+    backup is never silently accepted."""
+    if skip and not folder:
+        warnings.append(NO_BACKUP_WARNING)
+        return []
+    return check_backup(folder, device.facts, device.profile)
+
+
 def check_backup(folder: Path | None, facts: dict[str, str], profile: Profile | None = None) -> list[str]:
     """A verified Critical or Full backup of this phone is required before flashing.
 

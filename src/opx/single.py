@@ -9,7 +9,9 @@ match the partition (e.g. a vbmeta into boot), images larger than the
 partition, firmware known to break the bootloader, and the bootloader chain
 itself (abl, xbl, tz ...: an image from another build can trip Qualcomm
 anti-rollback, and a phone that can't start its bootloader needs an authorised
-EDL repair). A backup of this phone is required, as for every flash.
+EDL repair). A backup of this phone is required unless the user explicitly
+skips it (typed NO BACKUP): only this one image is written, and everything
+above is still refused.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from __future__ import annotations
 import fnmatch
 from pathlib import Path
 
-from opx.flash import FlashOptions, FlashPlan, Step, check_backup, sha256_file
+from opx.flash import FlashOptions, FlashPlan, Step, backup_problems, sha256_file
 from opx.plan import DeviceState
 from opx.remote import check_name
 
@@ -86,12 +88,14 @@ def prepare_image_flash(
     slot: str = "current",
     disable_verity: bool = False,
     reboot_after: bool = True,
+    skip_backup: bool = False,
 ) -> tuple[FlashPlan, list[str]]:
-    """Returns the plan and warnings to show the user (plan.problems block it)."""
+    """Returns the plan and warnings to show the user (plan.problems block it). `skip_backup`: the user
+    typed NO BACKUP, so a missing or unusable backup doesn't block this one image."""
     check_name(partition)
     image = Path(image)
-    problems = check_backup(backup_folder, device.facts, device.profile)
     warnings: list[str] = []
+    problems = backup_problems(backup_folder, device, skip_backup, warnings)
     if slot not in SLOTS:
         raise ValueError(slot)
 

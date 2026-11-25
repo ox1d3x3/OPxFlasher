@@ -32,7 +32,7 @@ PASS, INFO, WARN, BLOCK = "pass", "info", "warn", "block"
 
 @dataclass
 class DeviceState:
-    source: str  # "live" (rooted phone), "props" (phone without root), "backup", "none"
+    source: str  # "live" (rooted phone), "props" (phone without root), "fastboot", "backup", "none"
     label: str
     facts: dict[str, str]
     props: dict[str, str]
@@ -146,6 +146,29 @@ def project_check(rom: RomInfo, dev: DeviceState) -> Check | None:
           "so it can't install this ROM itself. Flashing from the bootloader doesn't go through the updater, so "
           "this check isn't made there; keep your backups, and don't relock the bootloader on a cross-flashed "
           "phone.")
+
+
+# Names that live inside 'super' on OPPO / OnePlus phones: in the bootloader the logical
+# partition list can't be read, so these are known by name.
+SUPER_NAMES = ("system", "system_ext", "product", "vendor", "odm", "vendor_dlkm", "system_dlkm", "odm_dlkm")
+
+
+def device_from_fastboot(serial: str, props: dict[str, str] | None = None) -> DeviceState:
+    """A phone that is already in fastboot, known only by its serial (and the props it reported the
+    last time it was connected in Android, when OPxFlasher saw it). Sizes are checked by the
+    bootloader at write time; nothing is read from the phone here."""
+    props = dict(props or {})
+    facts = device_facts(props) if props else {}
+    facts["serial"] = serial
+    prof = profiles.detect(props) if props else profiles.load("oplus-generic")
+    return DeviceState(
+        source="fastboot",
+        label=f"{facts.get('model') or 'phone'} in fastboot ({serial})",
+        facts=facts,
+        props=props,
+        profile=prof,
+        logical=set(SUPER_NAMES),
+    )
 
 
 def device_from_backup(folder: Path) -> DeviceState:

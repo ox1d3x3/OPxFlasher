@@ -430,6 +430,39 @@ def test_gui_flash_image_tab(window, monkeypatch, tmp_path, fb_state):
     assert not tab.plan.ok and "not a boot image" in tab.summary.text()
 
 
+
+def test_gui_flash_image_without_a_backup(window, monkeypatch, tmp_path, fb_state):
+    """A phone without root (no backup possible): tick the box, type NO BACKUP."""
+    import os
+    import sys
+    from pathlib import Path
+
+    import romfactory as rf
+    from conftest import FAKE_FASTBOOT, tool_cmd
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    boot = rf.build_boot_image(b"aera-like", header_version=4)
+    (tmp_path / "r.img").write_bytes(boot)
+    tab = win.image_tab
+    tab.part_combo.setCurrentText("boot")
+    tab.image_edit.setText(str(tmp_path / "r.img"))
+    tab.check()
+    assert not tab.plan.ok and "backup" in tab.summary.text().lower()
+    tab.no_backup.setChecked(True)
+    assert not tab.backup_edit.isEnabled() and tab.confirm_label.text() == "Type NO BACKUP:"
+    tab.check()
+    assert tab.plan.ok, tab.summary.text()
+    assert "No backup" in tab.summary.text()
+    tab.confirm.setText("FLASH")
+    assert not tab.flash_btn.isEnabled()
+    tab.confirm.setText("NO BACKUP")
+    assert tab.flash_btn.isEnabled()
+    tab.flash_btn.click()
+    settle(app, 400)
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(boot), win.log.toPlainText()[-800:]
+
 def test_gui_reboot_buttons(window, monkeypatch, fb_state):
     import sys
 

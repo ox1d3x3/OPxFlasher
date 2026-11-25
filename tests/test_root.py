@@ -184,3 +184,17 @@ def test_not_a_boot_image(tmp_path):
         rt.boot_header_version(b"\0" * 128)
     with pytest.raises(rt.RootError, match="vendor_boot"):
         rt.boot_header_version(b"VNDRBOOT" + b"\0" * 120)
+
+
+def test_first_root_without_a_backup(adb, fastboot, rootable, fb_state, tmp_path):
+    """A phone without root can't be backed up yet: ROOT NO BACKUP flashes init_boot to the current slot only."""
+    s, device, session = start(adb, tmp_path)
+    rt.push_stock(adb, session)
+    patched = magisk_patch(rootable)
+    rt.pull_patched(adb, session, tmp_path / "work")
+    assert not rt.prepare_flash(device, None, session, "root").ok
+    plan = rt.prepare_flash(device, None, session, "root", skip_backup=True)
+    assert plan.ok, plan.problems
+    run_plan(plan, s, adb, fastboot, tmp_path)
+    assert (rootable / "by-name" / "init_boot_a").read_bytes().startswith(patched)
+    assert (rootable / "by-name" / "init_boot_b").read_bytes().startswith(STOCK)

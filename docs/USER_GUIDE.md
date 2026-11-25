@@ -268,6 +268,10 @@ those projects recommend. OPxFlasher handles the error-prone parts around it:
    and actually different from stock.
 4. **Flashed to the current slot only**, behind the usual gates (verified backup,
    known-bad firmware block, typed `ROOT`). The image is re-hashed right before writing.
+   **First root:** a phone without root can't be backed up yet, so tick *Flash without a backup*
+   and type `ROOT NO BACKUP`. Only init_boot / boot of the current slot is written, and the stock
+   image from step 1 stays ready for *Restore stock image*. Make your Critical and Full backups
+   right after.
 5. **Unroot** writes the stock image back the same way (typed `UNROOT`).
 
 After an OTA, run the same steps with the new build's full OTA.
@@ -309,10 +313,16 @@ bigger than the partition, firmware with a broken bootloader, and the **bootload
 (`abl`, `xbl`, `xbl_config`, `tz`, `hyp`, ...): one from another build can trip Qualcomm
 anti-rollback, and a phone that can't start its bootloader can't be fixed with fastboot, so
 those are only written as part of a full ROM after the ROM check. `--disable-verity`
-(vbmeta only) flashes with verity and verification off. As for every flash, a Critical or
-Full backup of this phone is required, the image is re-hashed right before writing, and
-you confirm by typing FLASH. If the phone is already in fastboot, the backup tells
-OPxFlasher which phone it is.
+(vbmeta only) flashes with verity and verification off. A Critical or Full backup of this
+phone is required, the image is re-hashed right before writing, and you confirm by typing
+FLASH. If the phone is already in fastboot, the backup tells OPxFlasher which phone it is.
+
+**Without a backup** (e.g. installing a custom recovery on a phone that isn't rooted yet):
+tick *Flash without a backup (I accept the risk)* (`--no-backup`) and type `NO BACKUP`.
+Everything above is still refused (identity partitions, `super`, the bootloader chain, wrong
+types, firmware with a broken bootloader); only the backup isn't required. The phone can
+already be in fastboot: OPxFlasher knows it by its serial number. A full ROM flash or a region
+conversion always needs a backup.
 
 ## Official ROMs
 
