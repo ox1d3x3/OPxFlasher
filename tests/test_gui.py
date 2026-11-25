@@ -545,6 +545,12 @@ def test_gui_dashboard_export_and_updates(window, monkeypatch, tmp_path):
     win.export_log()
     with zipfile.ZipFile(out) as z:
         assert "FAKE0001" not in z.read("log.txt").decode()
+    # after a reboot to fastboot / recovery the export still describes the last connected phone
+    win.session = None
+    win.export_log()
+    with zipfile.ZipFile(out) as z:
+        about = z.read("about.json").decode()
+    assert '"model": "PJZ110"' in about and "FAKE0001" not in about
 
     monkeypatch.setattr(gui.support, "check_for_update",
                         lambda: support.Update("v9.0.0", "https://example.invalid/r", False))
@@ -1143,3 +1149,14 @@ def test_gui_rom_box_shows_what_the_rom_is_as_soon_as_it_is_chosen(window, tmp_p
     win.rom_edit.setText("")
     settle(app, 80)
     assert win.rom_info.isHidden()
+
+
+def test_gui_style_sheet_finds_the_tick_image():
+    from pathlib import Path
+
+    from opx.gui import app as gui
+
+    css = gui.style_sheet()
+    assert "CHECK_PNG" not in css
+    path = css.split("image: url(", 1)[1].split(")", 1)[0]
+    assert Path(path).is_file()

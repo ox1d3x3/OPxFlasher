@@ -120,7 +120,31 @@ QMenu::item:disabled { color: #6b7280; }
 QMenu::separator { height: 1px; background: #262b36; margin: 5px 8px; }
 QLabel#statusText { font-weight: 600; }
 QLabel#romInfo { background: #0d0f14; border: 1px solid #262b36; border-radius: 8px; padding: 7px 10px; }
+QCheckBox, QRadioButton { spacing: 8px; }
+QCheckBox::indicator, QRadioButton::indicator { width: 14px; height: 14px; background: #0d0f14; border: 2px solid #5d6472; }
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator { border-radius: 9px; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #8f98ab; }
+QCheckBox::indicator:checked { background: #d6322c; border-color: #d6322c; image: url(CHECK_PNG); }
+QRadioButton::indicator:checked {
+    border-color: #d6322c;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #d6322c, stop:0.45 #d6322c, stop:0.55 #0d0f14, stop:1 #0d0f14);
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border-color: #323848; background: #14161c; }
+QCheckBox::indicator:checked:disabled { background: #40262a; border-color: #40262a; }
+QRadioButton::indicator:checked:disabled {
+    border-color: #40262a;
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #6b3a3d, stop:0.45 #6b3a3d, stop:0.55 #14161c, stop:1 #14161c);
+}
 """
+
+
+def style_sheet() -> str:
+    """STYLE with the checkbox tick's real path (stylesheets need a file path, not a package resource)."""
+    from importlib import resources
+
+    check = Path(str(resources.files("opx.gui") / "assets" / "check.png")).as_posix()
+    return STYLE.replace("CHECK_PNG", check)
 
 
 def human(n: int | None) -> str:
@@ -185,6 +209,7 @@ class MainWindow(QMainWindow):
         self.jobs: list[Job] = []
         self.devices: list[dev.Device] = []
         self.session: Session | None = None
+        self.last_facts: dict[str, str] = {}  # the last connected phone, for log exports
         self.plan: bk.Plan | None = None
         self.cancel_flag = threading.Event()
         self.last_folder: Path | None = None
@@ -675,8 +700,9 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Save log", str(default), "Zip (*.zip)")
         if not path:
             return
-        facts = bk.device_facts(self.session.props) if self.session else {}
-        serials = [d.serial for d in self.devices]
+        # the phone may be in fastboot / recovery / unplugged by now: keep the last one that was connected
+        facts = bk.device_facts(self.session.props) if self.session else dict(self.last_facts)
+        serials = [d.serial for d in self.devices] + [facts.get("serial", "")]
         root = Path(self.out_edit.text()).expanduser()
         journals = sorted(root.glob("*/journal.json"), key=lambda p: p.stat().st_mtime)[-3:] if root.is_dir() else []
         out = support.export_log(Path(path), self.log.toPlainText(), facts, serials, journals)
@@ -1030,6 +1056,7 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         self.session = session
         facts = bk.device_facts(session.props)
+        self.last_facts = facts
         for key in ("model", "build", "android", "security_patch", "slot_suffix"):
             self.info_labels[key].setText(facts.get(key) or "-")
         access_text = {
@@ -1809,7 +1836,7 @@ def main() -> int:
     app.setDesktopFileName("opxflasher")
     app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(style_sheet())
     from opx import i18n
 
     i18n.load()
