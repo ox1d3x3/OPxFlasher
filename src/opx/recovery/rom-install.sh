@@ -27,6 +27,7 @@ GETPROP=${OPX_GETPROP:-getprop}
 TWRP=${OPX_TWRP:-twrp}
 GETEVENT=${OPX_GETEVENT:-getevent}
 KEY_WAIT=${OPX_KEY_WAIT:-30}
+TIMEOUT=${OPX_TIMEOUT:-timeout}
 LPTOOLS=${OPX_LPTOOLS:-lptools}
 METADATA=${OPX_METADATA:-/metadata}
 TMP=${OPX_TMP:-/tmp}/opx-rom
@@ -65,7 +66,7 @@ prop() { "$GETPROP" "$1" 2>/dev/null; }
 # Vol+ = yes, Vol- = no. No answer within KEY_WAIT seconds, or no way to read the keys: no.
 ask() {
   ui "  Vol+ = YES     Vol- = NO     (no answer in $KEY_WAIT s = NO)"
-  if ! command -v "$GETEVENT" >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+  if ! command -v "$GETEVENT" >/dev/null 2>&1 || ! command -v "$TIMEOUT" >/dev/null 2>&1; then
     ui "  (this recovery can't read the volume keys: NO)"
     return 1
   fi
@@ -73,7 +74,7 @@ ask() {
   while [ "$(date +%s)" -lt "$end" ]; do
     left=$(( end - $(date +%s) ))
     [ "$left" -gt 0 ] || break
-    ev=$(timeout "$left" "$GETEVENT" -lqc 1 2>/dev/null)
+    ev=$("$TIMEOUT" "$left" "$GETEVENT" -lqc 1 2>/dev/null)
     case "$ev" in
       *KEY_VOLUMEUP*DOWN*) ui "  -> YES"; return 0 ;;
       *KEY_VOLUMEDOWN*DOWN*) ui "  -> NO"; return 1 ;;

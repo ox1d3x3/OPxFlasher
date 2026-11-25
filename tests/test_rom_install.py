@@ -279,15 +279,26 @@ def keys(tmp_path, *answers, wait="5"):
     seq.write_text("\n".join(answers) + "\n")
     g = tmp_path / "getevent"
     g.write_text(f"""#!/bin/sh
-k=$(head -n 1 {seq}); sed -i '1d' {seq}
+k=$(head -n 1 {seq}); tail -n +2 {seq} > {seq}.n; mv {seq}.n {seq}
 case "$k" in
   up) echo "/dev/input/event0: EV_KEY KEY_VOLUMEUP DOWN" ;;
   down) echo "/dev/input/event0: EV_KEY KEY_VOLUMEDOWN DOWN" ;;
-  *) sleep 60 ;;
+  *) exec sleep 60 ;;
 esac
 """)
     g.chmod(0o755)
-    return {"OPX_GETEVENT": str(g), "OPX_KEY_WAIT": wait}
+    # a portable `timeout` (macOS has none; recoveries have toybox's)
+    t = tmp_path / "timeout"
+    t.write_text("""#!/bin/sh
+t=$1; shift
+"$@" & pid=$!
+( sleep "$t"; kill $pid 2>/dev/null ) >/dev/null 2>&1 & w=$!
+wait $pid; rc=$?
+kill $w 2>/dev/null
+exit $rc
+""")
+    t.chmod(0o755)
+    return {"OPX_GETEVENT": str(g), "OPX_KEY_WAIT": wait, "OPX_TIMEOUT": str(t)}
 
 
 def fake_twrp(tmp_path, ok=True):
