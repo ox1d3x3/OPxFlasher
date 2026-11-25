@@ -245,3 +245,18 @@ def test_personal_data_partitions_never_flashed_whatever_the_profile(fastboot, f
         with pytest.raises(RefusedPartition):
             fb.flash(name, img)
     assert fb_state.read()["log"] == []
+
+
+def test_keep_custom_recovery(adb, fastboot, phone, fb_state, tmp_path):
+    """The ROM has a recovery; with keep_recovery the phone's own (AERA / OrangeFox) isn't written."""
+    for slot in ("_a", "_b"):
+        put(phone, f"recovery{slot}", b"\xaa" * 65536)
+    rom = make_rom(tmp_path, {**ROM_PARTS, "recovery": b"C" * 8192})
+    plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=rom)
+    assert any(s.partition == "recovery" for s in plan.steps)
+    plan, runner = setup(adb, fastboot, tmp_path / "k", fl.FlashOptions(keep_recovery=True, **ALLOW), rom=rom)
+    assert plan.ok, plan.problems
+    assert not any(s.partition == "recovery" for s in plan.steps)
+    runner.run()
+    assert (phone / "by-name" / "recovery_a").read_bytes() == b"\xaa" * 65536
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(b"B" * 8192)

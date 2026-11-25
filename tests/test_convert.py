@@ -472,3 +472,30 @@ def test_self_signed_region_image_is_not_counted_as_checked_by_vbmeta(tmp_path):
     for rom in (open_rom(ota), open_rom(made["folder"])):
         assert "my_region" not in avb_protected(rom)
         assert set(cv.plan(rom).kept) == {"oplusstanvbk", "my_region"}
+
+
+def test_convert_ready_and_keep_recovery_names_and_refusals(tmp_path):
+    import hashlib
+
+    from test_rom_install import backup_with_region
+
+    ota, _ = make_ota(tmp_path, product="CPH2653")
+    rom = open_rom(ota)
+    z, f = cv.output_paths(rom, tmp_path, "PJZ110", keep_rec=True)
+    assert z.name.endswith("-fullrom-EU-ready-PJZ110-keeprec.zip") or z.name.endswith("-ready-PJZ110-keeprec.zip")
+    assert "ready" not in f.name and "keeprec" not in f.name
+    backup, own = backup_with_region(tmp_path)
+    with pytest.raises(cv.ConvertError, match="made on its own"):
+        cv.convert(rom, tmp_path / "o", make_folder=True, ready_backup=backup)
+    (backup / "my_region_a.img").write_bytes(b"\x00" * 4096)  # damaged since the backup
+    with pytest.raises(cv.ConvertError, match="damaged"):
+        cv.convert(open_rom(ota), tmp_path / "o2", ready_backup=backup)
+    assert not list((tmp_path / "o2").glob("*.zip"))
+    (backup / "my_region_a.img").write_bytes(own)
+    assert hashlib.sha256(own).hexdigest()
+    made = cv.convert(open_rom(ota), tmp_path / "o3", ready_backup=backup)["zip"]
+    with zipfile.ZipFile(made) as zf:
+        listing = zf.read("opx/rom.list").decode()
+        meta = json.loads(zf.read("opxflasher-rom.json"))
+    assert "ready serial SER123" in listing and "readyfile my_region" in listing
+    assert meta["convert_ready"] == {"model": "PJZ110", "files": ["my_region"]}  # no serial in the manifest

@@ -397,8 +397,8 @@ install from a custom recovery, keeping your data:
 - **Recovery zip** (`<name>-fullrom-<REGION>.zip`) for **OrangeFox, TWRP and AERA**. Copy it to the phone and
   flash it. Before writing anything the installer checks:
   - it's the phone the ROM is for (its device codename; the chip platform name, shared by many
-    phones, never counts), and the **same variant** (it never changes region, which would need a
-    data wipe). The installed model and build are read from `my_manifest`, `odm`, `vendor`,
+    phones, never counts), and the **same variant**: a normal zip never changes region, which needs
+    a data wipe (a **convert ready** zip does, see below). The installed model and build are read from `my_manifest`, `odm`, `vendor`,
     `product`, `system_ext` and `system`,
   - the ROM is **not older than the installed Android** (the newest build date of the installed
     partitions; reinstalling the exact installed build is fine): installing older software can blow
@@ -410,6 +410,19 @@ install from a custom recovery, keeping your data:
   **Your network files stay yours:** `oplusstanvbk` (and `my_region` when the ROM's vbmeta doesn't
   check it at boot) isn't in the zip, so the phone keeps its own copy, exactly as when flashing from
   the PC. The image folder still contains them for OPxFlasher to decide.
+
+  **Keep my custom recovery** (`--keep-recovery`): the ROM's recovery is left out of the zip
+  (`...-keeprec.zip`), so AERA / OrangeFox stays installed. The Flash dialog has the same option
+  when flashing from the PC.
+
+  **Convert ready** (`--ready-for <backup>`): for changing region (e.g. China → Global) with one
+  flash in recovery. The zip (`...-ready-<model>.zip`) carries **this phone's own** `oplusstanvbk` /
+  `my_region` from your Network essentials or Critical backup (checked against the backup's
+  SHA-256; ones the new ROM's vbmeta checks at boot come from the ROM). It **only installs on the
+  phone the backup was made on** (serial number), writes the ROM and your network files, then
+  **formats data** with the recovery's `twrp` command. If formatting fails it says so: format data
+  yourself before rebooting. A convert ready zip is made on its own, never shared: it holds your
+  phone's files.
 
   Then it writes the current slot (firmware, boot images, the logical partitions resized inside
   super, `vbmeta` last) and reads everything back. Images over 1 GiB are stored in parts, because

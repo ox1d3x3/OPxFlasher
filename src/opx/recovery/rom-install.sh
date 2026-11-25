@@ -6,8 +6,10 @@
 # my_*, ...) resized inside super with lptools and written, vbmeta last.
 #
 # Before anything is written it checks, and stops if any check fails:
-#   - the phone is the board the ROM is for, and the same variant (no region
-#     change: that needs a data wipe, which this installer never does)
+#   - the phone is the board the ROM is for, and the same variant. A region
+#     change is only allowed by a "convert ready" zip, made by OPxFlasher from
+#     this very phone's backup (its serial must match): that zip carries the
+#     phone's own network files and formats data at the end.
 #   - the ROM is not older than the installed Android (anti-rollback fuse)
 #   - no system update is half-applied (snapshot merge)
 #   - every partition exists and is big enough; lptools is there
@@ -22,6 +24,7 @@ ZIP=$3
 BLOCK=${OPX_BLOCK_DIR:-/dev/block/by-name}
 MAPPER=${OPX_MAPPER_DIR:-/dev/block/mapper}
 GETPROP=${OPX_GETPROP:-getprop}
+TWRP=${OPX_TWRP:-twrp}
 LPTOOLS=${OPX_LPTOOLS:-lptools}
 METADATA=${OPX_METADATA:-/metadata}
 TMP=${OPX_TMP:-/tmp}/opx-rom
@@ -91,7 +94,16 @@ CHUNK=$(value chunk)
 ROM_TS=$(value timestamp)
 ROM_PATCH=$(value patch)
 ROM_FP=$(value fingerprint)
+READY_SERIAL=$(sed -n 's/^ready serial //p' "$TMP/list" | head -n 1)
+READY_MODEL=$(sed -n 's/^ready model //p' "$TMP/list" | head -n 1)
 ui "ROM: $PRODUCT $BUILD"
+if [ -n "$READY_SERIAL" ]; then
+  have_serial=$(prop ro.serialno)
+  [ -n "$have_serial" ] || have_serial=$(prop ro.boot.serialno)
+  [ -n "$have_serial" ] || abort "Can't read this phone's serial number, so this convert ready zip can't confirm it's the phone it was made for."
+  [ "$have_serial" = "$READY_SERIAL" ] || abort "This convert ready zip was made from another phone's backup ($READY_MODEL). It only installs on that phone."
+  ui "- Convert ready: made for this phone ($READY_MODEL)"
+fi
 
 # --- 1. right phone ------------------------------------------------------------
 # Device codenames only: ro.product.board is the chip platform (sun, canoe ...),
@@ -152,9 +164,18 @@ done
 for key in ro.product.model ro.product.vendor.model ro.product.odm.model ro.product.product.model; do
   [ "$(bprop "$key")" = "$PRODUCT" ] && same_product=1
 done
-[ -z "$other" ] || abort "This ROM is for $PRODUCT but the phone runs $other. Changing region needs a data wipe; use OPxFlasher on the PC."
-[ -n "$same_product" ] || abort "Can't confirm the phone runs $PRODUCT (its build data doesn't say), so a region change can't be ruled out. Use OPxFlasher on the PC."
-ui "- Same variant: $PRODUCT"
+REGION_CHANGE=""
+if [ -n "$other" ] || [ -z "$same_product" ]; then
+  if [ -z "$READY_SERIAL" ]; then
+    [ -z "$other" ] || abort "This ROM is for $PRODUCT but the phone runs $other. Changing region needs a data wipe: use a convert ready zip (OPxFlasher > Convert, from your backup) or OPxFlasher on the PC."
+    abort "Can't confirm the phone runs $PRODUCT (its build data doesn't say), so a region change can't be ruled out. Use OPxFlasher on the PC."
+  fi
+  REGION_CHANGE=1
+  command -v "$TWRP" >/dev/null 2>&1 || abort "Changing region needs data formatted, and this recovery has no 'twrp' command to do it. Use OrangeFox or TWRP, or OPxFlasher on the PC."
+  ui "- Region change: ${other:-?} -> $PRODUCT (data will be formatted)"
+else
+  ui "- Same variant: $PRODUCT"
+fi
 
 num() { echo "$1" | tr -cd '0-9'; }
 # newest build date of any installed partition
@@ -262,11 +283,37 @@ while read -r kind name dev size; do
   [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
 done < "$TMP/targets"
 
+# --- 8. region change: data must go -------------------------------------------------------
+formatted=""
+if [ -n "$REGION_CHANGE" ]; then
+  ui "- Formatting data (needed for the new region)..."
+  if "$TWRP" format data >/dev/null 2>&1; then formatted=1; fi
+fi
+
+ready=$(sed -n 's/^readyfile //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
+keeprec=$(grep -c '^keeprecovery$' "$TMP/list")
 kept=$(sed -n 's/^kept //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 written=$(sed -n 's/^netrom //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 cleanup
 ui " "
-ui "Done: $PRODUCT $BUILD is installed. Your data was not touched."
+if [ -n "$REGION_CHANGE" ]; then
+  ui "Done: $PRODUCT $BUILD is installed (region changed)."
+else
+  ui "Done: $PRODUCT $BUILD is installed. Your data was not touched."
+fi
+if [ -n "$ready" ]; then
+  ui "Mobile network: wrote your own $ready from your backup."
+fi
+if [ "$keeprec" -gt 0 ]; then
+  ui "Recovery: left alone, your custom recovery stays."
+fi
+if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ]; then
+  ui " "
+  ui "! Formatting data didn't work. BEFORE rebooting: Wipe > Format data > type yes."
+  ui "! Without it the phone won't start in the new region."
+  cleanup
+  exit 1
+fi
 if [ -n "$kept" ]; then
   ui "Mobile network: kept your phone's own $kept."
 fi

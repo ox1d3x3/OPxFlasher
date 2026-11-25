@@ -74,12 +74,17 @@ class FlashDialog(QDialog):
         self.wipe_box = QCheckBox(tr("Wipe data (factory reset) - needed when changing region or OS. ERASES EVERYTHING."))
         self.reboot_box = QCheckBox(tr("Reboot to Android when finished"))
         self.reboot_box.setChecked(True)
+        self.keep_recovery_box = QCheckBox(tr("Keep my custom recovery (don't write the ROM's recovery)"))
+        self.keep_recovery_box.setToolTip(tr("AERA, OrangeFox or TWRP stays installed. Everything else from the "
+                                             "ROM is written as usual."))
+        has_recovery = any(i.partition == "recovery" and i.action == "flash" for i in report.items)
+        self.keep_recovery_box.setEnabled(has_recovery)
         has_logical = any(i.action == "super" for i in report.items)
         fastbootd_blocked = "fastbootd" in device.profile.blocked_actions(device.props)
         self.fastbootd_box = QCheckBox(tr("Use fastbootd for logical partitions (system, my_region ...)"))
         self.fastbootd_box.setChecked(has_logical and not fastbootd_blocked)
         self.fastbootd_box.setEnabled(has_logical and not fastbootd_blocked)
-        for w in (self.wipe_box, self.reboot_box, self.fastbootd_box):
+        for w in (self.wipe_box, self.reboot_box, self.fastbootd_box, self.keep_recovery_box):
             o_layout.addWidget(w)
         layout.addWidget(o_box)
 
@@ -193,7 +198,8 @@ class FlashDialog(QDialog):
         outer.addLayout(btns)
 
         extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box) if b is not None]
-        for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box, *extra]:
+        for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
+                   self.keep_recovery_box, *extra]:
             cb.toggled.connect(self.refresh)
         for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
             if edit is not None:
@@ -224,6 +230,7 @@ class FlashDialog(QDialog):
                                                 if fl.backup_images(backup, n)])
         return fl.FlashOptions(
             restore_from_backup=restore,
+            keep_recovery=self.keep_recovery_box.isChecked(),
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
             wipe_data=self.wipe_box.isChecked(),
             reboot_after=self.reboot_box.isChecked(),

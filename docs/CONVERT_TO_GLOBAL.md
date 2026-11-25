@@ -79,6 +79,14 @@ bootloader after the first write. The first boot takes a few minutes.
 If a step fails, don't reboot or unplug: **Export log** and resume from the journal when the cause
 is fixed.
 
+### Or from a custom recovery (AERA / OrangeFox)
+
+Convert with **Convert ready** ticked and your backup chosen (`opx rom convert <rom> --ready-for
+<backup>`): you get `...-ready-PJZ110.zip`. Copy it to the phone and flash it in recovery. It checks
+it's your phone (serial number) and that the ROM isn't older, writes the ROM and your own network
+files, then formats data. Tick **Keep my custom recovery** too if AERA / OrangeFox should stay.
+Don't share this zip: it holds your phone's files.
+
 ## 4. After the first boot
 
 - Settings → About: model **CPH2653** (or CPH2649), OxygenOS.

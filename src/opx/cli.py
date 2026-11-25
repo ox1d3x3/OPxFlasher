@@ -364,7 +364,8 @@ def cmd_rom_convert(args) -> int:
 
     try:
         made = cv.convert(d.rom, Path(args.out), make_zip=not args.no_zip, make_folder=args.folder,
-                          progress=show, stage=step)
+                          progress=show, stage=step, ready_backup=Path(args.ready_for) if args.ready_for else None,
+                          keep_recovery_zip=args.keep_recovery)
     except (cv.ConvertError, OSError) as e:
         print(f"\n{e}")
         return 1
@@ -518,6 +519,7 @@ def cmd_flash(args) -> int:
     options = fl.FlashOptions(
         include_optional=[p for p in (args.include or "").split(",") if p],
         wipe_data=args.wipe,
+        keep_recovery=args.keep_recovery,
         reboot_after=not args.no_reboot,
         allow_fastbootd=args.allow_fastbootd,
         overrides=overrides,
@@ -1251,6 +1253,11 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--out", default=".", help="folder to write to")
     rc.add_argument("--folder", action="store_true", help="also write an image folder (fastboot / OPxFlasher)")
     rc.add_argument("--no-zip", action="store_true", help="don't write the recovery zip (with --folder)")
+    rc.add_argument("--ready-for", metavar="BACKUP",
+                    help="convert ready zip: pack this phone's own network files from its backup, so one flash in "
+                         "recovery changes region (only installs on that phone; formats data)")
+    rc.add_argument("--keep-recovery", action="store_true",
+                    help="leave the ROM's recovery out of the zip: your custom recovery stays")
     rc.set_defaults(fn=cmd_rom_convert)
     ra = rsub.add_parser("avb", help="show AVB rollback index and descriptors of an image")
     ra.add_argument("image")
@@ -1355,6 +1362,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("-s", "--serial")
     f.add_argument("--include", help="optional partitions to flash too, comma separated (e.g. oplusstanvbk,my_region)")
     f.add_argument("--wipe", action="store_true", help="factory reset (needed when changing region or OS)")
+    f.add_argument("--keep-recovery", action="store_true",
+                   help="don't write the ROM's recovery: your custom recovery (AERA, OrangeFox) stays")
     f.add_argument("--no-reboot", action="store_true", help="stay in the bootloader when done")
     f.add_argument("--allow-fastbootd", action="store_true", help="allow fastbootd for logical partitions")
     f.add_argument("--accept-variant-change", action="store_true",

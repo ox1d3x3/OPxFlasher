@@ -61,6 +61,7 @@ class FlashOptions:
     allow_fastbootd: bool = False
     overrides: list[str] = field(default_factory=list)
     restore_from_backup: list[str] = field(default_factory=list)  # region files written from YOUR backup
+    keep_recovery: bool = False  # don't write recovery: a custom recovery (AERA, OrangeFox) stays
 
 
 def override_key(check) -> str | None:
@@ -259,6 +260,8 @@ def prepare(
     has_super_image = "super" in physical
     if has_super_image:
         physical.remove("super")
+    if options.keep_recovery:
+        physical = [n for n in physical if n != "recovery"]
 
     if region_change(report) and not options.wipe_data:
         problems.append(

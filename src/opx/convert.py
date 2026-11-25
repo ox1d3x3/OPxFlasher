@@ -67,6 +67,8 @@ class Item:
     size: int
     image: RomImage
     keep_on_phone: bool = False  # left out of the recovery zip: the phone keeps its own copy
+    backup_file: Path | None = None  # convert ready: written from the user's backup instead of the ROM
+    backup_sha: str = ""
 
 
 @dataclass
@@ -79,6 +81,8 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)  # network files the recovery zip leaves to the phone
     net_from_rom: list[str] = field(default_factory=list)  # network files written from the ROM (vbmeta checks them)
+    ready: dict = field(default_factory=dict)  # convert ready: {"serial", "model", "files": [names from the backup]}
+    recovery_kept: bool = False  # the zip leaves the phone's (custom) recovery alone
 
     @property
     def total(self) -> int:
@@ -159,7 +163,7 @@ def plan(rom: RomInfo) -> Plan:
     net_from_rom = [it.name for it in items
                     if prof.is_conditional(it.name) and it.name != "odm" and not it.keep_on_phone]
     p = Plan(items, skipped, kept=kept, net_from_rom=net_from_rom)
-    p.boards = list(dict.fromkeys(b for b in [rom.codename, *prof.recovery_boards] if b))
+    p.boards = list(dict.fromkeys(b for b in [rom.codename, *prof.codenames, *prof.recovery_boards] if b))
     meta = rom.metadata
     if not (rom.codename and rom.product) or is_generic_fingerprint(rom.fingerprint):
         p.recovery_ok, p.recovery_problem = False, (
@@ -175,6 +179,63 @@ def plan(rom: RomInfo) -> Plan:
         p.warnings.append("Which images are logical (inside super) is guessed from their names; the installer "
                           "checks each one against the phone before writing.")
     return p
+
+
+RECOVERY_PARTS = ("recovery",)
+
+
+def make_ready(rom: RomInfo, p: Plan, backup: Path, stage: Callable[[str], None]) -> None:
+    """Convert ready: this phone's own network files (oplusstanvbk, my_region) go into the recovery
+    zip from its backup, so one flash in recovery changes region and keeps mobile network. Only for
+    the phone the backup was made on (the installer checks the serial). Files the ROM's vbmeta checks
+    at boot always come from the ROM."""
+    from opx.flash import backup_images
+    from opx.rom.verify import avb_protected
+
+    backup = Path(backup)
+    try:
+        manifest = json.loads((backup / "manifest.json").read_text("utf-8"))
+    except (OSError, ValueError) as e:
+        raise ConvertError(f"{backup} isn't an OPxFlasher backup ({e}).") from e
+    dev = manifest.get("device", {})
+    serial, model = str(dev.get("serial", "")), str(dev.get("model", ""))
+    if not serial or not _SAFE.match(serial):
+        raise ConvertError("The backup doesn't record the phone's serial number, so a convert ready zip couldn't "
+                           "check it's flashed on the same phone.")
+    prof = _profile(rom)
+    protected = avb_protected(rom)
+    slot = dev.get("slot_suffix", "")
+    files = []
+    for it in p.items:
+        if not prof.is_conditional(it.name) or it.name == "odm":
+            continue
+        if it.name in protected:
+            stage(f"{it.name} comes from the ROM: its vbmeta checks it at boot.")
+            continue
+        found = backup_images(backup, it.name)
+        pick = next((found[n] for n in (it.name + slot, it.name, f"{it.name}_a", f"{it.name}_b") if n in found), None)
+        if pick is None:
+            raise ConvertError(f"The backup has no {it.name}. Make a Network essentials or Critical backup first.")
+        path, sha, _src = pick
+        if not path.is_file() or sha256_file(path) != sha:
+            raise ConvertError(f"{path.name} in the backup doesn't match its recorded SHA-256: the backup is damaged.")
+        it.backup_file, it.backup_sha, it.size, it.keep_on_phone = path, sha, path.stat().st_size, False
+        files.append(it.name)
+    if not files:
+        raise ConvertError("Nothing from the backup can go into this ROM: its vbmeta checks every network file.")
+    p.kept = [n for n in p.kept if n not in files]
+    p.ready = {"serial": serial, "model": model, "files": files}
+    stage(f"Convert ready for {model or 'the backed-up phone'}: your {', '.join(files)} from the backup.")
+
+
+def keep_recovery(p: Plan, stage: Callable[[str], None]) -> None:
+    """Leave recovery out of the zip, so a custom recovery (AERA, OrangeFox) stays on the phone."""
+    for it in p.items:
+        if it.name in RECOVERY_PARTS:
+            it.keep_on_phone = True
+            p.recovery_kept = True
+    if p.recovery_kept:
+        stage("Recovery is left out: your custom recovery stays on the phone.")
 
 
 REGION_CODES = {"china": "CN", "india": "IN", "eu": "EU", "europe": "EU", "na": "NA", "north america": "NA",
@@ -213,7 +274,7 @@ def region_code(rom: RomInfo) -> str:
     return ""
 
 
-_SUFFIX = re.compile(r"-fullrom(?:-[A-Z]{2,3})?$")
+_SUFFIX = re.compile(r"-fullrom(?:-[A-Z]{2,3})?(?:-ready-[A-Za-z0-9]+)?(?:-keeprec)?$")
 
 
 def output_name(rom: RomInfo) -> str:
@@ -240,17 +301,25 @@ def rom_version_tag(rom: RomInfo) -> str:
     return ""
 
 
-def output_paths(rom: RomInfo, out_dir: Path) -> tuple[Path, Path]:
-    """(recovery zip, image folder): <name>-fullrom[-REGION].zip and <name>-fullrom[-REGION]."""
+def output_paths(rom: RomInfo, out_dir: Path, ready_model: str = "", keep_rec: bool = False) -> tuple[Path, Path]:
+    """(recovery zip, image folder): <name>-fullrom[-REGION].zip and <name>-fullrom[-REGION].
+    A convert ready zip (for one phone) adds -ready-<its model>; one that keeps the custom
+    recovery adds -keeprec, so neither is mistaken for the plain zip."""
     region = region_code(rom)
     tail = f"-fullrom-{region}" if region else "-fullrom"
     base = output_name(rom) + tail
-    return Path(out_dir) / f"{base}.zip", Path(out_dir) / base
+    zip_base = base
+    if ready_model:
+        zip_base += "-ready-" + (re.sub(r"[^A-Za-z0-9]", "", ready_model) or "phone")
+    if keep_rec:
+        zip_base += "-keeprec"
+    return Path(out_dir) / f"{zip_base}.zip", Path(out_dir) / base
 
 
-def existing_outputs(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False) -> dict[str, Path]:
+def existing_outputs(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
+                     keep_rec: bool = False) -> dict[str, Path]:
     """Outputs convert() would make that are already there: {"zip": path, "folder": path}."""
-    zip_out, folder_out = output_paths(rom, out_dir)
+    zip_out, folder_out = output_paths(rom, out_dir, keep_rec=keep_rec)
     want = {"zip": (make_zip, zip_out), "folder": (make_folder, folder_out)}
     return {kind: path for kind, (wanted, path) in want.items() if wanted and path.exists()}
 
@@ -274,30 +343,46 @@ def verify_existing(paths: dict[str, Path], progress: Progress | None = None,
 
 def convert_or_reuse(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
                      progress: Progress | None = None, stage: Callable[[str], None] | None = None,
-                     cancel: Callable[[], bool] | None = None) -> dict[str, Path]:
-    """Like convert(), but outputs that already exist are verified and reused, not refused."""
-    have = existing_outputs(rom, out_dir, make_zip, make_folder)
+                     cancel: Callable[[], bool] | None = None, keep_recovery_zip: bool = False) -> dict[str, Path]:
+    """Like convert(), but outputs that already exist are verified and reused, not refused.
+    (A convert ready zip is always made fresh with convert(): it carries backup files.)"""
+    have = existing_outputs(rom, out_dir, make_zip, make_folder, keep_recovery_zip)
     if have:
         (stage or (lambda s: None))("Already converted: verifying " + ", ".join(p.name for p in have.values()) + "...")
         verify_existing(have, progress, cancel)
     need_zip, need_folder = make_zip and "zip" not in have, make_folder and "folder" not in have
-    made = convert(rom, out_dir, need_zip, need_folder, progress, stage, cancel) if need_zip or need_folder else {}
+    made = (convert(rom, out_dir, need_zip, need_folder, progress, stage, cancel, keep_recovery_zip=keep_recovery_zip)
+            if need_zip or need_folder else {})
     return {**have, **made}
 
 
 def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
             progress: Progress | None = None, stage: Callable[[str], None] | None = None,
-            cancel: Callable[[], bool] | None = None, chunk: int = CHUNK, replace: bool = False) -> dict[str, Path]:
+            cancel: Callable[[], bool] | None = None, chunk: int = CHUNK, replace: bool = False,
+            ready_backup: Path | None = None, keep_recovery_zip: bool = False) -> dict[str, Path]:
     """Write the full ROM. Returns {"zip": path, "folder": path} for what was made.
-    Existing outputs are refused unless `replace` (then they're deleted first)."""
+    Existing outputs are refused unless `replace` (then they're deleted first).
+    `ready_backup`: make the recovery zip convert ready from this backup (see make_ready).
+    `keep_recovery_zip`: the recovery zip leaves the phone's recovery alone."""
     if not (make_zip or make_folder):
         raise ConvertError("Choose a recovery zip, an image folder, or both.")
+    if (ready_backup or keep_recovery_zip) and not make_zip:
+        raise ConvertError("Convert ready and keeping the custom recovery are recovery zip options.")
+    if ready_backup and make_folder:
+        raise ConvertError("A convert ready zip is made on its own: it holds one phone's network files. "
+                           "Make the image folder separately.")
+    ready_model = ""
+    if ready_backup:
+        try:
+            ready_model = json.loads((Path(ready_backup) / "manifest.json").read_text("utf-8"))["device"]["model"]
+        except (OSError, ValueError, KeyError, TypeError):
+            ready_model = "phone"
     if chunk <= 0 or chunk % (1 << 20):
         raise ConvertError("Parts must be whole MiB.")
     stage = stage or (lambda s: None)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    zip_out, folder_out = output_paths(rom, out_dir)
+    zip_out, folder_out = output_paths(rom, out_dir, ready_model, keep_recovery_zip)
     for target in ([zip_out] if make_zip else []) + ([folder_out] if make_folder else []):
         if target.exists() and replace:
             shutil.rmtree(target) if target.is_dir() else target.unlink()
@@ -310,6 +395,10 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
         try:
             _unfold_super(rom, work)
             p = plan(rom)
+            if ready_backup:
+                make_ready(rom, p, Path(ready_backup), stage)
+            if keep_recovery_zip:
+                keep_recovery(p, stage)
         except (RomError, OSError) as e:
             raise ConvertError(str(e)) from e
         if make_zip and not p.recovery_ok:
@@ -327,6 +416,9 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
             stage(f"Left out (never written by OPxFlasher): {', '.join(p.skipped)}")
         if make_zip and p.kept:
             stage(f"Recovery zip keeps the phone's own {', '.join(p.kept)} (network / signal).")
+        if make_folder and p.recovery_kept:
+            stage("The image folder holds the ROM as it is (recovery included): when flashing from OPxFlasher, "
+                  "tick Keep my custom recovery.")
 
         # one pass to extract / hash what's made, one more to pack what goes in the zip
         total = (p.total if make_folder else p.zip_total) + (p.zip_total if make_zip else 0)
@@ -359,7 +451,10 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                     stage(f"{item.name} ({n} of {len(todo)})")
                     img = item.image
                     direct = img.file is not None and not img.sparse and not img.pieces and not make_folder
-                    if direct:
+                    if item.backup_file is not None:
+                        path, sha = item.backup_file, item.backup_sha  # checked against the backup in make_ready
+                        tick(item.name, item.size)
+                    elif direct:
                         path = img.file
                         sha = img.sha256 or ""
                         if not sha:
@@ -394,9 +489,14 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                     "chunk": chunk, "images": records, "left_out": p.skipped,
                 }
                 if zf is not None:
-                    in_zip = [r for r in records if r["name"] not in p.kept]
+                    left = {i.name for i in p.items if i.keep_on_phone}
+                    in_zip = [r for r in records if r["name"] not in left]
                     zf.writestr("opx/rom.list", _install_list(rom, p, in_zip, chunk))
-                    zf.writestr(FULLROM_JSON, json.dumps(dict(manifest, images=in_zip, kept_on_phone=p.kept), indent=2))
+                    extra = {"convert_ready": {k: v for k, v in p.ready.items() if k != "serial"}} if p.ready else {}
+                    if p.recovery_kept:
+                        extra["recovery_kept"] = True
+                    zf.writestr(FULLROM_JSON, json.dumps(dict(manifest, images=in_zip, kept_on_phone=p.kept, **extra),
+                                                         indent=2))
                     zf.writestr("SHA256SUMS", "".join(f"{pt['sha256']}  {pt['entry']}\n"
                                                        for r in records for pt in r["parts"]))
             finally:
@@ -461,6 +561,11 @@ def _install_list(rom: RomInfo, p: Plan, records: list[dict], chunk: int) -> str
         lines.append(f"fingerprint {fp}")
     shown = re.sub(r"[^A-Za-z0-9._()-]", "_", rom.build_incremental or rom.android or "unknown")
     lines.append(f"build {shown}")
+    if p.ready:
+        lines += [f"ready serial {p.ready['serial']}", f"ready model {p.ready['model'] or 'phone'}"]
+        lines += [f"readyfile {n}" for n in p.ready["files"]]
+    if p.recovery_kept:
+        lines.append("keeprecovery")
     lines += [f"kept {n}" for n in p.kept]  # shown at the end: the phone's own network files stayed
     lines += [f"netrom {n}" for n in p.net_from_rom]  # ... or the ROM wrote its own
     for r in records:

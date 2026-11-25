@@ -41,6 +41,8 @@ opx ota mirrors --add ota.example.com          # add your own catalog mirror (tr
 opx rom detect <file-or-folder>                # what is it? phone, build, contents, what's missing
 opx rom verify <rom> [--quick] [--json]        # complete and undamaged? who can install it?
 opx rom convert <rom> --out ~/ROMs [--folder] [--no-zip]   # full ROM: recovery zip and/or image folder
+opx rom convert <rom> --ready-for <backup>                  # convert ready zip: region change in recovery, this phone only
+opx rom convert <rom> --keep-recovery                       # zip that leaves your custom recovery alone
 
 opx rom inspect ROM.zip                      # device, build, full/incremental, images
 opx rom extract ROM.zip init_boot vbmeta     # pull images out (hash-verified)

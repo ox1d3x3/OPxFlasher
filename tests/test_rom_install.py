@@ -244,3 +244,93 @@ def test_chip_platform_board_is_not_the_phone(rom_zip, tmp_path):
     phone = Phone(tmp_path, parts, props={"ro.product.device": "OP5D2BL1", "ro.product.board": "dodge"})
     code, out = phone.install(z)
     assert code == 1 and "this phone is 'OP5D2BL1'" in out
+
+
+# --- convert ready (region change in recovery) and keeping the custom recovery --------------
+
+def backup_with_region(tmp_path, serial="SER123", model="PJZ110"):
+    import hashlib
+    import json
+
+    folder = tmp_path / "backup"
+    folder.mkdir()
+    own = b"\xab" * 4096  # the phone's own my_region
+    (folder / "my_region_a.img").write_bytes(own)
+    (folder / "manifest.json").write_text(json.dumps({
+        "mode": "critical", "device": {"serial": serial, "model": model, "slot_suffix": "_a"},
+        "partitions": [{"name": "my_region_a", "file": "my_region_a.img", "size": len(own), "source": "mapper",
+                        "sha256": hashlib.sha256(own).hexdigest(), "status": "ok"}]}))
+    return folder, own
+
+
+GLOBAL_PHONE = {"installed": {"ro.system.build.fingerprint": "OnePlus/PJZ110/OP5D0DL1:16/X/U.0:user/release-keys"}}
+
+
+def global_ready_zip(tmp_path, serial="SER123"):
+    ota, parts = make_ota(tmp_path, product="CPH2653")
+    backup, own = backup_with_region(tmp_path, serial)
+    z = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, ready_backup=backup)["zip"]
+    return z, parts, own
+
+
+def fake_twrp(tmp_path, ok=True):
+    t = tmp_path / "twrp"
+    t.write_text(f"#!/bin/sh\necho \"$@\" >> {tmp_path / 'twrp.log'}\nexit {0 if ok else 1}\n")
+    t.chmod(0o755)
+    return t
+
+
+def test_plain_zip_still_refuses_a_region_change(tmp_path):
+    ota, parts = make_ota(tmp_path, product="CPH2653")
+    z = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB)["zip"]
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path))})
+    assert code == 1 and "convert ready zip" in out and "Nothing was written." in out
+
+
+def test_convert_ready_zip_changes_region_in_one_flash(tmp_path):
+    z, parts, own = global_ready_zip(tmp_path)
+    assert z.name.endswith("-ready-PJZ110.zip")
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path))})
+    assert code == 0, out
+    assert "Convert ready: made for this phone (PJZ110)" in out and "Region change: PJZ110 -> CPH2653" in out
+    assert (phone.mapper / "my_region_a").read_bytes() == own  # the phone's own, from the backup
+    assert (phone.mapper / "system_a").read_bytes() == padded(parts["system"])
+    assert "format data" in (tmp_path / "twrp.log").read_text()
+    assert "wrote your own my_region from your backup" in out
+
+
+@pytest.mark.parametrize("props, env, message", [
+    ({"ro.serialno": "OTHER"}, {}, "made from another phone's backup"),
+    ({}, {}, "Can't read this phone's serial number"),
+    ({"ro.serialno": "SER123"}, {"OPX_TWRP": "no-twrp-here"}, "no 'twrp' command"),
+])
+def test_convert_ready_refusals_write_nothing(tmp_path, props, env, message):
+    z, parts, _ = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props=props, **GLOBAL_PHONE)
+    before = phone.snapshot()
+    env = {"OPX_TWRP": str(fake_twrp(tmp_path)), **env}
+    code, out = phone.install(z, env)
+    assert code == 1 and message in out and "Nothing was written." in out, out
+    assert phone.snapshot() == before
+
+
+def test_convert_ready_format_failure_is_loud(tmp_path):
+    z, parts, _ = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path, ok=False))})
+    assert code == 1 and "BEFORE rebooting: Wipe > Format data" in out
+
+
+def test_keep_custom_recovery(tmp_path):
+    parts = {**__import__("test_convert").images(), "recovery": os.urandom(8192)}
+    ota, parts = make_ota(tmp_path, parts=parts)
+    z = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, keep_recovery_zip=True)["zip"]
+    with zipfile.ZipFile(z) as zf:
+        assert not any("recovery" in n for n in zf.namelist() if n.startswith("images/"))
+    phone = Phone(tmp_path, parts)
+    code, out = phone.install(z)
+    assert code == 0, out
+    assert (phone.block / "recovery_a").read_bytes().startswith(b"\xee")  # AERA / OrangeFox untouched
+    assert "custom recovery stays" in out

@@ -64,6 +64,29 @@ class ConvertDialog(QDialog):
             box.toggled.connect(self._update_buttons)
             layout.addWidget(box)
 
+        # recovery zip options
+        self.keep_recovery = QCheckBox(tr("Keep my custom recovery (leave the ROM's recovery out of the zip)"))
+        self.keep_recovery.setToolTip(tr("AERA, OrangeFox or TWRP stays on the phone after flashing the zip."))
+        self.ready = QCheckBox(tr("Convert ready: pack my phone's network files from my backup (change region "
+                                  "in recovery with one flash)"))
+        self.ready.setToolTip(tr("For changing region (e.g. China to Global) from a custom recovery. The zip "
+                                 "carries this phone's own oplusstanvbk / my_region from your backup, only "
+                                 "installs on this phone (serial number), and formats data at the end."))
+        ready_row = QHBoxLayout()
+        ready_row.addSpacing(24)
+        ready_row.addWidget(QLabel(tr("Backup:")))
+        self.ready_edit = QLineEdit()
+        self.ready_edit.setPlaceholderText(tr("Network essentials or Critical backup of the phone"))
+        ready_row.addWidget(self.ready_edit, 1)
+        self.ready_browse = QPushButton(tr("Browse..."))
+        self.ready_browse.clicked.connect(self._browse_ready)
+        ready_row.addWidget(self.ready_browse)
+        for box in (self.keep_recovery, self.ready):
+            box.toggled.connect(self._ready_toggled)
+            layout.addWidget(box)
+        layout.addLayout(ready_row)
+        self.ready_edit.textChanged.connect(self._update_buttons)
+
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel(tr("Save in:")))
         self.out_edit = QLineEdit(str(self.rom_path.parent))
@@ -137,6 +160,17 @@ class ConvertDialog(QDialog):
 
     # --- conversion -------------------------------------------------------------------
 
+    def _browse_ready(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, tr("Your backup of this phone"), self.ready_edit.text())
+        if folder:
+            self.ready_edit.setText(folder)
+
+    def _ready_toggled(self, *_a) -> None:
+        if self.ready.isChecked():  # a convert ready zip is for one phone: made on its own
+            self.want_zip.setChecked(True)
+            self.want_folder.setChecked(False)
+        self._update_buttons()
+
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, tr("Save the full ROM in"), self.out_edit.text())
         if folder:
@@ -148,8 +182,13 @@ class ConvertDialog(QDialog):
             return
         out = Path(self.out_edit.text().strip())
         make_zip, make_folder = self.want_zip.isChecked(), self.want_folder.isChecked()
-        replace = False
-        have = cv.existing_outputs(d.rom, out, make_zip, make_folder)
+        ready = Path(self.ready_edit.text().strip()) if self.ready.isChecked() and make_zip else None
+        keep_rec = self.keep_recovery.isChecked() and make_zip
+        if self.ready.isChecked() and not self.ready_edit.text().strip():
+            self.status.setText(tr("Choose the backup of this phone for the convert ready zip."))
+            return
+        replace = ready is not None  # a convert ready zip carries backup files: always made fresh
+        have = {} if replace else cv.existing_outputs(d.rom, out, make_zip, make_folder, keep_rec)
         if have:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Question)
@@ -175,7 +214,8 @@ class ConvertDialog(QDialog):
         rom = d.rom
         self.run_job(
             lambda emit=None: (cv.convert if replace else cv.convert_or_reuse)(
-                rom, out, make_zip=make_zip, make_folder=make_folder,
+                rom, out, make_zip=make_zip, make_folder=make_folder, keep_recovery_zip=keep_rec,
+                **({"ready_backup": ready} if ready is not None else {}),
                 progress=lambda w, n, t: emit(("progress", w, n, t)),
                 stage=lambda s: emit(("stage", s)), cancel=self.cancel.is_set, **({"replace": True} if replace else {})),
             self._done, self._failed, event=self._event,
