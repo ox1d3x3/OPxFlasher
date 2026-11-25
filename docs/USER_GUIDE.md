@@ -419,10 +419,17 @@ install from a custom recovery, keeping your data:
   flash in recovery. The zip (`...-ready-<model>.zip`) carries **this phone's own** `oplusstanvbk` /
   `my_region` from your Network essentials or Critical backup (checked against the backup's
   SHA-256; ones the new ROM's vbmeta checks at boot come from the ROM). It **only installs on the
-  phone the backup was made on** (serial number), writes the ROM and your network files, then
-  **formats data** with the recovery's `twrp` command. If formatting fails it says so: format data
-  yourself before rebooting. A convert ready zip is made on its own, never shared: it holds your
-  phone's files.
+  phone the backup was made on** (serial number). In recovery it asks twice, with the volume keys
+  (**Vol+ = yes, Vol- = no; no answer in 30 seconds = no**):
+  1. when the model changes (e.g. PJZ110 → CPH2653): flash this ROM, at your own risk? No writes
+     nothing;
+  2. after the ROM is written: flash your own network files from the backup? No leaves them out
+     (restore them later from Signal / region).
+
+  Then it **formats data** with the recovery's `twrp` command. If formatting fails it says so:
+  format data yourself before rebooting. A convert ready zip is made on its own, never shared: it
+  holds your phone's files. **Any earlier OPxFlasher zip** (`...-fullrom-*.zip`) can be made convert
+  ready: open it in Convert and tick Convert ready.
 
   Then it writes the current slot (firmware, boot images, the logical partitions resized inside
   super, `vbmeta` last) and reads everything back. Images over 1 GiB are stored in parts, because

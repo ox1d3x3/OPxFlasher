@@ -82,9 +82,11 @@ is fixed.
 ### Or from a custom recovery (AERA / OrangeFox)
 
 Convert with **Convert ready** ticked and your backup chosen (`opx rom convert <rom> --ready-for
-<backup>`): you get `...-ready-PJZ110.zip`. Copy it to the phone and flash it in recovery. It checks
-it's your phone (serial number) and that the ROM isn't older, writes the ROM and your own network
-files, then formats data. Tick **Keep my custom recovery** too if AERA / OrangeFox should stay.
+<backup>`; a `...-fullrom-*.zip` you made earlier works too): you get `...-ready-PJZ110.zip`. Copy it
+to the phone and flash it in recovery. It checks it's your phone (serial number) and that the ROM
+isn't older, asks **Vol+ to flash the new model** (Vol- or 30 seconds = cancel, nothing written),
+writes the ROM, asks **Vol+ to write your own network files** (Vol- or 30 seconds = skip), then
+formats data. Tick **Keep my custom recovery** too if AERA / OrangeFox should stay.
 Don't share this zip: it holds your phone's files.
 
 ## 4. After the first boot

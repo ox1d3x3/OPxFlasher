@@ -25,6 +25,8 @@ BLOCK=${OPX_BLOCK_DIR:-/dev/block/by-name}
 MAPPER=${OPX_MAPPER_DIR:-/dev/block/mapper}
 GETPROP=${OPX_GETPROP:-getprop}
 TWRP=${OPX_TWRP:-twrp}
+GETEVENT=${OPX_GETEVENT:-getevent}
+KEY_WAIT=${OPX_KEY_WAIT:-30}
 LPTOOLS=${OPX_LPTOOLS:-lptools}
 METADATA=${OPX_METADATA:-/metadata}
 TMP=${OPX_TMP:-/tmp}/opx-rom
@@ -59,6 +61,27 @@ fail_written() {
 }
 
 prop() { "$GETPROP" "$1" 2>/dev/null; }
+
+# Vol+ = yes, Vol- = no. No answer within KEY_WAIT seconds, or no way to read the keys: no.
+ask() {
+  ui "  Vol+ = YES     Vol- = NO     (no answer in $KEY_WAIT s = NO)"
+  if ! command -v "$GETEVENT" >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+    ui "  (this recovery can't read the volume keys: NO)"
+    return 1
+  fi
+  end=$(( $(date +%s) + KEY_WAIT ))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    left=$(( end - $(date +%s) ))
+    [ "$left" -gt 0 ] || break
+    ev=$(timeout "$left" "$GETEVENT" -lqc 1 2>/dev/null)
+    case "$ev" in
+      *KEY_VOLUMEUP*DOWN*) ui "  -> YES"; return 0 ;;
+      *KEY_VOLUMEDOWN*DOWN*) ui "  -> NO"; return 1 ;;
+    esac
+  done
+  ui "  -> no answer: NO"
+  return 1
+}
 
 sha_of_entry() { unzip -p "$ZIP" "$1" 2>/dev/null | sha256sum | cut -d' ' -f1; }
 
@@ -233,7 +256,22 @@ while read -r tag name index entry sha len; do
 done < "$TMP/list"
 ui "- Zip checked: all files intact"
 
-# --- 6. write --------------------------------------------------------------------------
+# --- 6. convert ready: model change and network files are the user's call ------------------
+: > "$TMP/targets_net"
+for n in $(sed -n 's/^readyfile //p' "$TMP/list"); do
+  grep " $n " "$TMP/targets" >> "$TMP/targets_net"
+  grep -v " $n " "$TMP/targets" > "$TMP/targets.tmp"; mv "$TMP/targets.tmp" "$TMP/targets"
+done
+if [ -n "$REGION_CHANGE" ]; then
+  ui " "
+  ui "! MODEL CHANGE: this phone runs ${other:-another model}, this ROM is $PRODUCT."
+  ui "! Only go on if this ROM is meant for your phone. Data will be formatted."
+  ui "! You do this at your own risk: the OPxFlasher developer is not responsible"
+  ui "! for any damage. Flash $PRODUCT $BUILD now?"
+  ask || abort "Cancelled: you chose not to flash."
+fi
+
+# --- 7. write --------------------------------------------------------------------------
 for m in /system_root /system /vendor /product /odm /system_ext; do umount "$m" >/dev/null 2>&1; done
 
 write_parts() { # name device
@@ -275,7 +313,7 @@ while read -r kind name dev size; do
 done < "$TMP/targets"
 sync
 
-# --- 7. read back --------------------------------------------------------------------
+# --- 8. read back --------------------------------------------------------------------
 ui "- Reading back what was written..."
 while read -r kind name dev size; do
   want=$(sed -n "s/^image [a-z]* $name $size //p" "$TMP/list" | head -n 1)
@@ -283,7 +321,35 @@ while read -r kind name dev size; do
   [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
 done < "$TMP/targets"
 
-# --- 8. region change: data must go -------------------------------------------------------
+# --- 9. your network files, if you want them -------------------------------------------------
+net_done=""
+if [ -s "$TMP/targets_net" ]; then
+  ui " "
+  ui "The ROM is installed. Flash your phone's own network files from your backup"
+  ui "($(cut -d' ' -f2 "$TMP/targets_net" | tr '\n' ' ' | sed 's/ *$//'))? They keep mobile network working."
+  if ask; then
+    while read -r kind name dev size; do
+      ui "  $name"
+      if [ "$kind" != physical ]; then
+        "$LPTOOLS" unmap "$name$slot" >/dev/null 2>&1
+        if ! "$LPTOOLS" resize "$name$slot" "$size" >/dev/null 2>&1; then
+          [ "$kind" = logical ] && "$LPTOOLS" create "$name$slot" "$size" >/dev/null 2>&1 \
+            || fail_written "Can't make room for $name inside super."
+        fi
+        "$LPTOOLS" map "$name$slot" >/dev/null 2>&1
+        [ -e "$dev" ] || fail_written "$name$slot isn't available after resizing."
+      fi
+      write_parts "$name" "$dev" || fail_written "Writing $name failed."
+      want=$(sed -n "s/^image [a-z]* $name $size //p" "$TMP/list" | head -n 1)
+      got=$(dd if="$dev" bs=$MB count=$(((size + MB - 1) / MB)) 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
+      [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
+    done < "$TMP/targets_net"
+    sync
+    net_done=1
+  fi
+fi
+
+# --- 10. region change: data must go -------------------------------------------------------
 formatted=""
 if [ -n "$REGION_CHANGE" ]; then
   ui "- Formatting data (needed for the new region)..."
@@ -301,8 +367,11 @@ if [ -n "$REGION_CHANGE" ]; then
 else
   ui "Done: $PRODUCT $BUILD is installed. Your data was not touched."
 fi
-if [ -n "$ready" ]; then
+if [ -n "$ready" ] && [ -n "$net_done" ]; then
   ui "Mobile network: wrote your own $ready from your backup."
+elif [ -n "$ready" ]; then
+  ui "Mobile network: your $ready were NOT written. If calls or data don't work,"
+  ui "restore them from your backup: OPxFlasher > Signal / region."
 fi
 if [ "$keeprec" -gt 0 ]; then
   ui "Recovery: left alone, your custom recovery stays."

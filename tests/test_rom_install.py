@@ -273,6 +273,23 @@ def global_ready_zip(tmp_path, serial="SER123"):
     return z, parts, own
 
 
+def keys(tmp_path, *answers, wait="5"):
+    """A fake getevent that answers with the given volume keys, one per question ('up' / 'down' / 'none')."""
+    seq = tmp_path / "keys.txt"
+    seq.write_text("\n".join(answers) + "\n")
+    g = tmp_path / "getevent"
+    g.write_text(f"""#!/bin/sh
+k=$(head -n 1 {seq}); sed -i '1d' {seq}
+case "$k" in
+  up) echo "/dev/input/event0: EV_KEY KEY_VOLUMEUP DOWN" ;;
+  down) echo "/dev/input/event0: EV_KEY KEY_VOLUMEDOWN DOWN" ;;
+  *) sleep 60 ;;
+esac
+""")
+    g.chmod(0o755)
+    return {"OPX_GETEVENT": str(g), "OPX_KEY_WAIT": wait}
+
+
 def fake_twrp(tmp_path, ok=True):
     t = tmp_path / "twrp"
     t.write_text(f"#!/bin/sh\necho \"$@\" >> {tmp_path / 'twrp.log'}\nexit {0 if ok else 1}\n")
@@ -292,8 +309,9 @@ def test_convert_ready_zip_changes_region_in_one_flash(tmp_path):
     z, parts, own = global_ready_zip(tmp_path)
     assert z.name.endswith("-ready-PJZ110.zip")
     phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
-    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path))})
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), **keys(tmp_path, "up", "up")})
     assert code == 0, out
+    assert "MODEL CHANGE" in out and "not responsible" in out
     assert "Convert ready: made for this phone (PJZ110)" in out and "Region change: PJZ110 -> CPH2653" in out
     assert (phone.mapper / "my_region_a").read_bytes() == own  # the phone's own, from the backup
     assert (phone.mapper / "system_a").read_bytes() == padded(parts["system"])
@@ -319,7 +337,7 @@ def test_convert_ready_refusals_write_nothing(tmp_path, props, env, message):
 def test_convert_ready_format_failure_is_loud(tmp_path):
     z, parts, _ = global_ready_zip(tmp_path)
     phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
-    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path, ok=False))})
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path, ok=False)), **keys(tmp_path, "up", "up")})
     assert code == 1 and "BEFORE rebooting: Wipe > Format data" in out
 
 
@@ -334,3 +352,43 @@ def test_keep_custom_recovery(tmp_path):
     assert code == 0, out
     assert (phone.block / "recovery_a").read_bytes().startswith(b"\xee")  # AERA / OrangeFox untouched
     assert "custom recovery stays" in out
+
+
+
+@pytest.mark.parametrize("answer", ["down", "none"])
+def test_model_change_not_confirmed_writes_nothing(tmp_path, answer):
+    z, parts, _ = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    before = phone.snapshot()
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), **keys(tmp_path, answer, wait="2")})
+    assert code == 1 and "Cancelled: you chose not to flash." in out and "Nothing was written." in out, out
+    assert phone.snapshot() == before and not (tmp_path / "twrp.log").exists()
+
+
+def test_network_files_skipped_when_not_wanted(tmp_path):
+    z, parts, own = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), **keys(tmp_path, "up", "none", wait="2")})
+    assert code == 0, out
+    assert (phone.mapper / "system_a").read_bytes() == padded(parts["system"])
+    assert (phone.mapper / "my_region_a").read_bytes() != own  # left as it was
+    assert "were NOT written" in out and "format data" in (tmp_path / "twrp.log").read_text()
+
+
+def test_no_key_input_means_no(tmp_path):
+    z, parts, _ = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), "OPX_GETEVENT": "no-getevent-here"})
+    assert code == 1 and "can't read the volume keys" in out and "Nothing was written." in out
+
+
+def test_earlier_zip_becomes_convert_ready(tmp_path):
+    ota, parts = make_ota(tmp_path, product="CPH2653")
+    plain = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB)["zip"]
+    backup, own = backup_with_region(tmp_path)
+    z = cv.convert(open_rom(plain), tmp_path / "out2", chunk=MB, ready_backup=backup)["zip"]
+    assert z.name.endswith("-ready-PJZ110.zip") and z.name.count("fullrom") == 1
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), **keys(tmp_path, "up", "up")})
+    assert code == 0, out
+    assert (phone.mapper / "my_region_a").read_bytes() == own

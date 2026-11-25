@@ -221,6 +221,24 @@ def make_ready(rom: RomInfo, p: Plan, backup: Path, stage: Callable[[str], None]
             raise ConvertError(f"{path.name} in the backup doesn't match its recorded SHA-256: the backup is damaged.")
         it.backup_file, it.backup_sha, it.size, it.keep_on_phone = path, sha, path.stat().st_size, False
         files.append(it.name)
+    # A recovery zip OPxFlasher made earlier left the phone's network files out (kept on the phone):
+    # turning it into a convert ready zip adds them back, from the backup.
+    have = {it.name for it in p.items}
+    if rom.kind == "fullrom":
+        for name in [n for n in prof.conditional if n != "odm" and n not in have and n not in protected]:
+            found = backup_images(backup, name)
+            hit = next(((n, found[n]) for n in (name + slot, name, f"{name}_a", f"{name}_b") if n in found), None)
+            if hit is None:
+                continue
+            path, sha, src = hit[1]
+            if not path.is_file() or sha256_file(path) != sha:
+                raise ConvertError(f"{path.name} in the backup doesn't match its recorded SHA-256: the backup is damaged.")
+            size = path.stat().st_size
+            item = Item(name, "logical" if src == "mapper" else "physical", size,
+                        RomImage(name=name, size=size, logical=src == "mapper"))
+            item.backup_file, item.backup_sha = path, sha
+            p.items.insert(0, item)  # before vbmeta (kept last)
+            files.append(name)
     if not files:
         raise ConvertError("Nothing from the backup can go into this ROM: its vbmeta checks every network file.")
     p.kept = [n for n in p.kept if n not in files]
@@ -450,7 +468,8 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                 for n, item in enumerate(todo, 1):
                     stage(f"{item.name} ({n} of {len(todo)})")
                     img = item.image
-                    direct = img.file is not None and not img.sparse and not img.pieces and not make_folder
+                    direct = (item.backup_file is None and img.file is not None and not img.sparse
+                              and not img.pieces and not make_folder)
                     if item.backup_file is not None:
                         path, sha = item.backup_file, item.backup_sha  # checked against the backup in make_ready
                         tick(item.name, item.size)
