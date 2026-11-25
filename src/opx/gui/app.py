@@ -52,6 +52,7 @@ from opx.gui.diag_tab import DiagTab
 from opx.gui.flash_dialog import FlashDialog
 from opx.gui.icon import app_icon, set_windows_app_id
 from opx.gui.image_tab import ImageTab
+from opx.gui.phone_anim import PhoneAnim, state_for
 from opx.gui.root_tab import RootTab
 from opx.i18n import tr
 from opx.profile import MODE_TEXT, MODES
@@ -275,6 +276,8 @@ class MainWindow(QMainWindow):
         status_row.addWidget(self.status_dot)
         status_row.addWidget(self.status_text, 1)
         dev_layout.insertLayout(0, status_row)
+        self.phone_anim = PhoneAnim()
+        dev_layout.insertWidget(0, self.phone_anim)
         help_row = QHBoxLayout()
         self.usb_btn = QPushButton(tr("Not showing up?"))
         self.usb_btn.setToolTip(tr("Phone not showing up? Check USB drivers (Windows) or permissions (Linux)"))
@@ -907,6 +910,11 @@ class MainWindow(QMainWindow):
         self.status_text.setText(text)
         self.status_text.setToolTip(text)
         self.status_dot.setProperty("state", state)
+        if checking and not self.devices:
+            self.phone_anim.set_state("checking")
+        elif not checking:
+            d = (self.selected_device() or (self.devices[0] if self.devices else None)) if self.tools_ok else None
+            self.phone_anim.set_state(state_for(d))
 
     def poll_devices(self) -> None:
         """Every few seconds, quietly: has a phone been plugged in or unplugged?"""

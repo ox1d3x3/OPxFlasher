@@ -1211,3 +1211,27 @@ def test_gui_panel_in_fastboot_shows_what_it_can(window, monkeypatch, fb_state):
     assert labels["slot_suffix"].text() == "_a"
     assert labels["model"].text() == "PJZ110" and "last seen in Android" in labels["build"].text()
     assert labels["access"].text() == "bootloader"
+
+
+def test_gui_phone_animation_follows_the_phone(window, monkeypatch, fb_state):
+    import sys
+
+    from conftest import FAKE_FASTBOOT, tool_cmd
+
+    from opx.gui import phone_anim
+
+    app, win = window
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    assert win.phone_anim.state == "android"
+    fb_state(mode="bootloader")
+    win.refresh_devices()
+    settle(app, 300)
+    assert win.phone_anim.state == "bootloader"
+    win.phone_anim.grab()  # paints without errors
+    assert phone_anim.state_for(None) == "none"
+
+    class D:
+        transport, state = "fastboot", "fastbootd"
+    assert phone_anim.state_for(D) == "fastbootd"
+    D.transport, D.state = "adb", "unauthorized"
+    assert phone_anim.state_for(D) == "unauthorized"
