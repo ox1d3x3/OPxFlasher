@@ -1,4 +1,4 @@
-"""Tools > ROM catalog mirrors: where Official ROMs looks when the OTA catalog is down."""
+"""ROMs > ROM catalog > ROM catalog mirrors: where Official ROMs looks when the OTA catalog is down."""
 
 from __future__ import annotations
 

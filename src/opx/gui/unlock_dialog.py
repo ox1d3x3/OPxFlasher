@@ -1,4 +1,4 @@
-"""Tools > Unlock bootloader...: the warnings, a 30-second read, a small sum, the
+"""Phone > Unlock bootloader...: the warnings, a 30-second read, a small sum, the
 owner's agreement, then one last "Are you sure?". Only then is anything sent."""
 
 from __future__ import annotations

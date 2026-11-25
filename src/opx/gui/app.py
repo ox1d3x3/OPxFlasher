@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -370,20 +371,21 @@ class MainWindow(QMainWindow):
         self.cancel_btn.clicked.connect(self.cancel)
         self.open_btn = QPushButton(tr("Open folder"))
         self.open_btn.clicked.connect(self._open_folder)
-        self.verify_btn = QPushButton(tr("Verify a backup..."))
-        self.verify_btn.clicked.connect(self.verify_existing)
-        self.restore_rom_btn = QPushButton(tr("Restore full ROM..."))
-        self.restore_rom_btn.setToolTip(tr("Put the whole OS back from a Full firmware backup of this phone"))
-        self.restore_rom_btn.clicked.connect(self.restore_full_rom)
-        self.restore_zip_btn = QPushButton(tr("Make recovery zip..."))
-        self.restore_zip_btn.setToolTip(tr("Turn a Full firmware backup into a zip you can flash in AERA, OrangeFox or TWRP"))
-        self.restore_zip_btn.clicked.connect(self.make_restore_zip)
+        # what you do with a backup afterwards: one "Use a backup" menu instead of three more buttons
+        self.use_backup_btn = QPushButton(tr("Use a backup"))
+        self.use_backup_btn.setToolTip(tr("Verify a backup, restore the whole OS from it, or make a recovery zip"))
+        use_menu = QMenu(self.use_backup_btn)
+        self.verify_backup_act = use_menu.addAction(tr("Verify a backup..."), self.verify_existing)
+        self.restore_rom_act = use_menu.addAction(tr("Restore full ROM..."), self.restore_full_rom)
+        self.restore_rom_act.setToolTip(tr("Put the whole OS back from a Full firmware backup of this phone"))
+        self.restore_zip_act = use_menu.addAction(tr("Make recovery zip..."), self.make_restore_zip)
+        self.restore_zip_act.setToolTip(tr("Turn a Full firmware backup into a zip you can flash in AERA, OrangeFox or TWRP"))
+        use_menu.setToolTipsVisible(True)
+        self.use_backup_btn.setMenu(use_menu)
         for b in (self.preview_btn, self.start_btn, self.cancel_btn, self.open_btn):
             btn_row.addWidget(b)
         btn_row.addStretch(1)
-        btn_row.addWidget(self.verify_btn)
-        btn_row.addWidget(self.restore_rom_btn)
-        btn_row.addWidget(self.restore_zip_btn)
+        btn_row.addWidget(self.use_backup_btn)
         opt_layout.addLayout(btn_row)
         backup_layout.addWidget(opt_box)
 
@@ -518,19 +520,24 @@ class MainWindow(QMainWindow):
         self.report: pn.Report | None = None
 
         # --- assemble -----------------------------------------------------
+        # tabs in the order of the job: back up, get a ROM and flash it, root, single images,
+        # then the things you come back to (signal, apps, diagnostics)
         self.tabs = QTabWidget()
-        self.tabs.addTab(backup_tab, tr("Backup"))
         self.rom_tab = rom_tab
-        self.tabs.addTab(rom_tab, tr("ROM check"))
-        self.tabs.addTab(self._build_signal_tab(), tr("Signal / region"))
         self.root_tab = RootTab(self)
-        self.tabs.addTab(self.root_tab, tr("Root"))
         self.image_tab = ImageTab(self)
-        self.tabs.addTab(self.image_tab, tr("Flash image"))
         self.apps_tab = AppsTab(self)
-        self.tabs.addTab(self.apps_tab, tr("Apps"))
         self.diag_tab = DiagTab(self)
-        self.tabs.addTab(self.diag_tab, tr("Diagnostics"))
+        for widget, name, tip in (
+            (backup_tab, tr("Backup"), tr("Start here: back up the phone before changing anything")),
+            (rom_tab, tr("ROM: check and flash"), tr("Check a ROM against your phone, convert it, flash it")),
+            (self.root_tab, tr("Root"), tr("Root with Magisk, KernelSU or APatch, or undo it")),
+            (self.image_tab, tr("Flash image"), tr("One image: a custom recovery, a patched boot, a vbmeta ...")),
+            (self._build_signal_tab(), tr("Signal / region"), tr("Get mobile network back: restore your region files")),
+            (self.apps_tab, tr("Apps"), tr("Remove system apps you don't use (debloat), and put them back")),
+            (self.diag_tab, tr("Diagnostics"), tr("Phone logs, boot problems, partitions")),
+        ):
+            self.tabs.setTabToolTip(self.tabs.addTab(widget, name), tip)
         upper = QWidget()
         upper_layout = QHBoxLayout(upper)
         upper_layout.setContentsMargins(0, 0, 0, 0)
@@ -597,20 +604,25 @@ class MainWindow(QMainWindow):
                              ("fastbootd", tr("Fastbootd")), ("recovery", tr("Recovery"))):
             self.reboot_acts[target] = act(reboot_menu, text, lambda t=target: self.reboot_to(t))
         phone.addSeparator()
+        act(phone, tr("Unlock bootloader..."), self.unlock_bootloader,
+            tip=tr("Unlock with the phone maker's own command; erases the phone"))
+        phone.addSeparator()
         act(phone, tr("Phone not showing up?"), self.usb_check)
         act(phone, tr("Phone won't start?"), self.open_rescue)
 
+        roms = bar.addMenu(tr("&ROMs"))
+        act(roms, tr("Official ROMs..."), self.open_catalog)
+        act(roms, tr("Verify ROM..."), self.open_verify)
+        roms.addSeparator()
+        catalog = roms.addMenu(tr("ROM catalog"))
+        act(catalog, tr("Save ROM catalog snapshot..."), self.save_catalog_snapshot,
+            tip=tr("Keep a copy of the whole official-ROM list, for when the catalog is down"))
+        act(catalog, tr("Use a ROM catalog snapshot..."), self.use_catalog_snapshot)
+        act(catalog, tr("ROM catalog mirrors..."), self.catalog_mirrors,
+            tip=tr("Servers used when the OTA catalog is down; add your own"))
+
         tools = bar.addMenu(tr("&Tools"))
         act(tools, tr("Download adb and fastboot"), self.download_tools)
-        act(tools, tr("Official ROMs..."), self.open_catalog)
-        act(tools, tr("Verify ROM..."), self.open_verify)
-        act(tools, tr("Unlock bootloader..."), self.unlock_bootloader,
-            tip=tr("Unlock with the phone maker's own command; erases the phone"))
-        act(tools, tr("Save ROM catalog snapshot..."), self.save_catalog_snapshot,
-            tip=tr("Keep a copy of the whole official-ROM list, for when the catalog is down"))
-        act(tools, tr("Use a ROM catalog snapshot..."), self.use_catalog_snapshot)
-        act(tools, tr("ROM catalog mirrors..."), self.catalog_mirrors,
-            tip=tr("Servers used when the OTA catalog is down; add your own"))
         act(tools, tr("Read a logs zip..."), lambda: self.diag_tab.read_logs())
         tools.addSeparator()
         lang = tools.addMenu(tr("Language"))
@@ -773,8 +785,7 @@ class MainWindow(QMainWindow):
         self.check_btn.setEnabled(not self.busy)
         self.convert_btn.setEnabled(not self.busy)
         self.verify_btn.setEnabled(not self.busy)
-        self.restore_rom_btn.setEnabled(not self.busy)
-        self.restore_zip_btn.setEnabled(not self.busy)
+        self.use_backup_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
         if hasattr(self, "root_tab"):

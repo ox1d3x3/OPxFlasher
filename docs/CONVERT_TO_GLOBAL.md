@@ -40,9 +40,9 @@ keeps a 16 bootloader, and the phone can move to 17 later.
 
 1. **Look first.** Settings → About: model, ColorOS version, build number. Write them down.
 2. **Developer options** → USB debugging and OEM unlocking on. Connect; the phone panel fills in.
-3. **Unlock** the bootloader if it isn't (Tools → Unlock bootloader...), then **root** (Root tab).
+3. **Unlock** the bootloader if it isn't (Phone → Unlock bootloader...), then **root** (Root tab).
 4. **Backups:** Backup → **Critical**, then **Full firmware**. Both must end with every image ok.
-   **Verify a backup...** on both, then copy them to a second drive.
+   **Use a backup → Verify a backup...** on both, then copy them to a second drive.
 
 ## 2. Get and check the Global ROM
 

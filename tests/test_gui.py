@@ -824,7 +824,7 @@ def test_gui_about_and_menus(window, monkeypatch):
 
     app, win = window
     menus = [a.text().replace("&", "") for a in win.menuBar().actions()]
-    assert menus == ["File", "Phone", "Tools", "Help"]
+    assert menus == ["File", "Phone", "ROMs", "Tools", "Help"]
     assert about.DEVELOPER in win.version_label.text() and "v" in win.version_label.text()
     win.show_about()
     settle(app)
@@ -1021,7 +1021,9 @@ def test_gui_catalog_snapshot_menu(window, monkeypatch, tmp_path):
     monkeypatch.setattr(gui.QFileDialog, "getOpenFileName", lambda *a, **k: (str(other), ""))
     win.use_catalog_snapshot()
     assert settings.get("catalog_snapshot") == str(other)
-    menu = [a.text() for a in win.menuBar().actions()[2].menu().actions()]
+    roms = win.menuBar().actions()[2].menu()
+    sub = next(a.menu() for a in roms.actions() if a.text() == "ROM catalog")
+    menu = [a.text() for a in sub.actions()]
     assert "Save ROM catalog snapshot..." in menu and "Use a ROM catalog snapshot..." in menu
 
 
@@ -1235,3 +1237,14 @@ def test_gui_phone_animation_follows_the_phone(window, monkeypatch, fb_state):
     assert phone_anim.state_for(D) == "fastbootd"
     D.transport, D.state = "adb", "unauthorized"
     assert phone_anim.state_for(D) == "unauthorized"
+
+
+def test_gui_is_organised_by_task(window):
+    app, win = window
+    names = [win.tabs.tabText(i) for i in range(win.tabs.count())]
+    assert names == ["Backup", "ROM: check and flash", "Root", "Flash image", "Signal / region", "Apps", "Diagnostics"]
+    assert all(win.tabs.tabToolTip(i) for i in range(win.tabs.count()))
+    menus = [a.text().replace("&", "") for a in win.menuBar().actions()]
+    assert menus == ["File", "Phone", "ROMs", "Tools", "Help"]
+    used = [a.text() for a in win.use_backup_btn.menu().actions()]
+    assert used == ["Verify a backup...", "Restore full ROM...", "Make recovery zip..."]

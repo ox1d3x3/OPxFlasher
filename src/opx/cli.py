@@ -102,7 +102,7 @@ def cmd_ota(args) -> int:
             print(f"\n{e}")
             return 1
         print(f"\nSaved {res['count']} releases for {res['devices']} devices to {res['path']}")
-        print(f"{catalog.CREDIT}. Use it when the catalog is down: OPxFlasher > Tools > Use a ROM catalog snapshot.")
+        print(f"{catalog.CREDIT}. Use it when the catalog is down: OPxFlasher > ROMs > ROM catalog > Use a ROM catalog snapshot.")
         return 0
 
     model = args.model

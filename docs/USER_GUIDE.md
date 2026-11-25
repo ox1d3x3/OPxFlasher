@@ -120,7 +120,7 @@ doesn't match what the bootloader expects, a locked phone won't start.
 
 ## Verify a ROM
 
-**ROM check → Verify ROM...** (also in the Tools menu, or `opx rom verify <rom>`) checks any ROM
+**ROM: check and flash → Verify ROM...** (also in the ROMs menu, or `opx rom verify <rom>`) checks any ROM
 before you use it. No phone needed, nothing is written.
 
 - **Integrity, every byte:** a full OTA's `payload.bin` against the SHA-256 in
@@ -176,7 +176,7 @@ How it flashes:
 A **Full firmware** backup is an offline copy of your phone's whole Android OS (never your
 personal data). If the ROM breaks, put it back:
 
-- **App:** Backup tab → **Restore full ROM...** → choose the backup folder.
+- **App:** Backup tab → **Use a backup → Restore full ROM...** → choose the backup folder.
 - **Command line:** `opx restore-rom <backup-folder>` (add `--dry-run` to only see the checks).
 
 The backup is checked like any ROM (phone, variant, known bad firmware, anti-rollback,
@@ -196,7 +196,7 @@ Identity partitions and your data are never written.
 OPxFlasher can turn a Full firmware backup into a zip you flash in recovery, for
 [AERA Recovery](https://aera-recovery.com) (OnePlus 13: *dodge*) or for OrangeFox / TWRP:
 
-- **App:** Backup tab → **Make recovery zip...** → pick the recovery → choose the backup.
+- **App:** Backup tab → **Use a backup → Make recovery zip...** → pick the recovery → choose the backup.
 - **Command line:** `opx restore-zip <backup-folder> --out <folder> [--recovery aera|orangefox]`
   (`--compress` for a smaller file).
 - Before anything is packed, every image is re-hashed against the SHA-256 recorded when the backup
@@ -278,7 +278,7 @@ After an OTA, run the same steps with the new build's full OTA.
 
 ## Unlock the bootloader
 
-**Tools → Unlock bootloader...** (or `opx unlock`) unlocks with the phone maker's own command
+**Phone → Unlock bootloader...** (or `opx unlock`) unlocks with the phone maker's own command
 (`fastboot flashing unlock`, or `fastboot oem unlock` on older OnePlus bootloaders); the phone
 then asks you to confirm on its own screen. **Unlocking erases everything on the phone.**
 
@@ -346,15 +346,15 @@ How the download works:
   A package that fails the MD5 or isn't a complete zip is deleted.
 - **Logged.** Every step goes into the app's log, so **Export log...** shows what happened.
 
-**If the catalog goes away.** **Tools → Save ROM catalog snapshot...** keeps the whole list (every
+**If the catalog goes away.** **ROMs → ROM catalog → Save ROM catalog snapshot...** keeps the whole list (every
 phone, region and build with its official link, size and MD5) in one JSON file; save one now and
 then. When the catalog can't be reached, OPxFlasher tries the mirror at `ota.ox1de.xyz`, then any
-mirrors you added (**Tools → ROM catalog mirrors...**: add, test or remove a server that speaks the
-same API, e.g. your own copy of opx-ota-mirror), then the last list it downloaded, then your snapshot (**Tools → Use a ROM catalog snapshot...** picks a
+mirrors you added (**ROMs → ROM catalog → ROM catalog mirrors...**: add, test or remove a server that speaks the
+same API, e.g. your own copy of opx-ota-mirror), then the last list it downloaded, then your snapshot (**ROMs → ROM catalog → Use a ROM catalog snapshot...** picks a
 different one). Downloads always come straight from OPPO / OnePlus servers; the snapshot only
 holds the links. Command line: `opx ota snapshot --out <folder>`, `opx ota mirrors --add <host>`.
 
-- **App:** ROM check tab → **Official ROMs...** (connect the phone first). ROMs for your
+- **App:** ROM: check and flash tab → **Official ROMs...** (or the ROMs menu) (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.
   - **Download only** saves the full OTA zip (MD5 checked) and runs the ROM check on it. The file is
