@@ -383,7 +383,7 @@ def test_network_files_skipped_when_not_wanted(tmp_path):
     assert code == 0, out
     assert (phone.mapper / "system_a").read_bytes() == padded(parts["system"])
     assert (phone.mapper / "my_region_a").read_bytes() != own  # left as it was
-    assert "were NOT written" in out and "format data" in (tmp_path / "twrp.log").read_text()
+    assert "you chose not to write your my_region" in out and "format data" in (tmp_path / "twrp.log").read_text()
 
 
 def test_no_key_input_means_no(tmp_path):

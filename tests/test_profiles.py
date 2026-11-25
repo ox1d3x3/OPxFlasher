@@ -93,3 +93,12 @@ def test_one_phone_with_several_region_codenames():
     assert p.same_phone("OP5D0DL1", "OP5D55L1") and p.same_phone("op5d55l1", "OP5D0DL1")
     assert p.same_phone("x", "x") and not p.same_phone("OP5D0DL1", "OP5D77L1") and not p.same_phone("", "OP5D0DL1")
     assert not profiles.load("oneplus-15").same_phone("OP5D0DL1", "OP5D55L1")
+
+
+def test_ota_products_with_a_region_suffix_find_their_phone():
+    """Real OnePlus 13 India OTAs say CPH2649IN; EU ones can say CPH2653EEA."""
+    assert profiles.for_product("CPH2649IN").id == "oneplus-13"
+    assert profiles.for_product("CPH2653EEA").id == "oneplus-13"
+    assert profiles.for_product("PJZ110").id == "oneplus-13"
+    assert profiles.for_product("CPH9999").id == "oplus-generic"
+    assert profiles.for_product("").id == "oplus-generic"

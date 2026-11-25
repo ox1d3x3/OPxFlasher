@@ -96,7 +96,7 @@ class Plan:
 def _profile(rom: RomInfo):
     from opx import profile as profiles
 
-    return profiles.detect({"ro.product.model": rom.product}) if rom.product else profiles.load("oplus-generic")
+    return profiles.for_product(rom.product)
 
 
 def _unfold_super(rom: RomInfo, workdir: Path) -> None:

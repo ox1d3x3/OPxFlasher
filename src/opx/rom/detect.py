@@ -124,7 +124,7 @@ def describe(rom: RomInfo) -> Detection:
     ts = rom.metadata.get("post-timestamp", "")
     if ts.isdigit():
         d.built = datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%d")
-    prof = profiles.detect({"ro.product.model": d.product}) if d.product else None
+    prof = profiles.for_product(d.product) if d.product else None
     if prof is not None and prof.id != "oplus-generic":
         d.profile = prof.name
     for img in rom.images:

@@ -150,7 +150,9 @@ def project_check(rom: RomInfo, dev: DeviceState) -> Check | None:
 
 # Names that live inside 'super' on OPPO / OnePlus phones: in the bootloader the logical
 # partition list can't be read, so these are known by name.
-SUPER_NAMES = ("system", "system_ext", "product", "vendor", "odm", "vendor_dlkm", "system_dlkm", "odm_dlkm")
+SUPER_NAMES = ("system", "system_ext", "product", "vendor", "odm", "vendor_dlkm", "system_dlkm", "odm_dlkm",
+               "my_bigball", "my_carrier", "my_company", "my_engineering", "my_heytap", "my_manifest",
+               "my_preload", "my_product", "my_region", "my_stock")
 
 
 def device_from_fastboot(serial: str, props: dict[str, str] | None = None) -> DeviceState:

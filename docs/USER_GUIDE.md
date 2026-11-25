@@ -423,8 +423,8 @@ install from a custom recovery, keeping your data:
   (**Vol+ = yes, Vol- = no; no answer in 30 seconds = no**):
   1. when the model changes (e.g. PJZ110 → CPH2653): flash this ROM, at your own risk? No writes
      nothing;
-  2. after the ROM is written: flash your own network files from the backup? No leaves them out
-     (restore them later from Signal / region).
+  2. after the ROM is written: flash your own network files from the backup? No keeps the
+     ones the phone has (restore yours later from Signal / region if needed).
 
   Then it **formats data** with the recovery's `twrp` command. If formatting fails it says so:
   format data yourself before rebooting. A convert ready zip is made on its own, never shared: it

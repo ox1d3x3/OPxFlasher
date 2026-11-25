@@ -499,3 +499,10 @@ def test_convert_ready_and_keep_recovery_names_and_refusals(tmp_path):
         meta = json.loads(zf.read("opxflasher-rom.json"))
     assert "ready serial SER123" in listing and "readyfile my_region" in listing
     assert meta["convert_ready"] == {"model": "PJZ110", "files": ["my_region"]}  # no serial in the manifest
+
+
+def test_india_rom_zip_knows_every_codename_of_the_phone(tmp_path):
+    """CPH2649IN must still be a OnePlus 13: the zip's board list needs dodge and every region codename."""
+    ota, _ = make_ota(tmp_path, product="CPH2649IN", codename="OP5D55L1")
+    p = cv.plan(open_rom(ota))
+    assert {"OP5D55L1", "OP5D0DL1", "dodge"} <= set(p.boards)

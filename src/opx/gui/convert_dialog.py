@@ -273,4 +273,10 @@ class ConvertDialog(QDialog):
         self.convert_btn.setEnabled(ok and chosen and not self.busy and not self.made)
         for box in (self.want_zip, self.want_folder):
             box.setEnabled(ok and not self.busy and not self.made)
+        # the zip options only mean something with a zip; a convert ready zip is made on its own
+        zip_on = self.want_zip.isChecked()
+        for w in (self.keep_recovery, self.ready, self.ready_edit, self.ready_browse):
+            w.setEnabled(ok and zip_on and not self.busy and not self.made)
+        if self.ready.isChecked():
+            self.want_folder.setEnabled(False)
         self.close_btn.setText(tr("Cancel") if self.busy and self.progress.isVisible() else tr("Close"))

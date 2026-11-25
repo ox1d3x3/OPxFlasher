@@ -109,7 +109,11 @@ def prepare_image_flash(
         problems.append(f"{partition} is part of the bootloader chain and isn't flashed on its own: one from another "
                         "build can trip anti-rollback, and a phone that can't start its bootloader can't be fixed "
                         "with fastboot. It's only written as part of a full ROM, after the ROM check.")
-    if partition in device.logical or partition == "super":
+    # without root the phone's own list of logical partitions can't be read: known names stand in
+    from opx.plan import SUPER_NAMES
+
+    logical = device.logical or set(SUPER_NAMES)
+    if partition in logical or partition == "super" or (not device.logical and partition.startswith("my_")):
         problems.append(f"{partition} is inside 'super' and needs fastbootd. Use a full ROM flash for it.")
     p, w = check_image(partition, image)
     problems += p

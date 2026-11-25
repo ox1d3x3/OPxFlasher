@@ -354,7 +354,16 @@ fi
 formatted=""
 if [ -n "$REGION_CHANGE" ]; then
   ui "- Formatting data (needed for the new region)..."
-  if "$TWRP" format data >/dev/null 2>&1; then formatted=1; fi
+  # time limited, and the exit code alone isn't trusted: a zip on internal storage (/sdcard is
+  # inside /data) must be gone afterwards
+  if command -v "$TIMEOUT" >/dev/null 2>&1; then
+    "$TIMEOUT" 300 "$TWRP" format data >/dev/null 2>&1 && formatted=1
+  else
+    "$TWRP" format data >/dev/null 2>&1 && formatted=1
+  fi
+  case "$ZIP" in
+    /sdcard/*|/data/*|/storage/emulated/*) [ -e "$ZIP" ] && formatted="" ;;
+  esac
 fi
 
 ready=$(sed -n 's/^readyfile //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
@@ -371,11 +380,15 @@ fi
 if [ -n "$ready" ] && [ -n "$net_done" ]; then
   ui "Mobile network: wrote your own $ready from your backup."
 elif [ -n "$ready" ]; then
-  ui "Mobile network: your $ready were NOT written. If calls or data don't work,"
-  ui "restore them from your backup: OPxFlasher > Signal / region."
+  ui "Mobile network: you chose not to write your $ready, so the phone keeps the"
+  ui "ones it had. If calls or data don't work: OPxFlasher > Signal / region."
 fi
 if [ "$keeprec" -gt 0 ]; then
   ui "Recovery: left alone, your custom recovery stays."
+fi
+if [ -n "$REGION_CHANGE" ] && [ -n "$formatted" ]; then
+  ui "Data was formatted. If the phone doesn't start, boot to recovery and"
+  ui "format data again: Wipe > Format data > type yes."
 fi
 if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ]; then
   ui " "

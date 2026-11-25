@@ -298,3 +298,22 @@ def detect(props: dict[str, str]) -> Profile:
         if prof.match and all(props.get(k, "") in v for k, v in prof.match.items()):
             return prof
     return load("oplus-generic")
+
+
+def for_product(product: str) -> Profile:
+    """The profile for a ROM's product. OTA products often add a region to the model (CPH2649IN,
+    CPH2653EEA): when the exact model isn't listed, the longest model number it starts with decides."""
+    if not product:
+        return load("oplus-generic")
+    prof = detect({"ro.product.model": product})
+    if prof.id != "oplus-generic":
+        return prof
+    up, best = product.upper(), ("", None)
+    for pid in all_profile_ids():
+        if pid == "oplus-generic":
+            continue
+        cand = load(pid)
+        for model in cand.variants or {}:
+            if up.startswith(model.upper()) and len(model) > len(best[0]):
+                best = (model, cand)
+    return best[1] or prof

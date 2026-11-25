@@ -198,3 +198,17 @@ def test_first_root_without_a_backup(adb, fastboot, rootable, fb_state, tmp_path
     run_plan(plan, s, adb, fastboot, tmp_path)
     assert (rootable / "by-name" / "init_boot_a").read_bytes().startswith(patched)
     assert (rootable / "by-name" / "init_boot_b").read_bytes().startswith(STOCK)
+
+
+def test_first_root_on_a_phone_without_root(adb, fastboot, rootable, fb_state, tmp_path, monkeypatch):
+    """The real first-day case: no root at all. Stock from the ROM, patch on the phone, flash with ROOT NO BACKUP."""
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    s, device, session = start(adb, tmp_path)
+    assert not s.access.usable
+    rt.push_stock(adb, session)
+    patched = magisk_patch(rootable)
+    assert rt.pull_patched(adb, session, tmp_path / "work") == []
+    plan = rt.prepare_flash(device, None, session, "root", skip_backup=True)
+    assert plan.ok, plan.problems
+    run_plan(plan, s, adb, fastboot, tmp_path)
+    assert (rootable / "by-name" / "init_boot_a").read_bytes().startswith(patched)

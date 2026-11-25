@@ -248,3 +248,21 @@ def test_cli_flash_image_no_backup(ready, capsys, monkeypatch, tmp_path):
     answers(monkeypatch, "NO BACKUP")
     assert cli.main(args) == 0
     assert (phone / "by-name" / "boot_a").read_bytes().startswith(BOOT)
+
+
+def test_no_backup_on_a_phone_without_root(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    """The case it's for: no root, so no backup and no partition list. Super partitions are still
+    refused by name, and a recovery / boot image can be flashed."""
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    s = open_session("FAKE0001", adb)
+    assert not s.access.usable
+    device = pn.device_for_session(s)
+    plan, _ = sg.prepare_image_flash(device, None, "system", img(tmp_path, "s.img", b"x" * 512), skip_backup=True)
+    assert not plan.ok and any("inside 'super'" in p for p in plan.problems)
+    plan, _ = sg.prepare_image_flash(device, None, "abl", img(tmp_path, "a.img", b"\x7fELF" + b"\0" * 508),
+                                     skip_backup=True)
+    assert not plan.ok
+    plan, _ = sg.prepare_image_flash(device, None, "boot", img(tmp_path, "b.img", BOOT), skip_backup=True)
+    assert plan.ok, plan.problems
+    fl.Runner(plan, None, device.profile, adb, fastboot, tmp_path / "j.json", tmp_path / "w", wait_timeout=5).run()
+    assert (phone / "by-name" / "boot_a").read_bytes().startswith(BOOT)
