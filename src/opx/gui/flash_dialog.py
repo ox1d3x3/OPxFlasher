@@ -83,8 +83,9 @@ class FlashDialog(QDialog):
         self.reboot_box = QCheckBox(tr("Reboot to Android when finished"))
         self.reboot_box.setChecked(True)
         self.keep_recovery_box = QCheckBox(tr("Keep my custom recovery (don't write the ROM's recovery)"))
-        self.keep_recovery_box.setToolTip(tr("AERA, OrangeFox or TWRP stays installed. Everything else from the "
-                                             "ROM is written as usual."))
+        self.keep_recovery_box.setToolTip(tr("AERA, OrangeFox or TWRP stays installed. Not possible when part of "
+                                             "the flash runs in fastbootd (it starts from the recovery partition): "
+                                             "then the ROM's recovery is written and you're told so."))
         has_recovery = any(i.partition == "recovery" and i.action == "flash" for i in report.items)
         self.keep_recovery_box.setEnabled(has_recovery)
         has_logical = any(i.action == "super" for i in report.items)

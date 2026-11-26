@@ -90,7 +90,7 @@ isn't older, asks **Vol+ to flash the new model** (Vol- or 30 seconds = cancel, 
 writes the ROM (firmware to both slots, system partitions to the active slot), asks **Vol+ to write
 your own network files** (Vol- or 30 seconds = skip), then formats data. If the zip is on internal
 storage it can't format data itself (internal storage is part of data): it then asks you to do
-**Wipe → Format data → type yes** before rebooting. Tick **Keep my custom recovery** too if AERA / OrangeFox should stay.
+**Wipe → Format data → type yes** before rebooting. Tick **Keep my custom recovery** too if AERA / OrangeFox should stay (recovery zips only: a PC flash that uses fastbootd always writes the ROM's recovery).
 Don't share this zip: it holds your phone's files.
 
 ## 4. After the first boot

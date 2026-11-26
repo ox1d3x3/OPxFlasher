@@ -16,7 +16,7 @@
     "4. Flash (current slot only)": "",
     "A Critical or Full backup made by OPxFlasher": "",
     "A backup lets you go back if something goes wrong. Without one, the ROM can still be flashed again. Every other safety check stays on.": "",
-    "AERA, OrangeFox or TWRP stays installed. Everything else from the ROM is written as usual.": "",
+    "AERA, OrangeFox or TWRP stays installed. Not possible when part of the flash runs in fastbootd (it starts from the recovery partition): then the ROM's recovery is written and you're told so.": "",
     "AERA, OrangeFox or TWRP stays on the phone after flashing the zip.": "",
     "AERA: AERA's own image-zip install (it checks the model and anti-rollback).\nOrangeFox / TWRP: a normal flashable zip. It checks this is the same phone, the same slot and unchanged bootloader firmware, verifies every file, then restores.": "",
     "AIO tool for OnePlus / OPPO devices: backup, check, flash, restore and rescue.": "",

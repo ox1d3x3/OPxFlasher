@@ -308,7 +308,8 @@ def prepare(
     has_super_image = "super" in physical
     if has_super_image:
         physical.remove("super")
-    if options.keep_recovery:
+    kept_recovery = options.keep_recovery and "recovery" in physical
+    if kept_recovery:
         physical = [n for n in physical if n != "recovery"]
 
     if region_change(report) and not options.wipe_data:
@@ -334,18 +335,29 @@ def prepare(
         warnings.append("Region change without your own network files: mobile network may not work afterwards. "
                         "You can restore them later from a backup (Signal / region).")
 
-    steps = _assemble(
-        rom_physical=physical,
-        rom_logical=[] if has_super_image else logical,
-        super_image=has_super_image,
-        restore_physical=restore_physical,
-        restore_logical=restore_logical,
-        options=options,
-        blocked=blocked,
-        problems=problems,
-        fw_in_fastbootd=device.profile.firmware_in_fastbootd,
-        bootloader_images=device.profile.bootloader_images,
-    )
+    def assemble(rom_physical):
+        return _assemble(
+            rom_physical=rom_physical,
+            rom_logical=[] if has_super_image else logical,
+            super_image=has_super_image,
+            restore_physical=restore_physical,
+            restore_logical=restore_logical,
+            options=options,
+            blocked=blocked,
+            problems=problems,
+            fw_in_fastbootd=device.profile.firmware_in_fastbootd,
+            bootloader_images=device.profile.bootloader_images,
+        )
+
+    steps = assemble(physical)
+    if kept_recovery and any(s.mode == "fastbootd" for s in steps):
+        # fastbootd starts from the recovery partition. A custom recovery made for another build may not start
+        # with the new boot / vendor_boot (AERA for 16 under a 17 ROM: fastbootd never came up, the flash stopped
+        # half way). So the ROM's own recovery is written first, as Super Flasher does.
+        problems_before = len(problems)
+        steps = assemble([*physical, "recovery"])
+        del problems[problems_before:]  # same checks again; don't list them twice
+        warnings.append(KEEP_RECOVERY_NEEDS_STOCK)
 
     return FlashPlan(
         rom_path=str(rom.path),
@@ -728,9 +740,14 @@ class Runner:
                     return "already in fastbootd"
             except FastbootError:
                 pass
-            fb = self._ensure("bootloader")
-            fb.reboot("fastboot")
-            self._connect(userspace=True)
+            try:
+                fb = self._ensure("bootloader")
+                fb.reboot("fastboot")
+                self._connect(userspace=True)
+            except FastbootError as exc:
+                # a phone stuck in a fastbootd that doesn't answer lands here too (rc.67, AERA for 16 + a 17 ROM)
+                self.fb = None
+                raise FlashError(f"{FASTBOOTD_DIDNT_START}\n({exc})") from exc
             return "in fastbootd"
 
         fb = self._ensure(step.mode) if step.mode else self._ensure_any()
@@ -915,6 +932,19 @@ class Runner:
             f"{self.journal}"
         ) from exc
 
+
+KEEP_RECOVERY_NEEDS_STOCK = (
+    "Keep my custom recovery: not possible for this flash. Part of it is written from fastbootd, which starts from "
+    "the recovery partition, and a custom recovery made for another build may not start with this ROM's boot "
+    "images. The ROM's own recovery is written; install your custom recovery again afterwards (Flash image)."
+)
+
+FASTBOOTD_DIDNT_START = (
+    "fastbootd didn't start. It runs from the phone's recovery partition: a custom recovery (AERA, OrangeFox, "
+    "TWRP) made for another build may not start with the boot images just written. Put the phone in the "
+    "bootloader, write this ROM's recovery.img to recovery_a and recovery_b (Flash image, or fastboot flash "
+    "recovery_a / recovery_b), then press Resume."
+)
 
 USB_LOST = (
     "The phone stopped answering over USB (it dropped off, restarted or got stuck), so this step didn't finish; "

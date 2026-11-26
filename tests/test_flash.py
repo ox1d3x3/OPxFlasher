@@ -264,19 +264,36 @@ def test_personal_data_partitions_never_flashed_whatever_the_profile(fastboot, f
     assert fb_state.read()["log"] == []
 
 
-def test_keep_custom_recovery(adb, fastboot, phone, fb_state, tmp_path):
-    """The ROM has a recovery; with keep_recovery the phone's own (AERA / OrangeFox) isn't written."""
+def test_custom_recovery_is_replaced_when_fastbootd_is_needed(adb, fastboot, phone, fb_state, tmp_path):
+    # rc.67, real OnePlus 13: AERA (built for 16) kept under a GLO 17 ROM; fastbootd starts from the recovery
+    # partition, never came up, and the flash stopped half way. Write the ROM's recovery, as Super Flasher does.
     for slot in ("_a", "_b"):
         put(phone, f"recovery{slot}", b"\xaa" * 65536)
     rom = make_rom(tmp_path, {**ROM_PARTS, "recovery": b"C" * 8192})
-    plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=rom)
-    assert any(s.partition == "recovery" for s in plan.steps)
-    plan, runner = setup(adb, fastboot, tmp_path / "k", fl.FlashOptions(keep_recovery=True, **ALLOW), rom=rom)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(keep_recovery=True, **ALLOW), rom=rom)
     assert plan.ok, plan.problems
-    assert not any(s.partition == "recovery" for s in plan.steps)
+    assert fl.KEEP_RECOVERY_NEEDS_STOCK in plan.warnings
+    rec = [i for i, s in enumerate(plan.steps) if s.partition == "recovery"]
+    fastbootd = next(i for i, s in enumerate(plan.steps) if s.kind == "to-fastbootd")
+    assert rec and rec[0] < fastbootd  # written from the bootloader, before fastbootd is needed
     runner.run()
-    assert (phone / "by-name" / "recovery_a").read_bytes() == b"\xaa" * 65536
-    assert (phone / "by-name" / "boot_a").read_bytes().startswith(b"B" * 8192)
+    assert (phone / "by-name" / "recovery_a").read_bytes().startswith(b"C" * 8192)
+    assert (phone / "by-name" / "recovery_b").read_bytes().startswith(b"C" * 8192)
+
+
+def test_fastbootd_that_never_starts_says_why(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    real = fl.Runner._connect
+
+    def connect(self, userspace=False):
+        if userspace:
+            raise fl.FastbootError("The phone did not appear in fastbootd within 5 seconds.")
+        return real(self, userspace=userspace)
+
+    monkeypatch.setattr(fl.Runner, "_connect", connect)
+    with pytest.raises(fl.FlashError, match="fastbootd didn't start") as err:
+        runner.run()
+    assert "recovery_a" in str(err.value) and "Resume" in str(err.value)
 
 
 def test_no_backup_flash_on_a_phone_without_root(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
