@@ -103,7 +103,8 @@ def test_installs_the_rom(rom_zip, tmp_path):
         else:
             got = (phone.block / f"{name}_a").read_bytes()
             assert got[: len(padded(data))] == padded(data), name
-            assert (phone.block / f"{name}_b").read_bytes().startswith(b"\xee")  # other slot untouched
+            # firmware on both slots, as a fastboot flash does
+            assert (phone.block / f"{name}_b").read_bytes()[: len(padded(data))] == padded(data), name
     assert (phone.block / "persist").read_bytes() == b"P" * 4096  # never written
     log = phone.log.read_text()
     assert f"resize system_a {len(padded(parts['system']))}" in log
@@ -477,3 +478,41 @@ def test_convert_ready_leaves_the_backup_alone(tmp_path):
     assert {p.name: p.read_bytes() for p in backup.iterdir()} == before
     again = cv.convert(open_rom(ota), tmp_path / "out2", chunk=MB, ready_backup=backup)["zip"]
     assert again.exists()
+
+
+def test_convert_ready_from_internal_storage_asks_for_a_manual_format(tmp_path):
+    # internal storage is inside data: the zip can't format data while it's read from there
+    z, parts, _ = global_ready_zip(tmp_path)
+    phone = Phone(tmp_path, parts, props={"ro.serialno": "SER123"}, **GLOBAL_PHONE)
+    twrp_log = tmp_path / "twrp.log"
+    twrp = tmp_path / "twrp-spy"
+    twrp.write_text(f"#!/bin/sh\necho \"$@\" >> {twrp_log}\n")
+    twrp.chmod(0o755)
+    script = tmp_path / "rom-install.sh"
+    with zipfile.ZipFile(z) as zf:
+        script.write_bytes(zf.read("META-INF/com/google/android/update-binary"))
+    env = dict(os.environ, OPX_BLOCK_DIR=str(phone.block), OPX_MAPPER_DIR=str(phone.mapper),
+               OPX_GETPROP=str(phone.getprop), OPX_METADATA=str(tmp_path / "metadata"), OPX_TMP=str(tmp_path / "rtmp"),
+               OPX_SYSTEM_PROP=str(phone.buildprop), OPX_LPTOOLS=str(phone.lptools), OPX_TWRP=str(twrp),
+               OPX_INTERNAL=f"{z.parent}/", **keys(tmp_path, "up", "up"))  # "internal storage" for this test
+    res = subprocess.run([SH, str(script), "3", "", str(z)], env=env, capture_output=True, text=True)
+    out = res.stdout + res.stderr
+    assert res.returncode == 0, out
+    assert "ONE MORE STEP before rebooting: Wipe > Format data > type yes." in out
+    assert not twrp_log.exists()  # didn't even try
+
+
+def test_progress_bar_moves(rom_zip, tmp_path):
+    z, parts = rom_zip
+    phone = Phone(tmp_path, parts)
+    script = tmp_path / "rom-install.sh"
+    with zipfile.ZipFile(z) as zf:
+        script.write_bytes(zf.read("META-INF/com/google/android/update-binary"))
+    env = dict(os.environ, OPX_BLOCK_DIR=str(phone.block), OPX_MAPPER_DIR=str(phone.mapper),
+               OPX_GETPROP=str(phone.getprop), OPX_METADATA=str(tmp_path / "metadata"), OPX_TMP=str(tmp_path / "rtmp"),
+               OPX_SYSTEM_PROP=str(phone.buildprop), OPX_LPTOOLS=str(phone.lptools))
+    res = subprocess.run([SH, str(script), "3", "1", str(z)], env=env, capture_output=True, text=True)  # outfd 1
+    assert res.returncode == 0, res.stdout + res.stderr
+    steps = [float(ln.split()[1]) for ln in res.stdout.splitlines() if ln.startswith("set_progress ")]
+    assert steps and steps == sorted(steps) and steps[-1] == 1.0 and 0.2 <= steps[len(steps) // 2] <= 1.0
+    assert "ui_print Done: PJZ110" in res.stdout

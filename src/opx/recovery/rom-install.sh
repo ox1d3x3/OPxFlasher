@@ -70,6 +70,12 @@ fail_written() {
 
 prop() { "$GETPROP" "$1" 2>/dev/null; }
 
+# the recovery's progress bar, 0..100
+prog() {
+  [ -n "$OUTFD" ] && [ -e "/proc/self/fd/$OUTFD" ] || return 0
+  echo "set_progress $(($1 / 100)).$(printf '%02d' $(($1 % 100)))" > "/proc/self/fd/$OUTFD"
+}
+
 # Vol+ = yes, Vol- = no. No answer within KEY_WAIT seconds, or no way to read the keys: no.
 ask() {
   ui "  Vol+ = YES     Vol- = NO     (no answer in $KEY_WAIT s = NO)"
@@ -160,6 +166,7 @@ done
 slot=$(prop ro.boot.slot_suffix)
 case "$slot" in _a|_b) ;; *) abort "Can't tell which slot is active." ;; esac
 ui "- Phone: $matched, slot ${slot#_}"
+case "$slot" in _a) oslot=_b ;; *) oslot=_a ;; esac
 
 # --- 2. nothing half-updated ---------------------------------------------------------
 mount "$METADATA" >/dev/null 2>&1
@@ -251,6 +258,14 @@ while read -r tag kind name size sha; do
     [ "$have" -ge "$(sectors_of "$name" "$size")" ] \
       || abort "$name ($size bytes) doesn't fit this phone's partition ($have sectors). Wrong ROM?"
     echo "physical $name $dev $size" >> "$TMP/targets"
+    # firmware goes on both slots (as a fastboot flash does), so a fall-back to the other slot
+    # doesn't start old firmware; the system partitions in super only exist for the active slot
+    if [ "$dev" = "$BLOCK/$name$slot" ] && [ -e "$BLOCK/$name$oslot" ]; then
+      have=$(devsectors "$BLOCK/$name$oslot")
+      [ -n "$have" ] && [ "$have" -ge "$(sectors_of "$name" "$size")" ] \
+        || abort "$name doesn't fit this phone's other slot. Wrong ROM?"
+      echo "physical $name $BLOCK/$name$oslot $size" >> "$TMP/targets"
+    fi
   elif [ "$kind" = physical ]; then
     abort "Partition $name doesn't exist on this phone. Wrong ROM?"
   else
@@ -267,9 +282,11 @@ ui "- Partitions: all present"
 
 # --- 5. verify every file in the zip ---------------------------------------------------
 ui "- Checking the zip (takes a few minutes)..."
+nparts=$(grep -c '^part ' "$TMP/list"); i=0
 while read -r tag name index entry sha len; do
   [ "$tag" = part ] || continue
   [ "$(sha_of_entry "$entry")" = "$sha" ] || abort "$entry in the zip is damaged. Copy the zip to the phone again."
+  i=$((i + 1)); prog $((i * 20 / nparts))
 done < "$TMP/list"
 ui "- Zip checked: all files intact"
 
@@ -379,12 +396,20 @@ write_parts() { # name device
 
 is_avb() { case "$1" in vbmeta|vbmeta_system|vbmeta_vendor) return 0 ;; esac; return 1; }
 
-ui "- Writing firmware and boot images to slot ${slot#_}..."
+TOTAL=0
+while read -r kind name dev size; do TOTAL=$((TOTAL + $(mib_of "$name" "$size"))); done < "$TMP/targets"
+[ "$TOTAL" -gt 0 ] || TOTAL=1
+WROTE=0
+wrote() { WROTE=$((WROTE + $(mib_of "$1" "$2"))); prog $((20 + WROTE * 60 / TOTAL)); }
+label() { case "$2" in *"$oslot") ;; *) ui "  $1" ;; esac; }  # one line per partition, not per slot
+
+ui "- Writing firmware and boot images to both slots..."
 while read -r kind name dev size; do
   [ "$kind" = physical ] || continue
   is_avb "$name" && continue
-  ui "  $name"
+  label "$name" "$dev"
   write_parts "$name" "$dev" || fail_written "Writing $name failed."
+  wrote "$name" "$size"
 done < "$TMP/targets"
 
 ui "- Writing system, vendor, odm, ... inside super..."
@@ -395,13 +420,15 @@ while read -r kind name dev size; do
   write_parts "$name" "$real" || fail_written "Writing $name failed."
   sync
   check_one "$name" "$real" "$size" || fail_written "$name doesn't match right after writing it."
+  wrote "$name" "$size"
 done < "$TMP/targets"
 
 ui "- Writing vbmeta..."
 while read -r kind name dev size; do
   [ "$kind" = physical ] && is_avb "$name" || continue
-  ui "  $name"
+  label "$name" "$dev"
   write_parts "$name" "$dev" || fail_written "Writing $name failed."
+  wrote "$name" "$size"
 done < "$TMP/targets"
 sync
 
@@ -411,8 +438,10 @@ sync
 ui "- Reading back what was written..."
 echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 : > "$TMP/bad"
+READ=0
 while read -r kind name dev size; do
-  check_one "$name" "$dev" "$size" || echo "$name" >> "$TMP/bad"
+  check_one "$name" "$dev" "$size" || echo "${dev##*/}" >> "$TMP/bad"
+  READ=$((READ + $(mib_of "$name" "$size"))); prog $((80 + READ * 20 / TOTAL))
 done < "$TMP/targets"
 [ -s "$TMP/bad" ] && fail_written "$(tr '\n' ' ' < "$TMP/bad" | sed 's/ *$//') doesn't match after writing."
 
@@ -424,7 +453,7 @@ if [ -s "$TMP/targets_net" ]; then
   ui "($(cut -d' ' -f2 "$TMP/targets_net" | tr '\n' ' ' | sed 's/ *$//'))? They keep mobile network working."
   if ask; then
     while read -r kind name dev size; do
-      ui "  $name"
+      label "$name" "$dev"
       if [ "$kind" != physical ]; then
         dev=$(map_logical "$kind" "$name" "$dev" "$size") || fail_written "Can't make room for $name inside super."
       fi
@@ -438,8 +467,13 @@ if [ -s "$TMP/targets_net" ]; then
 fi
 
 # --- 10. region change: data must go -------------------------------------------------------
-formatted=""
-if [ -n "$REGION_CHANGE" ]; then
+formatted=""; on_data=""
+for pre in ${OPX_INTERNAL:-/sdcard/ /data/ /storage/emulated/}; do
+  case "$ZIP" in "$pre"*) on_data=1 ;; esac
+done
+if [ -n "$REGION_CHANGE" ] && [ -n "$on_data" ]; then
+  : # internal storage lives inside data: data can't be formatted while this zip is read from it
+elif [ -n "$REGION_CHANGE" ]; then
   ui "- Formatting data (needed for the new region)..."
   # time limited, and the exit code alone isn't trusted: a zip on internal storage (/sdcard is
   # inside /data) must be gone afterwards
@@ -448,9 +482,6 @@ if [ -n "$REGION_CHANGE" ]; then
   else
     "$TWRP" format data >/dev/null 2>&1 && formatted=1
   fi
-  case "$ZIP" in
-    /sdcard/*|/data/*|/storage/emulated/*) [ -e "$ZIP" ] && formatted="" ;;
-  esac
 fi
 
 ready=$(sed -n 's/^readyfile //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
@@ -477,7 +508,7 @@ if [ -n "$REGION_CHANGE" ] && [ -n "$formatted" ]; then
   ui "Data was formatted. If the phone doesn't start, boot to recovery and"
   ui "format data again: Wipe > Format data > type yes."
 fi
-if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ]; then
+if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ] && [ -z "$on_data" ]; then
   ui " "
   ui "! Formatting data didn't work. BEFORE rebooting: Wipe > Format data > type yes."
   ui "! Without it the phone won't start in the new region."
@@ -491,6 +522,16 @@ if [ -n "$written" ]; then
   ui "Mobile network: this ROM wrote its own $written (its vbmeta checks them at boot)."
   ui "If calls or mobile data don't work after booting, restore yours from your backup:"
   ui "OPxFlasher > Signal / region."
+fi
+prog 100
+if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ]; then
+  # the zip ran from internal storage, which is inside data
+  ui " "
+  ui "! ONE MORE STEP before rebooting: Wipe > Format data > type yes."
+  ui "! (This zip was read from internal storage, which is part of data, so it"
+  ui "! couldn't format data itself.) Without it the phone won't start in the new region."
+  ui "! Then reboot to system. The first boot can take a few minutes."
+  exit 0
 fi
 ui "Reboot to system. The first boot can take a few minutes."
 exit 0
