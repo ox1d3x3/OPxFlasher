@@ -49,17 +49,26 @@ class FlashDialog(QDialog):
         head.setWordWrap(True)
         layout.addWidget(head)
 
-        # backup (required)
-        b_box = QGroupBox(tr("Your backup of this phone (required)"))
+        # backup (recommended, not required)
+        b_box = QGroupBox(tr("Your backup of this phone (recommended)"))
         b_layout = QVBoxLayout(b_box)
         row = QHBoxLayout()
         self.backup_edit = QLineEdit(backup_hint)
-        self.backup_edit.setPlaceholderText("A Critical or Full backup made by OPxFlasher")
+        self.backup_edit.setPlaceholderText(tr("A Critical or Full backup made by OPxFlasher"))
         browse = QPushButton(tr("Browse..."))
         browse.clicked.connect(self._browse)
         row.addWidget(self.backup_edit, 1)
         row.addWidget(browse)
         b_layout.addLayout(row)
+        self.no_backup = QCheckBox(tr("Flash without a backup (I accept the risk)"))
+        self.no_backup.setToolTip(tr("A backup lets you go back if something goes wrong. Without one, the ROM can "
+                                     "still be flashed again. Every other safety check stays on. You type NO BACKUP "
+                                     "to flash."))
+        b_layout.addWidget(self.no_backup)
+        b_hint = QLabel(tr("Recommended: Backup tab > Critical (needs root). Without root, tick the box above."))
+        b_hint.setStyleSheet("color:#9aa3b5")
+        b_hint.setWordWrap(True)
+        b_layout.addWidget(b_hint)
         layout.addWidget(b_box)
 
         # options
@@ -121,6 +130,26 @@ class FlashDialog(QDialog):
             self.wipe_box.setEnabled(False)
             self.keep_region_box.toggled.connect(self._sync_optional)
             self._sync_optional()
+        elif fl.keepable(report, device.profile.conditional):
+            # same region: the phone keeps its own network files (they aren't written). A phone converted
+            # from another region earlier can have its own ones written again from a backup.
+            n_box = QGroupBox(tr("Mobile network files"))
+            n_layout = QVBoxLayout(n_box)
+            names = ", ".join(fl.keepable(report, device.profile.conditional))
+            n_text = QLabel(tr("Not written by this flash: the phone keeps its own") + f" {names}.")
+            n_text.setWordWrap(True)
+            n_text.setStyleSheet("color:#9aa3b5")
+            self.keep_region_box = QCheckBox(tr("This phone was converted from another region: also write my own "
+                                                "network files from my backup (Network essentials or Critical)"))
+            self.region_warn = QLabel(tr("Choose that backup above (the one made before converting)."))
+            self.region_warn.setStyleSheet("color:#f0c24b")
+            self.region_warn.setWordWrap(True)
+            self.region_warn.hide()
+            n_layout.addWidget(n_text)
+            n_layout.addWidget(self.keep_region_box)
+            n_layout.addWidget(self.region_warn)
+            layout.addWidget(n_box)
+            self.keep_region_box.toggled.connect(self._sync_optional)
 
         # different variant of the same phone: the user must say yes (default: no)
         self.variant_box: QCheckBox | None = None
@@ -181,7 +210,8 @@ class FlashDialog(QDialog):
         layout.addWidget(self.preview, 1)
 
         confirm_row = QHBoxLayout()
-        confirm_row.addWidget(QLabel(tr("Type FLASH to enable the button:")))
+        self.confirm_label = QLabel(tr("Type FLASH to enable the button:"))
+        confirm_row.addWidget(self.confirm_label)
         self.confirm_edit = QLineEdit()
         confirm_row.addWidget(self.confirm_edit, 1)
         outer.addLayout(confirm_row)
@@ -199,7 +229,7 @@ class FlashDialog(QDialog):
 
         extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box) if b is not None]
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
-                   self.keep_recovery_box, *extra]:
+                   self.keep_recovery_box, self.no_backup, *extra]:
             cb.toggled.connect(self.refresh)
         for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
             if edit is not None:
@@ -210,11 +240,18 @@ class FlashDialog(QDialog):
         """The ROM's own region files can't be chosen while restoring the phone's."""
         keep = bool(self.keep_region_box and self.keep_region_box.isChecked())
         if self.keep_region_box is not None:
-            self.region_warn.setVisible(not keep)
+            region = fl.region_change(self.report)
+            # region change: warn when NOT keeping; converted phone: remind to pick the backup when keeping
+            self.region_warn.setVisible((not keep) if region else (keep and not self.backup_edit.text().strip()))
         for cb in self.optional_boxes.values():
             if keep:
                 cb.setChecked(False)
             cb.setEnabled(not keep)
+
+    def _sync_warn_only(self) -> None:
+        keep = self.keep_region_box.isChecked()
+        region = fl.region_change(self.report)
+        self.region_warn.setVisible((not keep) if region else (keep and not self.backup_edit.text().strip()))
 
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose your backup of this phone", self.backup_edit.text())
@@ -231,6 +268,7 @@ class FlashDialog(QDialog):
         return fl.FlashOptions(
             restore_from_backup=restore,
             keep_recovery=self.keep_recovery_box.isChecked(),
+            no_backup=self.no_backup.isChecked(),
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
             wipe_data=self.wipe_box.isChecked(),
             reboot_after=self.reboot_box.isChecked(),
@@ -251,6 +289,12 @@ class FlashDialog(QDialog):
             lines += ["", "All safety gates passed."]
             if self.wipe_box.isChecked():
                 lines.append("All data on the phone will be erased.")
+        lines += [f"Note: {w}" for w in self.plan.warnings]
         self.preview.setPlainText("\n".join(lines))
-        typed = self.confirm_edit.text().strip() == "FLASH"
+        word = "NO BACKUP" if self.no_backup.isChecked() else "FLASH"
+        self.confirm_label.setText(tr("Type NO BACKUP to enable the button:") if word == "NO BACKUP"
+                                   else tr("Type FLASH to enable the button:"))
+        if self.keep_region_box is not None:
+            self._sync_warn_only()
+        typed = self.confirm_edit.text().strip() == word
         self.start_btn.setEnabled(self.plan.ok and typed)

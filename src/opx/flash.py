@@ -5,7 +5,8 @@ Gates, all before a single byte is written:
      be overridden is the *unvalidated* Qualcomm ARB reader, and only on
      purpose (``overrides={"qcom-arb-unvalidated"}``). A lower ARB, a lower AVB
      index, a wrong device or an incremental OTA can never be overridden.
-  2. A verified Critical or Full backup of this phone must exist.
+  2. A verified Critical or Full backup of this phone, unless the user typed NO BACKUP (then a
+     backup is only recommended; one that IS chosen must still be this phone's).
   3. The phone's current firmware must not be known to break the reboot we
      need (e.g. ColorOS 17 CN: no fastbootd, no bootloader).
   4. Never-flash partitions are refused again at write time (opx.fastboot).
@@ -62,10 +63,12 @@ class FlashOptions:
     overrides: list[str] = field(default_factory=list)
     restore_from_backup: list[str] = field(default_factory=list)  # region files written from YOUR backup
     keep_recovery: bool = False  # don't write recovery: a custom recovery (AERA, OrangeFox) stays
+    no_backup: bool = False  # the user typed NO BACKUP: a backup is recommended, not required
 
 
 def override_key(check) -> str | None:
-    if check.status == BLOCK and check.name.startswith("Qualcomm ARB") and "not yet validated" in check.detail:
+    if check.status == BLOCK and check.name.startswith("Qualcomm ARB") and (
+            "not yet validated" in check.detail or "can't be read without root" in check.detail):
         return OVERRIDE_QCOM_UNVALIDATED
     if check.status == BLOCK and check.name == "Variant":
         return OVERRIDE_VARIANT
@@ -82,6 +85,8 @@ def overridable_blocks(report: Report, key: str | None = None) -> list:
     return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
 
+NO_BACKUP_ROM_WARNING = ("No backup: you chose to flash without one. If the phone doesn't start afterwards, there's "
+                         "no backup of this phone to restore it from; the ROM itself can be flashed again.")
 NO_BACKUP_WARNING = ("No backup: you chose to flash without one. Only this image is written; if the phone doesn't "
                      "start afterwards, there's no backup of this phone to restore it from.")
 
@@ -226,6 +231,7 @@ class FlashPlan:
     problems: list[str]
     blocked_actions: list[str]
     backup: str | None
+    warnings: list[str] = field(default_factory=list)  # shown, don't block
 
     @property
     def ok(self) -> bool:
@@ -240,9 +246,21 @@ def prepare(
     backup_folder: Path | None,
 ) -> FlashPlan:
     problems: list[str] = []
+    warnings: list[str] = []
     for c in hard_blocks(report, options.overrides):
         problems.append(f"{c.name}: {c.detail}")
-    problems += check_backup(backup_folder, device.facts, device.profile)
+    if not options.no_backup:
+        problems += check_backup(backup_folder, device.facts, device.profile)
+    elif backup_folder is None:
+        warnings.append(NO_BACKUP_ROM_WARNING)
+    else:
+        # no backup required, but a folder that IS chosen (e.g. Network essentials, for the phone's own
+        # network files) must still be this phone's and complete
+        problems += [p for p in check_backup(backup_folder, device.facts, device.profile)
+                     if not p.startswith("Use a Critical or Full backup")]
+        warnings.append("Not a full backup: only your network files can come from it." if _mode(backup_folder)
+                        not in ("critical", "full") else "")
+        warnings = [w for w in warnings if w]
 
     blocked = device.profile.blocked_actions(device.props)
     if "bootloader" in blocked:
@@ -276,6 +294,10 @@ def prepare(
     restore_physical, restore_logical = _restore_targets(
         options, device.profile, backup_folder, chosen | from_rom, problems,
         skip=from_rom)
+    if region_change(report) and not (restore_physical or restore_logical) and keepable(
+            report, device.profile.conditional):
+        warnings.append("Region change without your own network files: mobile network may not work afterwards. "
+                        "You can restore them later from a backup (Signal / region).")
 
     steps = _assemble(
         rom_physical=physical,
@@ -296,7 +318,15 @@ def prepare(
         problems=problems,
         blocked_actions=sorted(blocked),
         backup=str(backup_folder) if backup_folder else None,
+        warnings=warnings,
     )
+
+
+def _mode(folder: Path) -> str:
+    try:
+        return json.loads((Path(folder) / "manifest.json").read_text("utf-8")).get("mode", "")
+    except (OSError, ValueError):
+        return ""
 
 
 def _restore_targets(options, profile, backup_folder, chosen, problems, skip=frozenset()) -> tuple[list[str], list[str]]:

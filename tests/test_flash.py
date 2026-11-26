@@ -260,3 +260,55 @@ def test_keep_custom_recovery(adb, fastboot, phone, fb_state, tmp_path):
     runner.run()
     assert (phone / "by-name" / "recovery_a").read_bytes() == b"\xaa" * 65536
     assert (phone / "by-name" / "boot_a").read_bytes().startswith(b"B" * 8192)
+
+
+def test_no_backup_flash_on_a_phone_without_root(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    # backup recommended, not forced: typed NO BACKUP, unrooted phone compared from what Android reports
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    stanvbk_before = (phone / "by-name" / "oplusstanvbk_a").read_bytes()
+    rom = make_rom(tmp_path)
+    s = open_session("FAKE0001", adb)
+    device = pn.device_for_session(s)
+    assert device.source == "props"
+    report = pn.build_report(rom, device)
+    plan = fl.prepare(rom, report, device, fl.FlashOptions(**ALLOW), None)
+    assert any("backup" in p.lower() for p in plan.problems)  # without NO BACKUP: still required
+    plan = fl.prepare(rom, report, device, fl.FlashOptions(**ALLOW, no_backup=True), None)
+    assert plan.ok, plan.problems
+    assert plan.warnings == [fl.NO_BACKUP_ROM_WARNING]
+    fl.Runner(plan, rom, s.profile, adb, fastboot, tmp_path / "journal.json", tmp_path / "work", wait_timeout=5).run()
+    for slot in ("_a", "_b"):
+        assert (phone / "by-name" / f"dtbo{slot}").read_bytes().startswith(b"D" * 4096)
+    assert (phone / "by-name" / "oplusstanvbk_a").read_bytes() == stanvbk_before  # the phone keeps its own
+
+
+def test_no_backup_keeps_every_other_gate(adb, fastboot, phone, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    s = open_session("FAKE0001", adb)
+    device = pn.device_for_session(s)
+    rom = make_rom(tmp_path)
+    report = pn.build_report(rom, device)
+    # the unread Qualcomm ARB still needs ARB CHECKED
+    plan = fl.prepare(rom, report, device, fl.FlashOptions(allow_fastbootd=True, no_backup=True), None)
+    assert any("Qualcomm ARB" in p for p in plan.problems)
+    # a ROM for another phone is still refused
+    payload = rf.build_payload(ROM_PARTS, groups={"main": ["system", "my_region"]})
+    other = open_rom(rf.build_ota_zip(tmp_path / "other.zip", payload, rf.ota_metadata(codename="otherphone")))
+    plan = fl.prepare(other, pn.build_report(other, device), device, fl.FlashOptions(**ALLOW, no_backup=True), None)
+    assert any("Device match" in p for p in plan.problems)
+
+
+def test_no_backup_with_a_network_backup_for_own_network_files(adb, fastboot, phone, tmp_path):
+    # NO BACKUP, but the Network essentials backup is chosen: accepted, for the phone's own network files only
+    s = open_session("FAKE0001", adb)
+    folder = backup_of(adb, tmp_path, mode="network")
+    rom = make_rom(tmp_path)
+    device = pn.device_from_session(s)
+    report = pn.build_report(rom, device)
+    opts = fl.FlashOptions(**ALLOW, restore_from_backup=["oplusstanvbk"])
+    plan = fl.prepare(rom, report, device, opts, folder)
+    assert any("Critical or Full" in p for p in plan.problems)  # as a full backup it isn't enough
+    opts.no_backup = True
+    plan = fl.prepare(rom, report, device, opts, folder)
+    assert plan.ok, plan.problems
+    assert any(st.partition == "oplusstanvbk" and st.source == "backup" for st in plan.steps)

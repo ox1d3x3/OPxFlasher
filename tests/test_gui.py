@@ -121,8 +121,8 @@ def test_gui_rom_check_without_root(adb_env, monkeypatch, tmp_path):
         assert win.check_device.source == "props"
         table = win.checks_table
         checks = {table.item(r, 1).text(): table.item(r, 0).text() for r in range(table.rowCount())}
-        assert checks["Device match"] == "OK" and checks["Root"] == "STOP" and checks["Project"] == "Warning"
-        assert not win.flash_btn.isEnabled()
+        assert checks["Device match"] == "OK" and checks["Root"] == "Info" and checks["Project"] == "Warning"
+        assert win.flash_btn.isEnabled()  # without root: flash offered (backup recommended, not forced)
     finally:
         QThreadPool.globalInstance().waitForDone(10000)
         win.close()
@@ -1248,3 +1248,77 @@ def test_gui_is_organised_by_task(window):
     assert menus == ["File", "Phone", "ROMs", "Tools", "Help"]
     used = [a.text() for a in win.use_backup_btn.menu().actions()]
     assert used == ["Verify a backup...", "Restore full ROM...", "Make recovery zip..."]
+
+
+def test_gui_flash_without_root_or_backup(adb_env, fb_state, monkeypatch, tmp_path):
+    # a phone without root can't be backed up: the flash is offered, NO BACKUP is typed
+    import sys
+
+    import romfactory as rf
+    from conftest import FAKE_FASTBOOT, tool_cmd
+    from test_flash import make_rom
+    from test_plan import put, sized
+
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    monkeypatch.setenv("FAKE_ACCESS", "none")
+    for slot in ("_a", "_b"):
+        put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
+        put(adb_env, f"xbl_config{slot}", sized(rf.build_qcom_elf(arb=1)))
+        put(adb_env, f"dtbo{slot}", b"\0" * 65536)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    from opx.gui import app as gui_app
+
+    app = QApplication.instance() or QApplication([])
+    win = gui_app.MainWindow()
+    win.refresh_devices()
+    settle(app)
+    try:
+        win.out_edit.setText(str(tmp_path / "out"))
+        rom = make_rom(tmp_path)
+        win.rom_edit.setText(str(rom.path))
+        win.check_rom()
+        settle(app)
+        assert win.check_device.source == "props" and win.flash_btn.isEnabled()
+        seen = {}
+
+        class AutoDialog(gui_app.FlashDialog):
+            def exec(self):
+                self.arb_edit.setText("ARB CHECKED")
+                self.confirm_edit.setText("FLASH")
+                seen["blocked_without"] = not self.start_btn.isEnabled()  # no backup chosen, box not ticked
+                self.no_backup.setChecked(True)
+                seen["word"] = self.confirm_label.text()
+                assert not self.start_btn.isEnabled()  # FLASH isn't the word any more
+                self.confirm_edit.setText("NO BACKUP")
+                seen["enabled"] = self.start_btn.isEnabled()
+                seen["preview"] = self.preview.toPlainText()
+                return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(gui_app, "FlashDialog", AutoDialog)
+        win.start_flash()
+        settle(app, cycles=600)
+        assert seen["blocked_without"] and "NO BACKUP" in seen["word"] and seen["enabled"]
+        assert "No backup" in seen["preview"]
+        assert win.flash_label.text() == "Done: flash complete"
+        assert (adb_env / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
+    finally:
+        QThreadPool.globalInstance().waitForDone(10000)
+        win.close()
+        win.deleteLater()
+        settle(app, 5)
+
+
+def test_rom_check_in_fastboot_uses_what_android_reported(adb_env, tmp_path):
+    from test_flash import make_rom
+
+    from opx.gui.app import run_rom_check
+    from opx.session import open_session
+
+    rom = make_rom(tmp_path)
+    props = open_session("FAKE0001").props
+    _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", props, "fastbootd")
+    assert device.source == "fastboot" and report.compared
+    # never seen in Android (or only in a recovery): not compared, and says what to do
+    _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", None, "fastbootd")
+    assert report.verdict == "NOT COMPARED" and "Start it in Android" in device.label

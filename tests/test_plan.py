@@ -238,16 +238,41 @@ def test_phone_without_root_is_compared_from_props(adb, phone, tmp_path, monkeyp
     dev = pn.device_for_session(session)
     assert dev.source == "props" and "without root" in dev.label
     r = pn.build_report(rom_zip(tmp_path, meta=PROJECT_META), dev)
-    assert r.verdict == "BLOCKED"
-    assert status(r, "Root") == "block" and status(r, "Phone") == "info"
+    # no root is no longer a stop: what Android reports is compared, the rest is confirmed by the user
+    assert status(r, "Root") == "info" and status(r, "Phone") == "info"
     assert status(r, "Device match") == "pass" and status(r, "Project") == "warn"
     names = {c.name for c in r.checks}
-    # nothing claims to have read a partition it couldn't
-    assert not any(n.startswith(("AVB ", "Qualcomm ARB")) for n in names)
-    assert "Partition sizes" not in names
+    assert not any(n.startswith("AVB ") for n in names) and "Partition sizes" not in names
     assert "with root" in detail(r, "Anti-rollback")
-    assert [c.name for c in r.checks if c.status == "block"] == ["Root"]
-    assert fl.hard_blocks(r, [fl.OVERRIDE_QCOM_UNVALIDATED]) != []
+    # Qualcomm ARB can't be read: a STOP only the user's ARB CHECKED lifts
+    arb = [c for c in r.checks if c.name.startswith("Qualcomm ARB")]
+    assert arb and all(c.status == "block" and "can't be read without root" in c.detail for c in arb)
+    assert fl.hard_blocks(r, []) != [] and fl.hard_blocks(r, [fl.OVERRIDE_QCOM_UNVALIDATED]) == []
+
+
+def test_phone_in_fastboot_is_compared_with_what_it_reported_in_android(adb, phone, tmp_path):
+    props = open_session("FAKE0001", adb).props
+    dev = pn.device_from_fastboot("FAKE0001", props, "fastbootd")
+    assert dev.source == "fastboot" and "in fastbootd" in dev.label and "reported in Android" in dev.label
+    r = pn.build_report(rom_zip(tmp_path), dev)
+    assert status(r, "Device match") == "pass" and status(r, "Root") == "info"
+    assert r.compared and "Partition sizes" not in {c.name for c in r.checks}
+    # a wrong ROM is still refused
+    r = pn.build_report(rom_zip(tmp_path, codename="otherphone"), dev)
+    assert status(r, "Device match") == "block"
+
+
+def test_phone_in_fastboot_never_seen_in_android_is_not_compared(tmp_path):
+    dev = pn.no_device("The phone is in fastbootd, where its installed build can't be read. Start it in Android")
+    r = pn.build_report(rom_zip(tmp_path), dev)
+    assert r.verdict == "NOT COMPARED" and "Start it in Android" in detail(r, "Phone")
+
+
+def test_recovery_props_are_not_android():
+    assert pn.is_recovery({"ro.build.display.id": "aera_dodge-eng 99.87.36", "ro.product.device": "ossi"})
+    assert pn.is_recovery({"ro.bootmode": "recovery"})
+    assert pn.is_recovery({"ro.twrp.version": "3.7"})
+    assert not pn.is_recovery({"ro.build.display.id": "CPH2653_16.0.10.501(EX01)", "ro.bootmode": "normal"})
 
 
 def test_rooted_phone_still_reads_partitions(adb, phone):

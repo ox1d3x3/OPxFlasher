@@ -55,7 +55,7 @@ opx plan ROM.zip [--backup backups/<folder>] [--json]   # check a ROM, flash not
 ## Flash and restore
 
 ```sh
-opx flash ROM.zip --backup backups/<folder> [--allow-fastbootd] [--wipe] [--dry-run]
+opx flash ROM.zip [--backup backups/<folder> | --no-backup] [--allow-fastbootd] [--wipe] [--dry-run]
 opx flash --resume opx-flash-<time>/journal.json        # continue an interrupted flash
 
 opx flash-image <partition> <file.img> --backup backups/<folder> [--slot current|other|both]

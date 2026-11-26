@@ -183,7 +183,7 @@ class ImageTab(QWidget):
         if d is not None and d.transport == "fastboot" and (backup / "manifest.json").exists():
             return pn.device_from_backup(backup)  # phone in fastboot: the backup tells us which phone
         if d is not None and d.transport == "fastboot" and self.no_backup.isChecked():
-            props = self.win.last_props if self.win.last_facts.get("serial") == d.serial else {}
+            props = self.win.android_props.get(d.serial, {})
             return pn.device_from_fastboot(d.serial, props)
         return None
 

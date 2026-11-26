@@ -72,9 +72,19 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
   to connect the phone; nothing about the phone is guessed. Problems are listed first, then what
   passed, then notes.
 - A phone **without root** is compared with what Android reports about it (model, variant, build,
-  hardware project). Its partitions can't be read, so the anti-rollback numbers and partition sizes
-  aren't compared, and the check stops at *Root*: flashing needs root (for the backup first) and an
-  unlocked bootloader.
+  hardware project). Its partitions can't be read: the bootloader checks each image fits before
+  writing, and the Qualcomm anti-rollback numbers are confirmed by you (`ARB CHECKED`).
+- A phone already in **fastboot / fastbootd / recovery** is compared with what it reported the last
+  time OPxFlasher saw it in Android (same serial). Never seen in Android: start it in Android once,
+  so the installed build is known (needed for the anti-rollback fuse).
+- **A backup is recommended, not required.** The Flash dialog asks for one; without it, tick *Flash
+  without a backup (I accept the risk)* (`opx flash --no-backup`) and type `NO BACKUP`. Every other
+  check stays: wrong phone, older build (fuse), region change (wipe + confirmation), ARB, identity
+  partitions never written.
+- **Mobile network files** (`oplusstanvbk`, `my_region`) aren't written by a same-region flash: the
+  phone keeps its own. If the phone was converted from another region earlier, tick *This phone was
+  converted...* to write your own ones from the backup you made before converting (Network
+  essentials or Critical).
 
 | Check | Blocks when |
 |---|---|
@@ -321,8 +331,8 @@ FLASH. If the phone is already in fastboot, the backup tells OPxFlasher which ph
 tick *Flash without a backup (I accept the risk)* (`--no-backup`) and type `NO BACKUP`.
 Everything above is still refused (identity partitions, `super`, the bootloader chain, wrong
 types, firmware with a broken bootloader); only the backup isn't required. The phone can
-already be in fastboot: OPxFlasher knows it by its serial number. A full ROM flash or a region
-conversion always needs a backup.
+already be in fastboot: OPxFlasher knows it by its serial number. A full ROM flash works the same
+way (see ROM check).
 
 ## Official ROMs
 

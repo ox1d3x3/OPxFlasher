@@ -11,7 +11,8 @@ A step-by-step for turning a **PJZ110** (China, ColorOS) into a **CPH2653** (EU 
 
 - **It wipes the phone.** A region change always needs a factory reset; OPxFlasher won't convert
   without one. Your photos, apps and accounts are gone afterwards.
-- **The bootloader must be unlocked**, and the phone **rooted** for the backup OPxFlasher requires.
+- **The bootloader must be unlocked.** A backup is strongly recommended (backups need root); at least a
+  **Network essentials** backup, so your mobile network files can be written back after converting.
   On ColorOS 16+, Chinese phones need OnePlus's approval to unlock, which can take a week or more.
 - **Don't relock the bootloader afterwards.** If anything on the phone doesn't verify, a locked phone
   won't start, and only an authorised repair centre (EDL) can recover it.

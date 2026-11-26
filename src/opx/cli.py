@@ -506,7 +506,10 @@ def cmd_flash(args) -> int:
         raise SystemExit("Give a ROM to flash, or --resume JOURNAL.")
     rom = open_rom(args.rom)
     session = open_session(_pick_adb_serial(args.serial))
-    dev_state = pn.device_from_session(session)
+    if pn.is_recovery(session.props):
+        raise SystemExit("The phone is in a custom recovery, which doesn't say what Android it runs. Start it in "
+                         "Android (USB debugging on) and run this again.")
+    dev_state = pn.device_for_session(session)  # without root: what Android reports
     report = pn.build_report(rom, dev_state)
     _print_report(rom, report, dev_state)
 
@@ -523,6 +526,7 @@ def cmd_flash(args) -> int:
         reboot_after=not args.no_reboot,
         allow_fastbootd=args.allow_fastbootd,
         overrides=overrides,
+        no_backup=args.no_backup,
     )
     backup = Path(args.backup) if args.backup else None
     if fl.region_change(report) and not args.no_restore_region:
@@ -534,6 +538,8 @@ def cmd_flash(args) -> int:
             print("\nRegion change: your phone's own " + ", ".join(options.restore_from_backup)
                   + " will be restored from the backup after flashing (keeps mobile signal).")
     plan = fl.prepare(rom, report, dev_state, options, backup)
+    for w in plan.warnings:
+        print(f"Note: {w}")
 
     print("\nFlash steps:")
     for i, st in enumerate(plan.steps, 1):
@@ -566,7 +572,9 @@ def cmd_flash(args) -> int:
         print("Cancelled. Nothing was written.")
         return 1
     wipe_note = " ALL DATA ON THE PHONE WILL BE ERASED." if args.wipe else ""
-    if not _confirm("FLASH", f"\nReady to flash {rom.path.name} to {dev_state.label}.{wipe_note}"):
+    if not _confirm("NO BACKUP" if args.no_backup else "FLASH",
+                    f"\nReady to flash {rom.path.name} to {dev_state.label}.{wipe_note}"
+                    + (" No backup was chosen." if args.no_backup else "")):
         print("Cancelled. Nothing was written.")
         return 1
 
@@ -1358,7 +1366,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     f = sub.add_parser("flash", help="flash a ROM after every safety check passes (writes to the phone)")
     f.add_argument("rom", nargs="?", help="OTA zip, payload.bin or image folder")
-    f.add_argument("--backup", help="your Critical or Full backup of this phone (required)")
+    f.add_argument("--backup", help="your Critical or Full backup of this phone (recommended; required unless "
+                                    "--no-backup). With --no-backup, a Network essentials backup for your own "
+                                    "network files")
+    f.add_argument("--no-backup", action="store_true",
+                   help="flash without a backup (you type NO BACKUP); every other check stays on")
     f.add_argument("-s", "--serial")
     f.add_argument("--include", help="optional partitions to flash too, comma separated (e.g. oplusstanvbk,my_region)")
     f.add_argument("--wipe", action="store_true", help="factory reset (needed when changing region or OS)")

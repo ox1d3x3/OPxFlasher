@@ -111,6 +111,17 @@ def device_from_props(session: Session) -> DeviceState:
     )
 
 
+def is_recovery(props: dict[str, str]) -> bool:
+    """Props from a custom recovery (AERA, OrangeFox, TWRP) describe the recovery, not the installed
+    Android: its build, version and often its model name ("ossi") are the recovery's own."""
+    if "recovery" in (props.get("ro.bootmode", ""), props.get("ro.boot.mode", "")):
+        return True
+    if any(k.startswith(("ro.twrp.", "ro.orangefox.", "ro.aera.")) for k in props):
+        return True
+    build = " ".join(props.get(k, "") for k in ("ro.build.display.id", "ro.build.flavor", "ro.product.name")).lower()
+    return any(w in build for w in ("aera_", "twrp_", "orangefox", "fox_"))
+
+
 def device_for_session(session: Session) -> DeviceState:
     """The richest comparison the phone allows: partitions with root, Android's own facts without."""
     return device_from_session(session) if session.access.usable else device_from_props(session)
@@ -155,7 +166,7 @@ SUPER_NAMES = ("system", "system_ext", "product", "vendor", "odm", "vendor_dlkm"
                "my_preload", "my_product", "my_region", "my_stock")
 
 
-def device_from_fastboot(serial: str, props: dict[str, str] | None = None) -> DeviceState:
+def device_from_fastboot(serial: str, props: dict[str, str] | None = None, where: str = "fastboot") -> DeviceState:
     """A phone that is already in fastboot, known only by its serial (and the props it reported the
     last time it was connected in Android, when OPxFlasher saw it). Sizes are checked by the
     bootloader at write time; nothing is read from the phone here."""
@@ -165,7 +176,8 @@ def device_from_fastboot(serial: str, props: dict[str, str] | None = None) -> De
     prof = profiles.detect(props) if props else profiles.load("oplus-generic")
     return DeviceState(
         source="fastboot",
-        label=f"{facts.get('model') or 'phone'} in fastboot ({serial})",
+        label=f"{facts.get('model') or 'phone'} in {where} ({serial})"
+              + (f", compared with what it reported in Android: {facts['build']}" if facts.get("build") else ""),
         facts=facts,
         props=props,
         profile=prof,
@@ -209,8 +221,12 @@ def device_from_backup(folder: Path) -> DeviceState:
     )
 
 
-def no_device() -> DeviceState:
-    return DeviceState(source="none", label="No phone or backup selected", facts={}, props={}, profile=profiles.load("oplus-generic"))
+NO_DEVICE = "No phone or backup selected"
+
+
+def no_device(label: str = NO_DEVICE) -> DeviceState:
+    """`label` says what to do when a phone is connected but can't be compared yet."""
+    return DeviceState(source="none", label=label, facts={}, props={}, profile=profiles.load("oplus-generic"))
 
 
 # --- the report -------------------------------------------------------------
@@ -364,15 +380,18 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
 
     # 2. which phone
     alone = dev.source == "none"  # only the ROM's own checks; nothing about the phone is guessed
-    no_parts = alone or dev.source == "props"  # no partitions to read (no phone, or no root)
+    # no partitions to read: no phone, no root, or a phone in fastboot known by what it reported in Android
+    no_parts = alone or dev.source in ("props", "fastboot")
     if alone:
-        add("Phone", BLOCK, "Connect your phone (rooted, over ADB) or choose a backup to compare this ROM with it.")
+        add("Phone", BLOCK, dev.label if dev.label != NO_DEVICE else
+            "Connect your phone in Android (USB debugging on; root isn't needed) or choose a backup to compare "
+            "this ROM with it.")
     else:
         add("Phone", INFO, dev.label)
-    if dev.source == "props":
-        add("Root", BLOCK, "No root: the phone's partitions can't be read, so its anti-rollback numbers and partition "
-                           "sizes aren't compared. The other checks use what Android reports. Flashing needs root "
-                           "(for the backup first) and an unlocked bootloader.")
+    if dev.source in ("props", "fastboot"):
+        add("Root", INFO, "The phone's partitions aren't read (no root, or not in Android). The bootloader checks every "
+                          "image fits before anything is written; the Qualcomm anti-rollback numbers can't be read, "
+                          "so you confirm them below. Model, variant and the installed build come from Android.")
 
     dev_codename = dev.facts.get("codename", "")
     if not rom.codename:
@@ -448,6 +467,20 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
             + (". Compared with your phone once it's connected." if alone else ". Compared with your phone with root."))
 
     # 6. Qualcomm anti-rollback (experimental): only meaningful against a phone's partitions
+    if no_parts and not alone:
+        for name in prof.qcom_arb_images:
+            if not rom.image(name):
+                continue
+            try:
+                rom_arb = _qcom_arb(rom.read_image(name))
+            except (RomError, PayloadError) as e:
+                add(f"Qualcomm ARB {name}", BLOCK, f"Couldn't read {name} from the ROM: {e}")
+                continue
+            rv = rom_arb.value if rom_arb else "?"
+            add(f"Qualcomm ARB {name}", BLOCK,
+                f"The phone's value can't be read without root (ROM {rv}, phone ?). Flashing a LOWER anti-rollback "
+                "version than the phone's hard-bricks it. Same or newer builds of the same phone keep it; confirm "
+                "you're not going back to older firmware.")
     for name in [] if no_parts else prof.qcom_arb_images:
         if not rom.image(name):
             continue

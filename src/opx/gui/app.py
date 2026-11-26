@@ -212,7 +212,10 @@ class MainWindow(QMainWindow):
         self.devices: list[dev.Device] = []
         self.session: Session | None = None
         self.last_facts: dict[str, str] = {}  # the last connected phone, for log exports
-        self.last_props: dict[str, str] = {}  # ...and its props, to know it again in fastboot
+        self.last_props: dict[str, str] = {}  # ...and its props
+        # serial -> props from Android (not a recovery): what the phone is and runs, to compare a ROM
+        # with it while it's in fastboot / recovery, where Android can't be asked
+        self.android_props: dict[str, dict[str, str]] = {}
         self.plan: bk.Plan | None = None
         self.cancel_flag = threading.Event()
         self.last_folder: Path | None = None
@@ -1084,7 +1087,7 @@ class MainWindow(QMainWindow):
         d = self.selected_device()
         if d is None or d.transport != "fastboot" or d.serial != getattr(self, "fastboot_serial", None):
             return  # another phone was picked meanwhile
-        last = self.last_props if self.last_facts.get("serial") == d.serial else None
+        last = self.android_props.get(d.serial)
         for key, text in support.fastboot_panel(info, last).items():
             if key in self.info_labels:
                 self.info_labels[key].setText(text)
@@ -1098,6 +1101,8 @@ class MainWindow(QMainWindow):
         facts = bk.device_facts(session.props)
         self.last_facts = facts
         self.last_props = dict(session.props)
+        if not pn.is_recovery(session.props):
+            self.android_props[session.serial] = dict(session.props)
         for key in ("model", "build", "android", "security_patch", "slot_suffix"):
             self.info_labels[key].setText(facts.get(key) or "-")
         access_text = {
@@ -1476,7 +1481,12 @@ class MainWindow(QMainWindow):
             return
         self._set_busy(True)
         self.say(f"Checking {rom_path} ...")
-        self.run_job(Job(run_rom_check, rom_path, backup, self.session), self._rom_report_ready)
+        d = self.selected_device()
+        serial = self.session.serial if self.session else (d.serial if d is not None else "")
+        where = ("recovery" if self.session and pn.is_recovery(self.session.props)
+                 else (d.state if d is not None and d.transport == "fastboot" else "fastboot"))
+        self.run_job(Job(run_rom_check, rom_path, backup, self.session, serial,
+                         self.android_props.get(serial), where), self._rom_report_ready)
 
     def _rom_report_ready(self, result) -> None:
         rom, device, report = result
@@ -1542,12 +1552,15 @@ class MainWindow(QMainWindow):
     # --- flashing -----------------------------------------------------------
 
     def _can_offer_flash(self) -> bool:
-        if not self.report or not self.check_device or self.check_device.source != "live":
+        if not self.report or not self.check_device or self.check_device.source not in ("live", "props", "fastboot"):
             return False
+        d = self.selected_device()
+        if self.session is None and (d is None or d.serial != self.check_device.facts.get("serial", d.serial)):
+            return False  # the phone that was checked must be the one connected
         return not fl.hard_blocks(self.report, [fl.OVERRIDE_QCOM_UNVALIDATED])
 
     def start_flash(self) -> None:
-        if not self._can_offer_flash() or self.session is None:
+        if not self._can_offer_flash():
             return
         hint = str(self.last_folder) if self.last_folder else self.cmp_backup_edit.text().strip()
         dialog = FlashDialog(self, self.check_rom_obj, self.check_device, self.report, hint)
@@ -1559,7 +1572,7 @@ class MainWindow(QMainWindow):
         work.mkdir(parents=True, exist_ok=True)
         self.flash_cancel = threading.Event()
         runner = fl.Runner(
-            dialog.plan, self.check_rom_obj, self.session.profile, Tool("adb"), Tool("fastboot"),
+            dialog.plan, self.check_rom_obj, self.check_device.profile, Tool("adb"), Tool("fastboot"),
             work / "journal.json", work / "images", cancel=self.flash_cancel,
         )
         self._launch(runner, work / "journal.json", self.flash_label, self.flash_bar, self.stop_flash_btn, "Flash")
@@ -1871,12 +1884,20 @@ class MainWindow(QMainWindow):
         self._launch(runner, work / "journal.json", self.sig_label, self.sig_bar, self.stop_restore_btn, "Restore")
 
 
-def run_rom_check(rom_path: str, backup: str, session: Session | None):
+def run_rom_check(rom_path: str, backup: str, session: Session | None, serial: str = "",
+                  android_props: dict[str, str] | None = None, where: str = "fastboot"):
     rom = open_rom(rom_path)
     if backup:
         device = pn.device_from_backup(Path(backup))
-    elif session is not None:
+    elif session is not None and not pn.is_recovery(session.props):
         device = pn.device_for_session(session)  # without root: what Android reports
+    elif serial and android_props:
+        # in fastboot / recovery: what the phone reported the last time it was in Android
+        device = pn.device_from_fastboot(serial, android_props, where)
+    elif serial:
+        device = pn.no_device(f"The phone is in {where}, where its installed build can't be read. Start it in Android "
+                              "once (USB debugging on, root isn't needed), let OPxFlasher see it, then check again. "
+                              "The installed build is needed for the anti-rollback check.")
     else:
         device = pn.no_device()
     return rom, device, pn.build_report(rom, device)
