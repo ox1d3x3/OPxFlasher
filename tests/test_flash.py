@@ -389,6 +389,49 @@ def test_resume_after_a_deferred_image(adb, fastboot, phone, fb_state, tmp_path)
     assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
 
 
+def test_phone_dropping_off_usb_stops_and_resumes(adb, fastboot, phone, fb_state, tmp_path):
+    # real OnePlus 13 on a flaky USB port: "Sending 'boot' FAILED (Status read failed (Too many links))",
+    # then the phone restarts to Android. That's not the bootloader refusing boot: stop, don't defer and
+    # carry on (the next fastboot command would wait for the phone for half an hour).
+    fb_state(drop_on_flash="boot_a")
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    with pytest.raises(fl.FlashError, match="dropped off USB") as err:
+        runner.run()
+    assert "Resume" in str(err.value)
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    boot = next(s for s in journal["steps"] if s["partition"] == "boot")
+    assert boot["status"] == "failed"
+    assert not any(s["status"] == "deferred" for s in journal["steps"])
+    assert not any(c.startswith("flash init_boot") for c in fb_state.read().get("log", []))
+    # Resume: the phone is back in Android; OPxFlasher puts it in the bootloader and carries on
+    fb_state(drop_on_flash=None)
+    from opx.profile import load
+
+    fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    assert all(s["status"] == "done" for s in journal["steps"]), [s for s in journal["steps"] if s["status"] != "done"]
+
+
+def test_phone_gone_before_a_step_is_not_waited_for(adb, fastboot, phone, fb_state, tmp_path):
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    from opx.fastboot import LostPhone
+    from opx.profile import load
+
+    runner.fb = Fastboot(fastboot.bind("FAKE0001"), load("oneplus-13"))
+    fb_state(mode="android")
+    with pytest.raises(LostPhone, match="no longer in fastboot"):
+        runner._ensure("bootloader")
+    assert runner.fb is None
+
+
+def test_transport_errors_are_told_apart_from_refusals():
+    from opx.fastboot import is_transport_error
+
+    assert is_transport_error("Sending 'boot' (98304 KB)  FAILED (Status read failed (Too many links))")
+    assert is_transport_error("FAILED (Write to device failed (No such device))")
+    assert not is_transport_error("Writing 'xbl_a' FAILED (remote: 'Flashing is not allowed for xbl_a')")
+
+
 def test_other_phones_still_write_firmware_from_the_bootloader(adb, fastboot, phone, fb_state, tmp_path):
     import dataclasses
 

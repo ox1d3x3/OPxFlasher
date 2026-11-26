@@ -29,7 +29,7 @@ from pathlib import Path
 
 from opx import __version__
 from opx.backup import manifest_file
-from opx.fastboot import Fastboot, FastbootError, wait_for_fastboot
+from opx.fastboot import Fastboot, FastbootError, LostPhone, fastboot_serials, wait_for_fastboot
 from opx.plan import BLOCK, DeviceState, Report
 from opx.profile import Profile
 from opx.rom.ota import RomInfo, materialize, open_rom
@@ -586,6 +586,16 @@ class Runner:
 
     # --- mode handling ------------------------------------------------
 
+    def _log_fastboot(self) -> None:
+        """Which fastboot does the work: an old copy on the PATH is a classic cause of USB trouble."""
+        try:
+            res = self.fastboot_tool.run("--version", timeout=15)
+            version = (res.stdout or res.stderr).strip().splitlines()[:1]
+        except OSError:
+            version = []
+        where = " ".join(self.fastboot_tool.prefix)
+        self.emit({"type": "log", "message": f"fastboot: {where}" + (f" ({version[0]})" if version else "")})
+
     def _adb_in_android(self) -> bool:
         res = self.adb.run("devices", timeout=15)
         for line in res.stdout.splitlines():
@@ -630,14 +640,30 @@ class Runner:
             return serials[0]
         raise FastbootError("phone not found in fastboot")
 
+    def _still_there(self) -> None:
+        """Before each write: the phone we were talking to must still be in fastboot. Without this, a
+        phone that dropped off USB (or restarted) leaves fastboot waiting for it for half an hour."""
+        if self.fb is None:
+            return
+        if self.fb.tool.serial not in fastboot_serials(self.fastboot_tool):
+            self.fb = None
+            raise LostPhone("the phone is no longer in fastboot")
+
     def _ensure_any(self) -> Fastboot:
         """flash-any: the phone in the bootloader or in fastbootd, whichever it is in."""
+        self._still_there()
         if self.fb is None:
-            self.fb = self._connect_now()
+            try:
+                self.fb = self._connect_now()
+            except FastbootError:
+                if not self._adb_in_android():
+                    raise
+                self._to_bootloader()  # resuming after the phone restarted to Android
         return self.fb
 
     def _ensure(self, mode: str) -> Fastboot:
         """Before each step: the phone must already be in the expected mode."""
+        self._still_there()
         if self.fb is None:
             try:
                 self.fb = self._connect_now()
@@ -803,6 +829,7 @@ class Runner:
         rom_names = _image_names(plan)
         if rom_names and self.rom is None:
             raise FlashError("This plan needs the ROM, but none was given.")
+        self._log_fastboot()
         files = extract_images(self.rom, rom_names, self.workdir, self.emit, self.cancel) if rom_names else {}
         self.backup_files = verified_backup_files(plan, self.emit)
         verified_step_images(plan)
@@ -820,6 +847,8 @@ class Runner:
                 step.status = "done"
                 if step.kind == "to-fastbootd":
                     self._run_deferred(files, total)
+            except LostPhone as exc:
+                self._fail(step, index, exc, lost=True)
             except FastbootError as exc:
                 if step.kind == "flash-any" and self.fb is not None and self.fb.mode() == "bootloader":
                     # the bootloader refused it: written from fastbootd after the reboot there
@@ -846,21 +875,33 @@ class Runner:
             try:
                 step.detail = self._run_step(step, files) + " (from fastbootd)"
                 step.status = "done"
+            except LostPhone as exc:
+                self._fail(step, index, exc, lost=True)
             except (FastbootError, FlashError, OSError) as exc:
                 self._fail(step, index, exc)
             save_journal(self.plan, self.journal)
             self.emit({"type": "step_done", "index": index, "label": step.label, "status": "done", "detail": step.detail})
 
-    def _fail(self, step: Step, index: int, exc: BaseException):
+    def _fail(self, step: Step, index: int, exc: BaseException, lost: bool = False):
         step.status = "failed"
         step.detail = str(exc)
         save_journal(self.plan, self.journal)
         self.emit({"type": "step_done", "index": index, "label": step.label, "status": "failed", "detail": step.detail})
+        if lost:
+            raise FlashError(f"Step {index} ({step.label}) failed: {exc}\n{USB_LOST}\nJournal: {self.journal}") from exc
         raise FlashError(
             f"Step {index} ({step.label}) failed: {exc}\n"
             "Do not reboot or unplug the phone. Fix the cause, then resume from the journal: "
             f"{self.journal}"
         ) from exc
+
+
+USB_LOST = (
+    "The phone dropped off USB (or restarted) in the middle of this step, so this write didn't finish; nothing "
+    "after it was written. That's the USB link, not the ROM. Plug the phone straight into a port on the PC itself "
+    "(a rear port; USB 2.0 if there is one; no hub, extension or front-panel port), use a good data cable, and keep "
+    "the PC from sleeping. Then put the phone back in the bootloader and press Resume."
+)
 
 
 def resume_runner(journal: Path, profile: Profile, adb: Tool, fastboot: Tool, **kwargs) -> Runner:

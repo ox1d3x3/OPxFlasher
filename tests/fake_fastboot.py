@@ -8,6 +8,7 @@ folder as fake_adb.py plus a state file:
     fail_flash        partition name whose flash fails
     refuse            {"bootloader": [...], "fastbootd": [...]}: partitions a mode won't write
                       (real OnePlus 13: the bootloader refuses xbl, fastbootd refuses modem)
+    drop_on_flash     partition name whose flash loses the USB link and the phone restarts to Android
     no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
     log               every command that changed something
 """
@@ -115,6 +116,12 @@ def main(argv: list[str]) -> int:
     if args[:1] == ["flash"]:
         part, image = args[1], Path(args[2])
         data = image.read_bytes()
+        if state.get("drop_on_flash") == part:
+            state["mode"] = "android"
+            save(state)
+            err(f"Sending '{part}' (98304 KB)   FAILED (Status read failed (Too many links))\n"
+                "fastboot: error: Command failed")
+            return 1
         if state.get("fail_flash") == part:
             err(f"Sending '{part}' OKAY\nWriting '{part}' FAILED (remote: 'Flash write failure')")
             return 1

@@ -25,6 +25,23 @@ class RefusedPartition(FastbootError):
     pass
 
 
+class LostPhone(FastbootError):
+    """The USB link broke mid-command (the phone dropped off or restarted): not the phone refusing."""
+
+
+# fastboot's own words when the USB transfer itself fails, as opposed to the phone answering FAILED (remote: ...)
+TRANSPORT_ERRORS = (
+    "status read failed", "write to device failed", "read from device failed", "too many links",
+    "no such device", "data transfer failure", "protocol fault", "usb_write failed", "usb_read failed",
+    "device not found", "couldn't parse", "no link",
+)
+
+
+def is_transport_error(text: str) -> bool:
+    low = text.lower()
+    return any(marker in low for marker in TRANSPORT_ERRORS)
+
+
 def poll_interval() -> float:
     try:
         return float(os.environ.get("OPX_POLL_SECONDS", "1"))
@@ -83,6 +100,8 @@ class Fastboot:
             lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
             why = [ln for ln in lines if "FAILED" in ln or "remote:" in ln or "error" in ln.lower()]
             text = " / ".join(dict.fromkeys(why or lines[-1:])) or str(res.returncode)
+            if res.returncode == 124 or (is_transport_error(out) and "remote:" not in out.lower()):
+                raise LostPhone(f"fastboot {' '.join(args)} failed: {text}")
             raise FastbootError(f"fastboot {' '.join(args)} failed: {text}")
         return out
 
