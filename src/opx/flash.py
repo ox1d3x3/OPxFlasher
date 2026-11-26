@@ -631,16 +631,23 @@ class Runner:
         slotted = fb.has_slot(name) or fb.partition_size(f"{name}_a") is not None
         targets = [f"{name}_a", f"{name}_b"] if slotted else [name]
         chosen = {t: image_for(t) for t in targets}
+        unchecked = []
         for target, image in chosen.items():
             size = image.stat().st_size
             part_size = fb.partition_size(target)
             if part_size is None:
-                raise FlashError(f"{target} does not exist on this phone")
+                # some fastbootd builds don't answer partition-size for every partition (OnePlus 13: modem).
+                # Ask whether it exists at all; if so, fastboot checks the size itself when writing.
+                if fb.is_logical(target) is None and not fb.has_slot(name):
+                    raise FlashError(f"{target} does not exist on this phone")
+                unchecked.append(target)
+                continue
             if size > part_size:
                 raise FlashError(f"{image.name} ({size} bytes) is larger than {target} ({part_size} bytes)")
         for target, image in chosen.items():
             fb.flash(target, image)
-        return " + ".join(targets)
+        note = f" (size checked by fastboot: {', '.join(unchecked)})" if unchecked else ""
+        return " + ".join(targets) + note
 
     def _backup_image(self, name: str, target: str) -> Path:
         """The backup image for a target, falling back to the other slot's copy."""

@@ -420,3 +420,14 @@ def test_resume_when_the_phone_is_already_in_fastbootd(adb, fastboot, phone, fb_
 
     fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
     assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
+
+
+def test_partition_size_not_answered_is_left_to_fastboot(adb, fastboot, phone, fb_state, tmp_path):
+    # real OnePlus 13 fastbootd: no partition-size for modem_a / modem_b, though they exist
+    fb_state(no_size=["dtbo_a", "dtbo_b"])
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    runner.run()
+    assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    dtbo = next(s for s in journal["steps"] if s["partition"] == "dtbo")
+    assert "size checked by fastboot" in dtbo["detail"]

@@ -6,6 +6,7 @@ folder as fake_adb.py plus a state file:
     serial, slot, unlocked, super_size
     fastbootd_broken  rebooting to fastbootd bricks the phone (ColorOS 17 CN)
     fail_flash        partition name whose flash fails
+    no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
     log               every command that changed something
 """
 
@@ -75,6 +76,8 @@ def main(argv: list[str]) -> int:
             return "yes" if f"{p}_a" in phys or f"{p}_a" in logi else "no"
         if name.startswith("partition-size:"):
             p = name.split(":", 1)[1]
+            if p in state.get("no_size", []):
+                return None
             if p == "super":
                 return hex(state["super_size"])
             if p in phys:
