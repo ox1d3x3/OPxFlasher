@@ -37,6 +37,10 @@ from opx.tools import Tool
 OVERRIDE_QCOM_UNVALIDATED = "qcom-arb-unvalidated"
 OVERRIDE_VARIANT = "variant-change"  # same phone model, other region: user confirms
 OVERRIDE_UNKNOWN_FIRMWARE = "restore-phone-not-booted"  # full ROM restore with the phone not in Android
+OVERRIDE_UNKNOWN_BUILD = "installed-build-unknown"  # build unknown (phone or ROM): the user confirms "same or newer"
+OVERRIDE_UNKNOWN_ROM = "rom-identity-unknown"  # loose images: the user confirms they're for this phone
+# confirmed together in the anti-rollback warning
+RISK_OVERRIDES = (OVERRIDE_QCOM_UNVALIDATED, OVERRIDE_UNKNOWN_BUILD, OVERRIDE_UNKNOWN_ROM)
 AVB_ORDER_LAST = ("vbmeta_system", "vbmeta_vendor", "vbmeta")
 
 Event = dict
@@ -64,6 +68,7 @@ class FlashOptions:
     restore_from_backup: list[str] = field(default_factory=list)  # region files written from YOUR backup
     keep_recovery: bool = False  # don't write recovery: a custom recovery (AERA, OrangeFox) stays
     no_backup: bool = False  # the user typed NO BACKUP: a backup is recommended, not required
+    network_backup: str = ""  # where restore_from_backup comes from, if not the main backup (Network essentials)
 
 
 def override_key(check) -> str | None:
@@ -74,6 +79,10 @@ def override_key(check) -> str | None:
         return OVERRIDE_VARIANT
     if check.status == BLOCK and check.name == "Current firmware":
         return OVERRIDE_UNKNOWN_FIRMWARE
+    if check.status == BLOCK and check.name in ("Installed build", "ROM age"):
+        return OVERRIDE_UNKNOWN_BUILD
+    if check.status == BLOCK and check.name == "ROM identity":
+        return OVERRIDE_UNKNOWN_ROM
     return None
 
 
@@ -305,8 +314,13 @@ def prepare(
         if name in from_rom:
             problems.append(f"{name} can't come from your backup with this ROM: its vbmeta checks {name} at boot, "
                             "so an old copy would fail verification. It's written from the ROM.")
+    net_folder = Path(options.network_backup) if options.network_backup else backup_folder
+    if options.network_backup and options.restore_from_backup:
+        # your own network files from their own backup (Network essentials is enough): still this phone's
+        problems += [f"Network files backup: {p}" for p in check_backup(net_folder, device.facts, device.profile)
+                     if not p.startswith("Use a Critical or Full backup")]
     restore_physical, restore_logical = _restore_targets(
-        options, device.profile, backup_folder, chosen | from_rom, problems,
+        options, device.profile, net_folder, chosen | from_rom, problems,
         skip=from_rom)
     if region_change(report) and not (restore_physical or restore_logical) and keepable(
             report, device.profile.conditional):
@@ -489,7 +503,7 @@ def verified_backup_files(plan: FlashPlan, emit: EventFn) -> dict[str, Path]:
     for step in plan.steps:
         if step.source != "backup" or step.status == "done":
             continue
-        images = backup_images(plan.backup, step.partition)
+        images = backup_images(plan.options.network_backup or plan.backup, step.partition)
         if not images:
             raise FlashError(f"The backup no longer has {step.partition}.")
         for full, (path, sha, _src) in images.items():

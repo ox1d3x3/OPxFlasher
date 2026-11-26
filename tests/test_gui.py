@@ -1242,7 +1242,7 @@ def test_gui_phone_animation_follows_the_phone(window, monkeypatch, fb_state):
 def test_gui_is_organised_by_task(window):
     app, win = window
     names = [win.tabs.tabText(i) for i in range(win.tabs.count())]
-    assert names == ["Backup", "ROM: check and flash", "Root", "Flash image", "Signal / region", "Apps", "Diagnostics"]
+    assert names == ["Backup", "ROMs", "Flash ROM", "Root", "Flash image", "Signal / region", "Apps", "Diagnostics"]
     assert all(win.tabs.tabToolTip(i) for i in range(win.tabs.count()))
     menus = [a.text().replace("&", "") for a in win.menuBar().actions()]
     assert menus == ["File", "Phone", "ROMs", "Tools", "Help"]
@@ -1319,9 +1319,18 @@ def test_rom_check_in_fastboot_uses_what_android_reported(adb_env, tmp_path):
     props = open_session("FAKE0001").props
     _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", props, "fastbootd")
     assert device.source == "fastboot" and report.compared
-    # never seen in Android (or only in a recovery): not compared, and says what to do
-    _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", None, "fastbootd")
-    assert report.verdict == "NOT COMPARED" and "Start it in Android" in device.label
+    # never seen in Android (e.g. Android doesn't start): known from the bootloader only
+    import opx.gui.app as gui_app
+
+    monkeypatch_info = {"product": "nothing-known", "current-slot": "a"}
+    orig = gui_app.support.fastboot_info
+    gui_app.support.fastboot_info = lambda serial: monkeypatch_info
+    try:
+        _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", None, "fastbootd")
+    finally:
+        gui_app.support.fastboot_info = orig
+    assert device.source == "fastboot" and "bootloader only" in device.label
+    assert report.verdict == "BLOCKED"  # an unknown phone is never flashed
 
 
 def test_gui_arb_risk_dialog_gates(window, monkeypatch):
@@ -1375,3 +1384,45 @@ def test_gui_arb_risk_dialog_refuses_an_older_rom(window, monkeypatch):
     assert not dlg2.go.isEnabled()
     dlg2.validate_btn.click()
     assert dlg2.go.isEnabled() and "SAME" in dlg2.validation_label.text()
+
+
+def test_gui_roms_and_flash_tabs_share_the_rom(window):
+    # ROMs: get / verify / convert; Flash ROM: choose, check, flash. One ROM for both.
+    app, win = window
+    win.build_rom_edit.setText("/x/rom.zip")
+    assert win.rom_edit.text() == "/x/rom.zip"
+    win.rom_edit.setText("/y/folder")
+    assert win.build_rom_edit.text() == "/y/folder"
+    assert win.cmp_backup_edit.isHidden() and not win.cmp_more.isChecked()  # backup compare tucked away
+    win.cmp_more.setChecked(True)
+    assert not win.cmp_backup_edit.isHidden()
+    win.cmp_more.setChecked(False)
+    assert win.cmp_live.isChecked()
+    assert "Phone:" in win.flash_phone.text()
+
+
+def test_gui_arb_risk_dialog_compares_a_typed_build(window):
+    # phone in fastboot only: the owner types the installed build; an older ROM is refused
+    import random
+
+    from opx import arb
+    from opx.gui import arb_dialog as ad
+
+    app, win = window
+
+    def compare(text):
+        result = arb.OLDER if "16.0.11" in text else arb.SAME
+        return arb.Validation("S", "rom", "16.0.10.501", text, result, f"{result.upper()} build")
+
+    dlg = ad.ArbRiskDialog(win, [], seconds=0, rng=random.Random(3), compare=compare)
+    dlg.agree.setChecked(True)
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    assert dlg.go.isEnabled()  # not typed: the owner can still accept (with the warning read)
+    dlg.build_edit.setText("CPH2653_16.0.11.100(EX01)")
+    dlg._run_compare()
+    assert dlg.refused and not dlg.go.isEnabled()
+    dlg.build_edit.setText("CPH2653_16.0.10.501(EX01)")
+    dlg._run_compare()
+    assert dlg.go.isEnabled() and "SAME" in dlg.validation_label.text()
+    text = " ".join(lb.text() for lb in dlg.findChildren(ad.QLabel))
+    assert "newest official ROM" in text

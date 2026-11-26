@@ -404,10 +404,58 @@ class MainWindow(QMainWindow):
         self.table = make_table(["Partition", "Size", "Path", "Status"], stretch=2)
         backup_layout.addWidget(self.table, 1)
 
-        # --- ROM check tab ------------------------------------------------
+        # --- ROMs tab: get, verify and convert ROMs (nothing touches the phone) ------
+        build_tab = QWidget()
+        build_layout = QVBoxLayout(build_tab)
+        b_box = QGroupBox(tr("Get, verify and convert ROMs (nothing is written to the phone)"))
+        b_form = QVBoxLayout(b_box)
+        b_row = QHBoxLayout()
+        self.build_rom_edit = QLineEdit()
+        self.build_rom_edit.setPlaceholderText("Full OTA zip, payload.bin, image folder, flasher-kit zip or a full ROM")
+        b_file = QPushButton(tr("File..."))
+        b_file.clicked.connect(self._choose_rom_file)
+        b_folder = QPushButton(tr("Folder..."))
+        b_folder.clicked.connect(self._choose_rom_folder)
+        b_row.addWidget(QLabel(tr("ROM:")))
+        b_row.addWidget(self.build_rom_edit, 1)
+        b_row.addWidget(b_file)
+        b_row.addWidget(b_folder)
+        b_form.addLayout(b_row)
+        b_actions = QHBoxLayout()
+        self.catalog_btn = QPushButton(tr("Official ROMs..."))
+        self.catalog_btn.setToolTip("Download an official ROM for your phone (OTA catalog by Daniel Springer)")
+        self.catalog_btn.clicked.connect(self.open_catalog)
+        self.verify_btn = QPushButton(tr("Verify ROM..."))
+        self.verify_btn.setToolTip(tr("Is this ROM complete and undamaged, and can OPxFlasher / OrangeFox / AERA "
+                                      "install it? No phone needed."))
+        self.verify_btn.clicked.connect(self.open_verify)
+        self.convert_btn = QPushButton(tr("Convert to full ROM..."))
+        self.convert_btn.setToolTip(tr("Make a recovery zip (OrangeFox / TWRP / AERA) or an image folder "
+                                       "from this ROM"))
+        self.convert_btn.clicked.connect(self.open_convert)
+        for w in (self.catalog_btn, self.verify_btn, self.convert_btn):
+            b_actions.addWidget(w)
+        b_actions.addStretch(1)
+        b_form.addLayout(b_actions)
+        self.build_rom_info = QLabel("")
+        self.build_rom_info.setObjectName("romInfo")
+        self.build_rom_info.setWordWrap(True)
+        self.build_rom_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.build_rom_info.hide()
+        b_form.addWidget(self.build_rom_info)
+        b_help = QLabel(tr("1. Get a ROM: Official ROMs downloads one for your phone.  2. Verify ROM checks it's "
+                           "complete.  3. Convert to full ROM makes an image folder (to flash from OPxFlasher) or a "
+                           "recovery zip.  Then flash it on the Flash ROM tab."))
+        b_help.setWordWrap(True)
+        b_help.setStyleSheet("color:#9aa3b5")
+        b_form.addWidget(b_help)
+        build_layout.addWidget(b_box)
+        build_layout.addStretch(1)
+
+        # --- Flash ROM tab: choose a ROM, check it against the phone, flash -----------
         rom_tab = QWidget()
         rom_layout = QVBoxLayout(rom_tab)
-        rom_box = QGroupBox(tr("Firmware to check (nothing is flashed)"))
+        rom_box = QGroupBox(tr("Flash a ROM: 1. choose it  2. Check ROM  3. Flash"))
         rom_form = QVBoxLayout(rom_box)
         rom_row = QHBoxLayout()
         self.rom_edit = QLineEdit()
@@ -416,16 +464,16 @@ class MainWindow(QMainWindow):
         pick_file.clicked.connect(self._choose_rom_file)
         pick_folder = QPushButton(tr("Folder..."))
         pick_folder.clicked.connect(self._choose_rom_folder)
-        self.catalog_btn = QPushButton(tr("Official ROMs..."))
-        self.catalog_btn.setToolTip("Pick an official ROM for the connected phone "
-                                    "(OTA catalog by Daniel Springer)")
-        self.catalog_btn.clicked.connect(self.open_catalog)
         rom_row.addWidget(QLabel(tr("ROM:")))
         rom_row.addWidget(self.rom_edit, 1)
         rom_row.addWidget(pick_file)
         rom_row.addWidget(pick_folder)
-        rom_row.addWidget(self.catalog_btn)
         rom_form.addLayout(rom_row)
+        # the same ROM on both tabs
+        self.rom_edit.textChanged.connect(
+            lambda t: self.build_rom_edit.setText(t) if self.build_rom_edit.text() != t else None)
+        self.build_rom_edit.textChanged.connect(
+            lambda t: self.rom_edit.setText(t) if self.rom_edit.text() != t else None)
         # what the chosen ROM is, as soon as it's chosen (before Check ROM)
         self.rom_info = QLabel("")
         self.rom_info.setObjectName("romInfo")
@@ -440,6 +488,13 @@ class MainWindow(QMainWindow):
         self.rom_info_timer.timeout.connect(self._detect_rom_info)
         self.rom_edit.textChanged.connect(lambda _t: self.rom_info_timer.start())
 
+        # the phone: whatever mode it's in (Android, recovery, fastboot, fastbootd)
+        self.flash_phone = QLabel(tr("Phone: not connected. Connect it in Android, fastboot, fastbootd or recovery."))
+        self.flash_phone.setWordWrap(True)
+        self.flash_phone.setStyleSheet("color:#9aa3b5")
+        rom_form.addWidget(self.flash_phone)
+
+        # comparing with a backup instead of the phone: tucked away
         cmp_row = QHBoxLayout()
         self.cmp_group = QButtonGroup(self)
         self.cmp_live = QRadioButton(tr("Connected phone"))
@@ -451,11 +506,14 @@ class MainWindow(QMainWindow):
         self.cmp_backup_edit.setPlaceholderText("An OPxFlasher backup (Full mode gives the most checks)")
         pick_backup = QPushButton(tr("Browse..."))
         pick_backup.clicked.connect(self._choose_compare_backup)
-        cmp_row.addWidget(QLabel(tr("Compare with:")))
-        cmp_row.addWidget(self.cmp_live)
-        cmp_row.addWidget(self.cmp_backup)
-        cmp_row.addWidget(self.cmp_backup_edit, 1)
-        cmp_row.addWidget(pick_backup)
+        cmp_widgets = (self.cmp_live, self.cmp_backup, self.cmp_backup_edit, pick_backup)
+        self.cmp_more = QCheckBox(tr("Compare with a backup instead of the phone"))
+        cmp_row.addWidget(self.cmp_more)
+        for w in cmp_widgets:
+            cmp_row.addWidget(w, 1 if w is self.cmp_backup_edit else 0)
+            w.setVisible(False)
+        self.cmp_more.toggled.connect(lambda on: [w.setVisible(on) for w in cmp_widgets]
+                                      or (None if on else self.cmp_live.setChecked(True)))
         rom_form.addLayout(cmp_row)
 
         act_row = QHBoxLayout()
@@ -465,27 +523,11 @@ class MainWindow(QMainWindow):
         self.save_report_btn = QPushButton(tr("Save report..."))
         self.save_report_btn.clicked.connect(self._save_report)
         self.save_report_btn.setEnabled(False)
-        self.convert_btn = QPushButton(tr("Convert to full ROM..."))
-        self.convert_btn.setToolTip(tr("Make a recovery zip (OrangeFox / TWRP / AERA) or an image folder "
-                                       "from this ROM"))
-        self.convert_btn.clicked.connect(self.open_convert)
-        self.verify_btn = QPushButton(tr("Verify ROM..."))
-        self.verify_btn.setToolTip(tr("Is this ROM complete and undamaged, and can OPxFlasher / OrangeFox / AERA "
-                                      "install it? No phone needed."))
-        self.verify_btn.clicked.connect(self.open_verify)
-        self.arb_btn = QPushButton(tr("Validate ROM / ARB"))
-        self.arb_btn.setToolTip(tr("With the phone running Android: is this ROM the same, a newer or an OLDER build "
-                                   "than the installed one? (anti-rollback only allows the same or newer). Saved "
-                                   "for this phone."))
-        self.arb_btn.clicked.connect(self.validate_arb)
         act_row.addWidget(self.check_btn)
-        act_row.addWidget(self.verify_btn)
-        act_row.addWidget(self.arb_btn)
-        act_row.addWidget(self.save_report_btn)
-        act_row.addWidget(self.convert_btn)
         self.flash_btn = QPushButton(tr("Flash..."))
+        self.flash_btn.setObjectName("danger")
         self.flash_btn.setEnabled(False)
-        self.flash_btn.setToolTip(tr("Writes to the phone. Needs a passing ROM check on the connected phone and a backup."))
+        self.flash_btn.setToolTip(tr("Writes to the phone. Needs a ROM check on this phone first."))
         self.flash_btn.clicked.connect(self.start_flash)
         self.stop_flash_btn = QPushButton(tr("Stop after this step"))
         self.stop_flash_btn.setEnabled(False)
@@ -493,6 +535,7 @@ class MainWindow(QMainWindow):
         act_row.addWidget(self.flash_btn)
         act_row.addWidget(self.stop_flash_btn)
         act_row.addStretch(1)
+        act_row.addWidget(self.save_report_btn)
         rom_form.addLayout(act_row)
         rom_layout.addWidget(rom_box)
 
@@ -539,7 +582,8 @@ class MainWindow(QMainWindow):
         self.diag_tab = DiagTab(self)
         for widget, name, tip in (
             (backup_tab, tr("Backup"), tr("Start here: back up the phone before changing anything")),
-            (rom_tab, tr("ROM: check and flash"), tr("Check a ROM against your phone, convert it, flash it")),
+            (build_tab, tr("ROMs"), tr("Get, verify and convert ROMs: nothing is written to the phone")),
+            (rom_tab, tr("Flash ROM"), tr("Choose a ROM, check it against your phone, flash it")),
             (self.root_tab, tr("Root"), tr("Root with Magisk, KernelSU or APatch, or undo it")),
             (self.image_tab, tr("Flash image"), tr("One image: a custom recovery, a patched boot, a vbmeta ...")),
             (self._build_signal_tab(), tr("Signal / region"), tr("Get mobile network back: restore your region files")),
@@ -794,8 +838,6 @@ class MainWindow(QMainWindow):
         self.check_btn.setEnabled(not self.busy)
         self.convert_btn.setEnabled(not self.busy)
         self.verify_btn.setEnabled(not self.busy)
-        if hasattr(self, "arb_btn"):
-            self.arb_btn.setEnabled(not self.busy)
         self.use_backup_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
@@ -937,6 +979,20 @@ class MainWindow(QMainWindow):
         elif not checking:
             d = (self.selected_device() or (self.devices[0] if self.devices else None)) if self.tools_ok else None
             self.phone_anim.set_state(state_for(d))
+        if hasattr(self, "flash_phone"):
+            self.flash_phone.setText(self._flash_phone_text(state))
+
+    def _flash_phone_text(self, state: str) -> str:
+        """The Flash ROM tab's one line about the phone, in whatever mode it is."""
+        d = self.selected_device() if self.tools_ok else None
+        if state != "connected" or d is None:
+            return tr("Phone: not connected. Connect it in Android, recovery, fastboot or fastbootd.")
+        if d.transport == "fastboot":
+            known = self.android_props.get(d.serial)
+            how = (tr("compared with what it reported in Android") if known
+                   else tr("known from the bootloader: you confirm the installed build when flashing"))
+            return tr("Phone:") + f" {d.mode_text} ({how})."
+        return tr("Phone:") + f" {d.mode_text}."
 
     def poll_devices(self) -> None:
         """Every few seconds, quietly: has a phone been plugged in or unplugged?"""
@@ -1451,16 +1507,24 @@ class MainWindow(QMainWindow):
             self.rom_edit.setText(str(dlg.result_path))
             self.check_rom()
 
+    def _show_rom_info(self, html: str | None) -> None:
+        """What the chosen ROM is, on both the ROMs and the Flash ROM tab (None hides it)."""
+        for label in (self.rom_info, self.build_rom_info):
+            if html is None:
+                label.hide()
+            else:
+                label.setText(html)
+                label.show()
+
     def _detect_rom_info(self) -> None:
         from opx.rom import detect
 
         path = self.rom_edit.text().strip()
         self.rom_info_gen += 1
         if not path or not Path(path).exists():
-            self.rom_info.hide()
+            self._show_rom_info(None)
             return
-        self.rom_info.setText(tr("Reading the ROM..."))
-        self.rom_info.show()
+        self._show_rom_info(tr("Reading the ROM..."))
         gen = self.rom_info_gen
         job = Job(lambda: (gen, detect.summary(detect.detect(path))))
         self.run_job(job, self._rom_info_ready, self._rom_info_failed)
@@ -1470,13 +1534,13 @@ class MainWindow(QMainWindow):
         if gen != self.rom_info_gen:
             return  # another ROM was chosen meanwhile
         if not first:  # not a ROM
-            self.rom_info.setText(f'<span style="color:#ff6b63">{escape(second)}</span>')
+            self._show_rom_info(f'<span style="color:#ff6b63">{escape(second)}</span>')
             return
-        self.rom_info.setText(f"<b>{escape(first)}</b><br>"
-                              f'<span style="color:#9aa3b5">{escape(second)}</span>')
+        self._show_rom_info(f"<b>{escape(first)}</b><br>"
+                            f'<span style="color:#9aa3b5">{escape(second)}</span>')
 
     def _rom_info_failed(self, exc) -> None:
-        self.rom_info.setText(f'<span style="color:#ff6b63">{escape(str(exc))}</span>')
+        self._show_rom_info(f'<span style="color:#ff6b63">{escape(str(exc))}</span>')
 
     def check_rom(self) -> None:
         rom_path = self.rom_edit.text().strip()
@@ -1599,7 +1663,7 @@ class MainWindow(QMainWindow):
         d = self.selected_device()
         if self.session is None and (d is None or d.serial != self.check_device.facts.get("serial", d.serial)):
             return False  # the phone that was checked must be the one connected
-        return not fl.hard_blocks(self.report, [fl.OVERRIDE_QCOM_UNVALIDATED])
+        return not fl.hard_blocks(self.report, list(fl.RISK_OVERRIDES))
 
     def start_flash(self) -> None:
         if not self._can_offer_flash():
@@ -1937,12 +2001,26 @@ def run_rom_check(rom_path: str, backup: str, session: Session | None, serial: s
         # in fastboot / recovery: what the phone reported the last time it was in Android
         device = pn.device_from_fastboot(serial, android_props, where)
     elif serial:
-        device = pn.no_device(f"The phone is in {where}, where its installed build can't be read. Start it in Android "
-                              "once (USB debugging on, root isn't needed), let OPxFlasher see it, then check again. "
-                              "The installed build is needed for the anti-rollback check.")
+        # never seen in Android (or its Android doesn't start): known from what the bootloader /
+        # recovery says; the installed build is then the user's to confirm
+        device = pn.device_from_fastboot(serial, None, where, _phone_info(session, serial))
     else:
         device = pn.no_device()
     return rom, device, pn.build_report(rom, device)
+
+
+def _phone_info(session: Session | None, serial: str) -> dict[str, str]:
+    """getvar-style facts for a phone in fastboot, or in a custom recovery (its board name)."""
+    if session is not None:
+        p = session.props
+        board = next((p.get(k, "") for k in ("ro.product.vendor.device", "ro.build.product", "ro.product.device",
+                                              "ro.product.odm.device") if p.get(k) and p.get(k) != "ossi"), "")
+        slot = p.get("ro.boot.slot_suffix", "").lstrip("_")
+        return {"product": board, "current-slot": slot}
+    try:
+        return support.fastboot_info(serial)
+    except Exception:  # noqa: BLE001  shown as an unknown phone, which the check refuses
+        return {}
 
 
 def main() -> int:

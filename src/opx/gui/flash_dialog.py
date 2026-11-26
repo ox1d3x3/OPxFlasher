@@ -99,6 +99,7 @@ class FlashDialog(QDialog):
 
         # region conversion
         self.keep_region_box: QCheckBox | None = None
+        self.net_edit: QLineEdit | None = None
         if fl.region_change(report):
             rom_product = report.rom.get("product") or "?"
             dev_product = device.facts.get("product") or "?"
@@ -123,6 +124,7 @@ class FlashDialog(QDialog):
             self.region_warn.setWordWrap(True)
             self.region_warn.hide()
             r_layout.addWidget(self.keep_region_box)
+            r_layout.addLayout(self._net_row())
             r_layout.addWidget(note)
             r_layout.addWidget(self.region_warn)
             layout.addWidget(r_box)
@@ -141,12 +143,14 @@ class FlashDialog(QDialog):
             n_text.setStyleSheet("color:#9aa3b5")
             self.keep_region_box = QCheckBox(tr("This phone was converted from another region: also write my own "
                                                 "network files from my backup (Network essentials or Critical)"))
-            self.region_warn = QLabel(tr("Choose that backup above (the one made before converting)."))
+            self.region_warn = QLabel(tr("Choose the backup with your network files (the one made before "
+                                         "converting)."))
             self.region_warn.setStyleSheet("color:#f0c24b")
             self.region_warn.setWordWrap(True)
             self.region_warn.hide()
             n_layout.addWidget(n_text)
             n_layout.addWidget(self.keep_region_box)
+            n_layout.addLayout(self._net_row())
             n_layout.addWidget(self.region_warn)
             layout.addWidget(n_box)
             self.keep_region_box.toggled.connect(self._sync_optional)
@@ -185,7 +189,7 @@ class FlashDialog(QDialog):
         self.arb_accepted = False
         self.arb_btn: QPushButton | None = None
         self.arb_details = [f"{c.name}: {c.detail.split('.')[0]}."
-                            for c in fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED)]
+                            for key in fl.RISK_OVERRIDES for c in fl.overridable_blocks(report, key)]
         if self.arb_details:
             a_box = QGroupBox(tr("Anti-rollback: your confirmation"))
             a_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
@@ -235,10 +239,34 @@ class FlashDialog(QDialog):
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
                    self.keep_recovery_box, self.no_backup, *extra]:
             cb.toggled.connect(self.refresh)
-        for edit in (self.backup_edit, self.confirm_edit):
+        for edit in (self.backup_edit, self.confirm_edit, self.net_edit):
             if edit is not None:
                 edit.textChanged.connect(self.refresh)
         self.refresh()
+
+    def _net_row(self) -> QHBoxLayout:
+        """Where your own network files come from: their own backup (Network essentials is enough),
+        or, left empty, the backup chosen at the top."""
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("Network files backup:")))
+        self.net_edit = QLineEdit()
+        self.net_edit.setPlaceholderText(tr("Network essentials (or Critical) backup of this phone; empty = the "
+                                            "backup above"))
+        row.addWidget(self.net_edit, 1)
+        browse = QPushButton(tr("Browse..."))
+        browse.clicked.connect(self._browse_net)
+        row.addWidget(browse)
+        return row
+
+    def _browse_net(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, tr("Your Network essentials backup of this phone"),
+                                                  self.net_edit.text() if self.net_edit else "")
+        if folder and self.net_edit is not None:
+            self.net_edit.setText(folder)
+
+    def _net_folder(self) -> str:
+        net = self.net_edit.text().strip() if self.net_edit is not None else ""
+        return net or self.backup_edit.text().strip()
 
     def _sync_optional(self) -> None:
         """The ROM's own region files can't be chosen while restoring the phone's."""
@@ -246,7 +274,7 @@ class FlashDialog(QDialog):
         if self.keep_region_box is not None:
             region = fl.region_change(self.report)
             # region change: warn when NOT keeping; converted phone: remind to pick the backup when keeping
-            self.region_warn.setVisible((not keep) if region else (keep and not self.backup_edit.text().strip()))
+            self.region_warn.setVisible((not keep) if region else (keep and not self._net_folder()))
         for cb in self.optional_boxes.values():
             if keep:
                 cb.setChecked(False)
@@ -255,12 +283,21 @@ class FlashDialog(QDialog):
     def _sync_warn_only(self) -> None:
         keep = self.keep_region_box.isChecked()
         region = fl.region_change(self.report)
-        self.region_warn.setVisible((not keep) if region else (keep and not self.backup_edit.text().strip()))
+        self.region_warn.setVisible((not keep) if region else (keep and not self._net_folder()))
 
     def _validation(self):
         from opx import arb
 
         return arb.saved_for(self.device.facts.get("serial", ""), self.rom.path.name)
+
+    def _compare_typed_build(self, build: str):
+        """The installed build as the owner typed it (phone in fastboot only), against this ROM."""
+        from opx import arb
+
+        v = arb.validate(self.rom, {"ro.build.display.id": build}, self.device.facts.get("serial", ""))
+        v.detail += " " + tr("(Installed build as you typed it.)")
+        arb.save(v)
+        return v
 
     def _show_arb_validation(self) -> None:
         from opx import arb
@@ -279,7 +316,8 @@ class FlashDialog(QDialog):
 
         validate = getattr(self.parent(), "validate_arb_now", None)
         dialog = ArbRiskDialog(self, self.arb_details, validation=self._validation(),
-                               validate=(lambda: validate(self.rom)) if validate else None)
+                               validate=(lambda: validate(self.rom)) if validate else None,
+                               compare=self._compare_typed_build)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         self._show_arb_validation()
         if accepted:
@@ -300,20 +338,21 @@ class FlashDialog(QDialog):
 
     def options(self) -> fl.FlashOptions:
         arb_ok = self.arb_accepted
-        backup = self.backup_edit.text().strip()
+        net = self._net_folder()
         restore = []
         if self.keep_region_box is not None and self.keep_region_box.isChecked():
             restore = fl.keepable(self.report, [n for n in self.device.profile.conditional
-                                                if fl.backup_images(backup, n)])
+                                                if fl.backup_images(net, n)])
         return fl.FlashOptions(
             restore_from_backup=restore,
+            network_backup=self.net_edit.text().strip() if self.net_edit is not None else "",
             keep_recovery=self.keep_recovery_box.isChecked(),
             no_backup=self.no_backup.isChecked(),
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
             wipe_data=self.wipe_box.isChecked(),
             reboot_after=self.reboot_box.isChecked(),
             allow_fastbootd=self.fastbootd_box.isChecked(),
-            overrides=([fl.OVERRIDE_QCOM_UNVALIDATED] if arb_ok else [])
+            overrides=(list(fl.RISK_OVERRIDES) if arb_ok else [])
             + ([fl.OVERRIDE_VARIANT] if self.variant_box is not None and self.variant_box.isChecked() else [])
             + ([fl.OVERRIDE_UNKNOWN_FIRMWARE]
                if self.not_updated_box is not None and self.not_updated_box.isChecked() else []),

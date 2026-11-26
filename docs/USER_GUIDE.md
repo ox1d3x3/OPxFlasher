@@ -75,8 +75,12 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
   hardware project). Its partitions can't be read: the bootloader checks each image fits before
   writing, and the Qualcomm anti-rollback numbers are your decision (see *Anti-rollback you confirm*).
 - A phone already in **fastboot / fastbootd / recovery** is compared with what it reported the last
-  time OPxFlasher saw it in Android (same serial). Never seen in Android: start it in Android once,
-  so the installed build is known (needed for the anti-rollback fuse).
+  time OPxFlasher saw it in Android (same serial). Never seen in Android (or its Android doesn't
+  start): it's known from the bootloader (e.g. `dodge` = OnePlus 13), so a ROM for another phone is
+  still refused; the installed build and region can't be read, so you confirm "same or newer build"
+  in the anti-rollback warning, and tick Wipe data yourself if the region changes.
+- **Tabs:** *ROMs* gets, verifies and converts ROMs (nothing touches the phone); *Flash ROM* is
+  just: choose the ROM → **Check ROM** → **Flash...**.
 - **A backup is recommended, not required.** The Flash dialog asks for one; without it, tick *Flash
   without a backup (I accept the risk)* (`opx flash --no-backup`) and type `NO BACKUP`. Every other
   check stays: wrong phone, older build (fuse), region change (wipe + confirmation), ARB, identity
@@ -130,7 +134,7 @@ doesn't match what the bootloader expects, a locked phone won't start.
 
 ## Verify a ROM
 
-**ROM: check and flash → Verify ROM...** (also in the ROMs menu, or `opx rom verify <rom>`) checks any ROM
+**ROMs → Verify ROM...** (also in the ROMs menu, or `opx rom verify <rom>`) checks any ROM
 before you use it. No phone needed, nothing is written.
 
 - **Integrity, every byte:** a full OTA's `payload.bin` against the SHA-256 in
@@ -364,7 +368,7 @@ same API, e.g. your own copy of opx-ota-mirror), then the last list it downloade
 different one). Downloads always come straight from OPPO / OnePlus servers; the snapshot only
 holds the links. Command line: `opx ota snapshot --out <folder>`, `opx ota mirrors --add <host>`.
 
-- **App:** ROM: check and flash tab → **Official ROMs...** (or the ROMs menu) (connect the phone first). ROMs for your
+- **App:** ROMs tab → **Official ROMs...** (or the ROMs menu) (connect the phone first). ROMs for your
   own model are listed first; other variants (regions) are marked and ask before
   downloading, because flashing them changes the region and needs a data wipe.
   - **Download only** saves the full OTA zip (MD5 checked) and runs the ROM check on it. The file is
@@ -560,3 +564,17 @@ Android it compares the ROM with the installed build. Same or newer: anti-rollba
 goes up. **Older: don't flash it** — the warning then can't be accepted. The result is saved for
 that phone and ROM, so it's shown later even with the phone in fastboot. In the CLI you type
 `ARB CHECKED`.
+
+## ROMs and Flash ROM
+
+- **ROMs** tab: get (Official ROMs), verify and convert ROMs. Nothing touches the phone.
+- **Flash ROM** tab: choose the ROM (zip, image folder, or a folder of `.img` files you extracted
+  yourself), **Check ROM**, **Flash**. The phone can be in Android, recovery, fastboot or fastbootd.
+  - In Android, OPxFlasher reads which build is installed. In fastboot only (e.g. Android doesn't
+    start) it knows the phone from the bootloader (OnePlus 13: `dodge`), and in the anti-rollback
+    warning you type the installed build (Settings > About) to compare, or confirm it yourself.
+    Not sure? Cancel and flash the newest official ROM for your phone: it can't be older.
+  - A folder of loose `.img` files has no metadata saying which phone or build it's for: you
+    confirm both in the same warning. Identity partitions, sizes and the boot chain are still checked.
+  - **Network files backup** (in the Flash dialog): pick your Network essentials backup to write
+    your own `oplusstanvbk` / `my_region`, separately from the main backup.

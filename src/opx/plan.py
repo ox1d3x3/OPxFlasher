@@ -166,18 +166,31 @@ SUPER_NAMES = ("system", "system_ext", "product", "vendor", "odm", "vendor_dlkm"
                "my_preload", "my_product", "my_region", "my_stock")
 
 
-def device_from_fastboot(serial: str, props: dict[str, str] | None = None, where: str = "fastboot") -> DeviceState:
-    """A phone that is already in fastboot, known only by its serial (and the props it reported the
-    last time it was connected in Android, when OPxFlasher saw it). Sizes are checked by the
-    bootloader at write time; nothing is read from the phone here."""
+def device_from_fastboot(serial: str, props: dict[str, str] | None = None, where: str = "fastboot",
+                         info: dict[str, str] | None = None) -> DeviceState:
+    """A phone in fastboot / fastbootd / recovery. With `props` (what it reported the last time
+    OPxFlasher saw it in Android) it's compared with those. Without them it's known only by what the
+    bootloader says (`info`: getvar product, current-slot): which phone it is, not which build or
+    region it runs, so the user confirms those. Sizes are checked by the bootloader at write time."""
     props = dict(props or {})
-    facts = device_facts(props) if props else {}
+    info = dict(info or {})
+    if props:
+        facts = device_facts(props)
+        prof = profiles.detect(props)
+        label = (f"{facts.get('model') or 'phone'} in {where} ({serial})"
+                 + (f", compared with what it reported in Android: {facts['build']}" if facts.get("build") else ""))
+    else:
+        board = info.get("product", "")
+        prof = profiles.for_board(board)
+        facts = {"board": board}
+        if info.get("current-slot") in ("a", "b"):
+            facts["slot_suffix"] = "_" + info["current-slot"]
+        known = prof.name if prof.id != profiles.GENERIC else (board or "phone")
+        label = f"{known} in {where} ({serial}): known from the bootloader only (installed build and region unknown)"
     facts["serial"] = serial
-    prof = profiles.detect(props) if props else profiles.load("oplus-generic")
     return DeviceState(
         source="fastboot",
-        label=f"{facts.get('model') or 'phone'} in {where} ({serial})"
-              + (f", compared with what it reported in Android: {facts['build']}" if facts.get("build") else ""),
+        label=label,
         facts=facts,
         props=props,
         profile=prof,
@@ -320,6 +333,16 @@ def _int(text: str) -> int | None:
         return None
 
 
+def _board_matches(rom: RomInfo, dev: DeviceState) -> bool:
+    """A phone known only from the bootloader: is the ROM for this phone (its profile's codenames)?"""
+    prof = dev.profile
+    if dev.source != "fastboot" or not dev.facts.get("board") or prof.id == profiles.GENERIC:
+        return False
+    if prof.codenames:
+        return rom.codename.upper() in {c.upper() for c in prof.codenames}
+    return profiles.for_product(rom.product).id == prof.id
+
+
 def rollback_fuse_check(rom: RomInfo, dev: DeviceState) -> Check | None:
     """Phones whose bootloader burns a fuse when an older build is installed
     (OnePlus 13 / 13T / 15 from ColorOS 16.0.3.501): never allow going back."""
@@ -328,6 +351,13 @@ def rollback_fuse_check(rom: RomInfo, dev: DeviceState) -> Check | None:
         return None
     name = "Rollback fuse"
     shown = ".".join(map(str, since))
+    if dev.source == "fastboot" and not dev.facts.get("build") and not dev.props:
+        return Check("Installed build", BLOCK,
+                     f"The phone is in fastboot, so its installed build can't be read. On {dev.profile.name} from "
+                     f"{shown}, installing an OLDER build than the installed one blows an anti-rollback fuse and "
+                     "the phone can't be recovered. Only flash the same or a newer build; you confirm it in the "
+                     "anti-rollback warning. (If the phone runs ColorOS 17 China, don't: its fastbootd is known to "
+                     "brick it.)")
     pv, rv = os_version(dev.facts.get("build", "")), os_version(rom.metadata.get("post-display-id", ""))
     if pv is not None and pv < since:
         if rv is not None and rv >= since:
@@ -345,7 +375,7 @@ def rollback_fuse_check(rom: RomInfo, dev: DeviceState) -> Check | None:
             older = rts < pts
             how = "by build date: ROM " + ("older" if older else "same or newer") + " than the installed build"
     if older is None:
-        return Check(name, BLOCK, f"{dev.profile.name} on {shown} or later blows a hardware fuse if an older "
+        return Check("ROM age", BLOCK, f"{dev.profile.name} on {shown} or later blows a hardware fuse if an older "
                                   "build is installed, and OPxFlasher can't tell this ROM's age (no version or "
                                   "build date). Use a full OTA or a backup taken on this build.")
     if older:
@@ -394,10 +424,21 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
                           "so you confirm them below. Model, variant and the installed build come from Android.")
 
     dev_codename = dev.facts.get("codename", "")
-    if not rom.codename:
+    if not rom.codename and not alone and prof.id != profiles.GENERIC:
+        # loose images (no OTA metadata), the phone is known: the owner confirms they're for it
+        add("ROM identity", BLOCK, f"These images don't say which phone or build they're for (no OTA metadata). "
+                                   f"Only flash them if they come from a ROM for your {prof.name}; you confirm it in "
+                                   "the anti-rollback warning.")
+    elif not rom.codename:
         add("Device match", BLOCK, "The ROM doesn't say which device it is for (no OTA metadata).")
     elif alone:
         add("For", INFO, " ".join(x for x in (rom.product, f"({rom.codename})") if x) + ".")
+    elif not dev_codename and _board_matches(rom, dev):
+        add("Device match", PASS, f"Same phone: the bootloader reports '{dev.facts['board']}' ({prof.name}) and the "
+                                  f"ROM is for '{rom.codename}', one of its codenames.")
+        add("Variant", WARN, "The phone's region can't be read in fastboot. If this ROM is for another region "
+                             "than the one installed, tick Wipe data (a region change needs it) and your own network "
+                             "files.")
     elif not dev_codename:
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.")
     elif not prof.same_phone(rom.codename, dev_codename):

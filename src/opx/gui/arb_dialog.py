@@ -29,7 +29,8 @@ READ_SECONDS = 60
 class ArbRiskDialog(QDialog):
     def __init__(self, parent, details: list[str], seconds: int = READ_SECONDS, rng: random.Random | None = None,
                  validation: arb.Validation | None = None,
-                 validate: Callable[[], arb.Validation | None] | None = None):
+                 validate: Callable[[], arb.Validation | None] | None = None,
+                 compare: Callable[[str], arb.Validation] | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("Anti-rollback: accept the risk"))
         self.resize(700, 660)
@@ -37,6 +38,7 @@ class ArbRiskDialog(QDialog):
         self.left = seconds
         self.validation = validation
         self._validate = validate
+        self._compare = compare
 
         layout = QVBoxLayout(self)
         head = QLabel(tr("OPxFlasher can't check anti-rollback for this flash. Read this carefully."))
@@ -65,6 +67,24 @@ class ArbRiskDialog(QDialog):
         v_row.addWidget(self.validate_btn)
         layout.addLayout(v_row)
 
+        # the phone can't say (fastboot only, Android broken): the owner says which build is installed
+        self.build_edit: QLineEdit | None = None
+        if compare is not None:
+            b_row = QHBoxLayout()
+            b_row.addWidget(QLabel(tr("Installed build:")))
+            self.build_edit = QLineEdit()
+            self.build_edit.setPlaceholderText(tr("Settings > About > Version, e.g. CPH2653_16.0.10.501(EX01)"))
+            b_row.addWidget(self.build_edit, 1)
+            cmp_btn = QPushButton(tr("Compare"))
+            cmp_btn.clicked.connect(self._run_compare)
+            b_row.addWidget(cmp_btn)
+            layout.addLayout(b_row)
+        unsure = QLabel(tr("Not sure which build is installed? Cancel, and flash the newest official ROM for your "
+                           "phone instead: the newest can't be older than what's installed."))
+        unsure.setWordWrap(True)
+        unsure.setStyleSheet("color:#f0c24b")
+        layout.addWidget(unsure)
+
         self.timer_label = QLabel()
         layout.addWidget(self.timer_label)
         self.a, self.b = rng.randint(11, 49), rng.randint(11, 49)
@@ -77,8 +97,9 @@ class ArbRiskDialog(QDialog):
         sum_row.addStretch(1)
         layout.addLayout(sum_row)
 
-        self.agree = QCheckBox(tr("I accept the risk. I have made sure this ROM is the same or a newer build of my "
-                                  "phone, and the OPxFlasher developer is not responsible for any damage."))
+        self.agree = QCheckBox(tr("I accept the risk. I have made sure this ROM is for my phone and is the same or a "
+                                  "newer build than the one installed, and the OPxFlasher developer is not "
+                                  "responsible for any damage."))
         self.agree.toggled.connect(self._update)
         layout.addWidget(self.agree)
         layout.addStretch(1)
@@ -106,6 +127,13 @@ class ArbRiskDialog(QDialog):
         v = self._validate()
         if v is not None:
             self.validation = v
+        self._show_validation()
+        self._update()
+
+    def _run_compare(self) -> None:
+        if self._compare is None or self.build_edit is None or not self.build_edit.text().strip():
+            return
+        self.validation = self._compare(self.build_edit.text().strip())
         self._show_validation()
         self._update()
 

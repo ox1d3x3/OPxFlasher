@@ -366,3 +366,18 @@ def test_other_phones_still_write_firmware_from_the_bootloader(adb, fastboot, ph
               wait_timeout=5).run()
     log = fb_state.read()["log"]
     assert next(i for i, c in enumerate(log) if c.startswith("flash dtbo")) < log.index("reboot fastboot")
+
+
+def test_network_files_from_their_own_backup(adb, fastboot, phone, tmp_path):
+    # the main backup is skipped (NO BACKUP), the network files come from the Network essentials folder
+    s = open_session("FAKE0001", adb)
+    net = backup_of(adb, tmp_path, mode="network")
+    rom = make_rom(tmp_path)
+    device = pn.device_from_session(s)
+    report = pn.build_report(rom, device)
+    opts = fl.FlashOptions(**ALLOW, no_backup=True, restore_from_backup=["oplusstanvbk"], network_backup=str(net))
+    plan = fl.prepare(rom, report, device, opts, None)
+    assert plan.ok, plan.problems
+    assert any(st.partition == "oplusstanvbk" and st.source == "backup" for st in plan.steps)
+    files = fl.verified_backup_files(plan, lambda e: None)
+    assert any(k.startswith("oplusstanvbk") for k in files)

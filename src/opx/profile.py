@@ -318,6 +318,22 @@ def detect(props: dict[str, str]) -> Profile:
     return load("oplus-generic")
 
 
+def for_board(board: str) -> Profile:
+    """The profile for the name a bootloader (getvar product) or a custom recovery reports, e.g.
+    "dodge" for the OnePlus 13: its recovery boards, OTA codenames or ro.product.device values."""
+    b = (board or "").strip().lower()
+    if not b:
+        return load(GENERIC)
+    for pid in all_profile_ids():
+        if pid == GENERIC:
+            continue
+        prof = load(pid)
+        names = {*prof.recovery_boards, *prof.codenames, *prof.match.get("ro.product.device", [])}
+        if b in {n.lower() for n in names}:
+            return prof
+    return load(GENERIC)
+
+
 def for_product(product: str) -> Profile:
     """The profile for a ROM's product. OTA products often add a region to the model (CPH2649IN,
     CPH2653EEA): when the exact model isn't listed, the longest model number it starts with decides."""

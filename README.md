@@ -56,7 +56,7 @@ firmware fits **your** phone and that you have a verified backup to return to.
 | | |
 |---|---|
 | **Backup** | Network essentials, Critical (identity and calibration) or the whole OS. Hash-verified, with empty space stored as holes so Full backups stay small. |
-| **ROM: check and flash** | Dry run of any full OTA, `payload.bin` or image folder against the phone: device, variant, known-bad firmware, AVB and Qualcomm anti-rollback, partition sizes. |
+| **ROMs** / **Flash ROM** | Get, verify and convert ROMs; then a dry run of any full OTA, `payload.bin` or image folder against the phone: device, variant, known-bad firmware, AVB and Qualcomm anti-rollback, partition sizes. |
 | **Guarded flashing** | Flashes only when every check passes, with a verified backup selected. Resumable journal; `super.img` from the bootloader where fastbootd is unsafe. |
 | **Anti-rollback fuse guard** | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501+: never flashes a build older than the one installed, because that blows a hardware fuse. |
 | **ROM detection & conversion** | Recognises full / incremental OTAs, payload.bin, image folders, flasher-kit zips, sparse and split images. Converts any full ROM into a **recovery zip** for OrangeFox / TWRP / AERA (checks phone, variant and downgrade before writing; keeps your data) or an image folder. |
@@ -115,7 +115,7 @@ changed since. Alternatively, compare its SHA-256 with `SHA256SUMS.txt` in the r
    the phone. Backups and partition reads need root (Magisk, KernelSU or APatch) or a custom recovery.
 2. **Back up first.** Open the app, choose **Critical** (or **Full firmware** for an offline
    copy of the whole OS) and press **Start backup**. Every image is verified.
-3. **Check the ROM.** On the **ROM: check and flash** tab, pick an OTA zip (or **Official ROMs...** to
+3. **Check the ROM.** On the **Flash ROM** tab, pick an OTA zip (or **ROMs → Official ROMs...** to
    download one). Nothing is flashed; you see exactly what would be written where.
 4. **Flash.** If every check passes, **Flash...** asks for your backup and for you to type
    `FLASH`. Each step is journaled, so an interrupted flash can resume.

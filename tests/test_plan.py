@@ -277,3 +277,45 @@ def test_recovery_props_are_not_android():
 
 def test_rooted_phone_still_reads_partitions(adb, phone):
     assert pn.device_for_session(open_session("FAKE0001", adb)).source == "live"
+
+
+def test_phone_known_only_from_the_bootloader(tmp_path):
+    # a OnePlus 13 whose Android doesn't start: fastboot says "dodge"; the build and region are the user's call
+    from opx import flash as fl
+    from opx import profile as profiles
+
+    dev = pn.device_from_fastboot("SER1", None, "fastbootd", {"product": "dodge", "current-slot": "a"})
+    assert dev.profile.id == "oneplus-13" and dev.slot == "_a" and dev.source == "fastboot"
+    r = pn.build_report(rom_zip(tmp_path, codename="OP5D55L1", product="CPH2653"), dev)
+    assert status(r, "Device match") == "pass" and "dodge" in detail(r, "Device match")
+    assert status(r, "Variant") == "warn"
+    assert status(r, "Installed build") == "block" and "same or a newer build" in detail(r, "Installed build")
+    assert r.compared
+    # the installed-build and ARB confirmations are the only stops, both lifted by the warning
+    assert fl.hard_blocks(r, list(fl.RISK_OVERRIDES)) == []
+    # another phone's ROM is still refused
+    r = pn.build_report(rom_zip(tmp_path, codename="OP612BL1", product="CPH2723"), dev)
+    assert status(r, "Device match") == "block"
+    # a bootloader name nobody knows: not this phone, nothing to flash
+    unknown = pn.device_from_fastboot("SER1", None, "fastboot", {"product": "mystery"})
+    assert unknown.profile.id == profiles.GENERIC
+    r = pn.build_report(rom_zip(tmp_path, codename="OP5D55L1", product="CPH2653"), unknown)
+    assert status(r, "Device match") == "block"
+
+
+def test_loose_images_are_the_owners_call(tmp_path):
+    # a folder of .img files with no OTA metadata: which phone / build it is, the owner confirms
+    from opx import flash as fl
+
+    folder = tmp_path / "imgs"
+    folder.mkdir()
+    for name, data in {"vbmeta": rf.build_vbmeta(2), "dtbo": b"d" * 4096, "system": b"s" * 8192}.items():
+        (folder / f"{name}.img").write_bytes(data)
+    rom = open_rom(folder)
+    dev = pn.device_from_fastboot("SER1", None, "fastbootd", {"product": "dodge", "current-slot": "a"})
+    r = pn.build_report(rom, dev)
+    assert status(r, "ROM identity") == "block" and "OnePlus 13" in detail(r, "ROM identity")
+    assert fl.hard_blocks(r, list(fl.RISK_OVERRIDES)) == []  # all lifted by the owner's confirmation
+    # an unknown phone: never
+    unknown = pn.device_from_fastboot("SER1", None, "fastboot", {"product": "mystery"})
+    assert status(pn.build_report(rom, unknown), "Device match") == "block"
