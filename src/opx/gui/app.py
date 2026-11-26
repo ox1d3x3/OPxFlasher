@@ -1158,6 +1158,8 @@ class MainWindow(QMainWindow):
         if d is None or d.transport != "fastboot" or d.serial != getattr(self, "fastboot_serial", None):
             return  # another phone was picked meanwhile
         last = self.android_props.get(d.serial)
+        if info.get("_raw"):
+            self.say(f"The bootloader didn't say which phone this is ({info['_raw']})")
         for key, text in support.fastboot_panel(info, last).items():
             if key in self.info_labels:
                 self.info_labels[key].setText(text)

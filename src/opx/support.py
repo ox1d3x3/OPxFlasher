@@ -37,19 +37,38 @@ def bootloader_text(props: dict[str, str]) -> str:
     }.get(state, "Unknown")
 
 
-def fastboot_info(serial: str) -> dict[str, str]:
+def fastboot_info(serial: str, retries: int = 4, delay: float = 1.5) -> dict[str, str]:
     """What the bootloader / fastbootd tells about the phone (read-only getvars)."""
+    import time
+
     from opx import profile as profiles
     from opx.fastboot import Fastboot
     from opx.tools import Tool
 
     fb = Fastboot(Tool("fastboot", serial=serial), profiles.load("oplus-generic"))
-    info = {}
-    for key in ("product", "current-slot", "unlocked", "is-userspace", "version-bootloader", "secure"):
+    info: dict[str, str] = {}
+    # a bootloader that has just come up (or a slow USB link) can leave the first questions
+    # unanswered: ask again, a few times, for what's still missing
+    for attempt in range(retries):
+        for key in ("product", "current-slot", "unlocked", "is-userspace", "version-bootloader", "secure"):
+            if info.get(key):
+                continue
+            try:
+                info[key] = fb.getvar(key) or ""
+            except Exception:  # noqa: BLE001  a getvar the phone doesn't know is just left out
+                info[key] = ""
+        if info.get("product") and info.get("unlocked"):
+            break
+        if attempt + 1 < retries:
+            time.sleep(delay)
+    if not info.get("product"):
+        # for the log: what the phone (or the fastboot program) actually said
         try:
-            info[key] = fb.getvar(key) or ""
-        except Exception:  # noqa: BLE001  a getvar the phone doesn't know is just left out
-            info[key] = ""
+            res = fb.tool.run("getvar", "product", timeout=20)
+            raw = " | ".join(ln.strip() for ln in (res.stderr + "\n" + res.stdout).splitlines() if ln.strip())
+            info["_raw"] = f"{' '.join(fb.tool.argv('getvar', 'product'))} -> exit {res.returncode}: {raw[:300]}"
+        except Exception as e:  # noqa: BLE001
+            info["_raw"] = f"getvar product failed: {e}"
     return info
 
 

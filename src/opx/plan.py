@@ -440,7 +440,9 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
                              "than the one installed, tick Wipe data (a region change needs it) and your own network "
                              "files.")
     elif not dev_codename:
-        add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.")
+        hint = (" The bootloader didn't say which phone this is: press Refresh and Check ROM again, or reboot "
+                "to fastbootd (Fastbootd button), which reports it more reliably." if dev.source == "fastboot" else "")
+        add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.{hint}")
     elif not prof.same_phone(rom.codename, dev_codename):
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', this phone is '{dev_codename}'.")
     else:

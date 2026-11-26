@@ -127,3 +127,20 @@ def test_fastboot_panel_texts():
     out = support.fastboot_panel({"unlocked": "no"}, props)
     assert out["model"] == "PJZ110" and out["bootloader"] == "Locked"
     assert out["build"] == "PJZ110_16.0.10.501(CN01) (last seen in Android)"
+
+
+def test_fastboot_info_asks_again_when_the_bootloader_is_slow(monkeypatch):
+    # real OnePlus 13 on a second PC: right after rebooting, the bootloader left getvars unanswered
+    from opx import support
+    from opx.fastboot import Fastboot
+
+    calls = {}
+
+    def getvar(self, key):
+        calls[key] = calls.get(key, 0) + 1
+        return {"product": "dodge", "unlocked": "yes", "current-slot": "a"}.get(key) if calls[key] > 1 else None
+
+    monkeypatch.setattr(Fastboot, "getvar", getvar)
+    monkeypatch.setattr("opx.tools.find_tool", lambda name: [name])
+    info = support.fastboot_info("SER1", delay=0)
+    assert info["product"] == "dodge" and info["unlocked"] == "yes" and calls["product"] == 2
