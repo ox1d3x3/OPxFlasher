@@ -589,6 +589,8 @@ def _install_list(rom: RomInfo, p: Plan, records: list[dict], chunk: int) -> str
     lines += [f"netrom {n}" for n in p.net_from_rom]  # ... or the ROM wrote its own
     for r in records:
         lines.append(f"image {r['kind']} {r['name']} {r['size']} {r['sha256']}")
+        # worked out here: a recovery's shell may only count to 2^31, and odm alone is bigger
+        lines.append(f"blocks {r['name']} {-(-r['size'] // (1 << 20))} {-(-r['size'] // 512)}")
         for i, pt in enumerate(r["parts"]):
             lines.append(f"part {r['name']} {i} {pt['entry']} {pt['sha256']} {pt['size']}")
     return "\n".join(lines) + "\n"

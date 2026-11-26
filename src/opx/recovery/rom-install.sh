@@ -96,15 +96,23 @@ sha_of_entry() { unzip -p "$ZIP" "$1" 2>/dev/null | sha256sum | cut -d' ' -f1; }
 # value of key=... in a build.prop
 bprop() { sed -n "s/^$1=//p" "$TMP/installed.prop" | head -n 1; }
 
-devsize() {
+# Sizes are compared in 512-byte sectors and read in MiB: some recoveries' shells only count to
+# 2^31 (2 GiB) and a partition like odm is bigger. The ROM list carries both, worked out on the PC.
+devsectors() {
   if [ -f "$1" ]; then
-    wc -c < "$1" | tr -d ' '
+    echo $(( ($(wc -c < "$1" | tr -d ' ') + 511) / 512 ))
     return
   fi
   b=$(basename "$(readlink -f "$1")")
-  s=$(cat "/sys/class/block/$b/size" 2>/dev/null)
-  [ -n "$s" ] && echo $((s * 512))
+  cat "/sys/class/block/$b/size" 2>/dev/null
 }
+blocks() { # name size -> "MiB sectors"
+  got=$(sed -n "s/^blocks $1 //p" "$TMP/list" | head -n 1)
+  [ -n "$got" ] && { echo "$got"; return; }
+  echo "$((($2 + MB - 1) / MB)) $((($2 + 511) / 512))"  # zips made before 0.7.0-rc.53
+}
+mib_of() { blocks "$1" "$2" | cut -d' ' -f1; }
+sectors_of() { blocks "$1" "$2" | cut -d' ' -f2; }
 
 ui "OPxFlasher full ROM installer"
 ui "-----------------------------"
@@ -238,9 +246,10 @@ while read -r tag kind name size sha; do
     done
   fi
   if [ -n "$dev" ]; then
-    have=$(devsize "$dev")
+    have=$(devsectors "$dev")
     [ -n "$have" ] || abort "Can't read the size of $name on this phone."
-    [ "$have" -ge "$size" ] || abort "$name ($size bytes) doesn't fit this phone's partition ($have bytes). Wrong ROM?"
+    [ "$have" -ge "$(sectors_of "$name" "$size")" ] \
+      || abort "$name ($size bytes) doesn't fit this phone's partition ($have sectors). Wrong ROM?"
     echo "physical $name $dev $size" >> "$TMP/targets"
   elif [ "$kind" = physical ]; then
     abort "Partition $name doesn't exist on this phone. Wrong ROM?"
@@ -318,16 +327,17 @@ map_logical() { # kind name device size -> prints the block device to write to
   b=$(basename "$real")
   if [ -d "/sys/class/block/$b/dm" ]; then  # a real dm device: the right one, at the new size
     dmname=$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)
-    have=$(devsize "$real")
-    note "$2$slot -> $real ($dmname, $have bytes)"
+    have=$(devsectors "$real")
+    want=$(sectors_of "$2" "$4")
+    note "$2$slot -> $real ($dmname, $have sectors, image $want sectors)"
     [ "$dmname" = "$2$slot" ] || return 1
-    [ -n "$have" ] && [ "$have" -ge "$4" ] && [ "$have" -lt $(($4 + 16 * MB)) ] || return 1
+    [ -n "$have" ] && [ "$have" -ge "$want" ] && [ "$have" -lt $((want + 32768)) ] || return 1
   fi
   echo "$real"
 }
 check_one() { # name device size
   want=$(sed -n "s/^image [a-z]* $1 $3 //p" "$TMP/list" | head -n 1)
-  got=$(dd if="$2" bs=$MB count=$((($3 + MB - 1) / MB)) 2>/dev/null | head -c "$3" | sha256sum | cut -d' ' -f1)
+  got=$(dd if="$2" bs=$MB count="$(mib_of "$1" "$3")" 2>/dev/null | head -c "$3" | sha256sum | cut -d' ' -f1)
   note "read back $1 ($2): $got want $want"
   [ "$got" = "$want" ] && return 0
   explain "$1" "$2"
@@ -341,7 +351,7 @@ explain() { # name device
     [ "$got" = "$sha" ] && note "  piece $index ok" || note "  piece $index DIFFERS (at $((index * per)) MiB, $len bytes)"
   done
   real=$(readlink -f "$2"); b=$(basename "$real")
-  note "  $2 -> $real, $(devsize "$real") bytes, ro=$(cat "/sys/class/block/$b/ro" 2>/dev/null), dm=$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)"
+  note "  $2 -> $real, $(devsectors "$real") sectors, ro=$(cat "/sys/class/block/$b/ro" 2>/dev/null), dm=$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)"
   note "  holders: $(ls "/sys/class/block/$b/holders" 2>/dev/null | tr '\n' ' ')"
   command -v dmctl >/dev/null 2>&1 && note "  $(dmctl table "$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)" 2>&1 | tr '\n' ' ')"
   command -v dmsetup >/dev/null 2>&1 && note "  $(dmsetup table 2>&1 | tr '\n' ';')"

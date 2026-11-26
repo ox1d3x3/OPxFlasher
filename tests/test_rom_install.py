@@ -442,3 +442,26 @@ def test_mismatch_after_writing_is_explained_in_the_log(rom_zip, tmp_path):
     assert code != 0 and "odm doesn't match right after writing it" in out
     log = (tmp_path / "rtmp" / "opx-install.log").read_text()
     assert "piece 0 DIFFERS" in log
+
+
+def test_sizes_come_from_the_list_not_shell_maths(rom_zip, tmp_path):
+    # a recovery's shell may only count to 2^31 (odm is 2.5 GB): MiB and sector counts are
+    # worked out on the PC and the installer uses those
+    z, parts = rom_zip
+    with zipfile.ZipFile(z) as zf:
+        listing = zf.read("opx/rom.list").decode()
+    for name, data in parts.items():
+        size = len(padded(data)) if name in LOGICAL else None
+        if size and f"image logical {name} {size} " in listing:
+            assert f"blocks {name} {-(-size // MB)} {-(-size // 512)}\n" in listing
+    # proof the installer reads them: a wrong MiB count for odm makes its read-back fail
+    bad = tmp_path / "bad.zip"
+    with zipfile.ZipFile(z) as src, zipfile.ZipFile(bad, "w") as dst:
+        for info in src.infolist():
+            data = src.read(info)
+            if info.filename == "opx/rom.list":
+                data = "".join(("blocks odm 0 " + ln.split()[3] + "\n") if ln.startswith("blocks odm ") else ln + "\n"
+                               for ln in data.decode().splitlines()).encode()
+            dst.writestr(info, data)
+    code, out = Phone(tmp_path, parts).install(bad)
+    assert code != 0 and "odm doesn't match right after writing it" in out
