@@ -180,7 +180,7 @@ def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
     settle(app, cycles=600)
 
     assert seen["enabled"] and "All safety gates passed" in seen["preview"]
-    assert win.flash_label.text() == "Flash complete"
+    assert win.flash_label.text() == "Done: flash complete"
     assert fb_state.read()["log"][-1] == "reboot"
     assert (adb_env / "by-name" / "dtbo_a").read_bytes().startswith(b"D" * 4096)
 
@@ -227,7 +227,7 @@ def test_gui_signal_restore(adb_env, fb_state, monkeypatch, tmp_path):
     assert win.restore_btn.isEnabled()
     win.start_restore()
     settle(app, cycles=600)
-    assert win.sig_label.text() == "Restore complete"
+    assert win.sig_label.text() == "Done: restore complete"
     assert (adb_env / "mapper" / "my_region_a").read_bytes() == original
     assert fb_state.read()["log"][-1] == "reboot"
 
@@ -304,7 +304,7 @@ def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
     assert tab.root_btn.isEnabled()
     tab.flash("root")
     settle(app, cycles=600)
-    assert tab.label.text() == "Root complete"
+    assert tab.label.text() == "Done: root complete"
     assert (adb_env / "by-name" / "init_boot_a").read_bytes().startswith(patched)
     assert (adb_env / "by-name" / "init_boot_b").read_bytes().startswith(STOCK)
 

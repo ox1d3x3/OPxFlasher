@@ -138,7 +138,7 @@ class VerifyDialog(QDialog):
         self.busy = False
         self.report = rep
         self.progress.hide()
-        self.status.setText("")
+        self.status.setText(tr("Done."))
         self.verdict.setText({
             "VERIFIED": tr("VERIFIED - complete and undamaged"),
             "VERIFIED WITH WARNINGS": tr("VERIFIED with warnings - read them below"),

@@ -235,16 +235,18 @@ class ConvertDialog(QDialog):
     def _done(self, made: dict) -> None:
         self.busy = False
         self.made = made
+        self.progress.setRange(0, 1000)
         self.progress.setValue(1000)
-        lines = []
+        self.progress.setFormat(tr("Done"))
+        lines = [tr("Done.")]
         if "zip" in made:
             lines.append(f"Recovery zip: {made['zip'].name} - copy it to the phone and flash it in OrangeFox, "
                          "TWRP or AERA.")
         if "folder" in made:
             lines.append(f"Image folder: {made['folder'].name} - ROM check and flash it with OPxFlasher.")
         self.status.setText("\n".join(lines))
-        for ln in lines:
-            self.log(f"Convert: {ln}")
+        for ln in lines[1:]:
+            self.log(f"Convert done: {ln}")
         self.open_btn.show()
         self.use_btn.show()
         self._update_buttons()

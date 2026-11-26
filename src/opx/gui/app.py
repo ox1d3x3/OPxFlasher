@@ -1222,14 +1222,23 @@ class MainWindow(QMainWindow):
         backups = support.find_backups(Path(self.out_edit.text()).expanduser(), serial)
         self.info_labels["last_backup"].setText(support.last_backup_text(backups))
 
+    @staticmethod
+    def finish_bar(bar, text: str = "Done") -> None:
+        """A finished job's bar says so, instead of showing its last step."""
+        bar.setRange(0, 100)
+        bar.setValue(100)
+        bar.setFormat(text)
+
     def _backup_done(self, folder: Path) -> None:
         self._set_busy(False)
         self.last_folder = Path(folder)
         self._refresh_last_backup()
         if not self.sig_backup_edit.text().strip():
             self.sig_backup_edit.setText(str(folder))
-        self.item_label.setText("Backup finished")
-        self.say(f"Saved to {folder}")
+        self.item_label.setText(f"Done: backup saved to {folder}")
+        self.finish_bar(self.item_bar)
+        self.finish_bar(self.overall_bar, "Done")
+        self.say(f"Done: backup saved to {folder}")
         self._update_buttons()
 
     def _backup_failed(self, exc: BaseException) -> None:
@@ -1260,6 +1269,7 @@ class MainWindow(QMainWindow):
         self._set_busy(False)
         bad = [f"{f}: {msg}" for f, ok, msg in report if not ok]
         self.say(f"Verified {len(report)} image(s): {len(report) - len(bad)} OK, {len(bad)} problem(s)")
+        self.item_label.setText(f"Done: verified {len(report)} image(s), " + (f"{len(bad)} problem(s)" if bad else "all OK"))
         for line in bad:
             self.say("  " + line)
         if bad:
@@ -1352,7 +1362,8 @@ class MainWindow(QMainWindow):
         dlg = CatalogDialog(self, self._dialog_job, model, props.get("ro.build.version.release", ""),
                             props.get("ro.build.id", ""))
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.downloaded:
-            self.say(f"Downloaded {dlg.downloaded}")
+            self.say(f"Done: downloaded {dlg.downloaded}"
+                     + (f", converted to {dlg.result_path}" if dlg.result_path != dlg.downloaded else ""))
             self.rom_edit.setText(str(dlg.result_path))
             self.check_rom()
 
@@ -1650,8 +1661,8 @@ class MainWindow(QMainWindow):
 
     def _zip_done(self, path) -> None:
         self._set_busy(False)
-        self.overall_bar.setValue(100)
-        self.item_label.setText("Recovery zip ready")
+        self.finish_bar(self.overall_bar)
+        self.item_label.setText(f"Done: recovery zip ready ({path.name})")
         self.say(f"Recovery zip saved: {path}")
         from opx import restore_zip as rz
 
@@ -1708,8 +1719,9 @@ class MainWindow(QMainWindow):
         label, _bar, stop, what = self._active
         self._set_busy(False)
         stop.setEnabled(False)
-        label.setText(f"{what} complete")
-        self.say(f"{what} complete.")
+        label.setText(f"Done: {what.lower()} complete")
+        self.finish_bar(_bar)
+        self.say(f"Done: {what} complete.")
         QMessageBox.information(self, what, f"{what} complete. The phone is rebooting." if plan.options.reboot_after
                                 else f"{what} complete. The phone is still in the bootloader.")
 
