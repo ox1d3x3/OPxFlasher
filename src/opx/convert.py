@@ -83,6 +83,7 @@ class Plan:
     net_from_rom: list[str] = field(default_factory=list)  # network files written from the ROM (vbmeta checks them)
     ready: dict = field(default_factory=dict)  # convert ready: {"serial", "model", "files": [names from the backup]}
     recovery_kept: bool = False  # the zip leaves the phone's (custom) recovery alone
+    cn_kept: list[str] = field(default_factory=list)  # China hardware: the phone's own abl / engineering_cdt stay
 
     @property
     def total(self) -> int:
@@ -256,6 +257,30 @@ def keep_recovery(p: Plan, stage: Callable[[str], None]) -> None:
         stage("Recovery is left out: your custom recovery stays on the phone.")
 
 
+def hardware_needed(rom: RomInfo) -> bool:
+    """Does a recovery zip of this ROM have to know whether the phone is China hardware? (OnePlus 13, 17+:
+    the ROM's own abl / engineering_cdt break fastboot on PJZ110 hardware, also after a conversion.)"""
+    from opx import flash as fl
+
+    try:
+        return fl.needs_hardware_choice(_profile(rom), fl._major(rom.android))
+    except (AttributeError, OSError, ValueError):
+        return False  # not a ROM we can read the phone / version of: nothing China-specific to do
+
+
+def keep_cn_boot_chain(rom: RomInfo, p: Plan, stage: Callable[[str], None]) -> None:
+    """China hardware: leave the profile's cn_hardware_keep images (abl, engineering_cdt) out of the zip,
+    so the phone keeps its own Android 16 ones."""
+    keep = set(_profile(rom).cn_hardware_keep)
+    for it in p.items:
+        if it.name in keep:
+            it.keep_on_phone = True
+            p.cn_kept.append(it.name)
+    if p.cn_kept:
+        stage(f"China hardware: {', '.join(p.cn_kept)} are left out; the phone keeps its own (they must be from "
+              "Android 16.0.3.501 or newer: flash the newest 16 first if it isn't on 16).")
+
+
 REGION_CODES = {"china": "CN", "india": "IN", "eu": "EU", "europe": "EU", "na": "NA", "north america": "NA",
                 "global": "GLO", "indonesia": "ID", "japan": "JP", "taiwan": "TW", "malaysia": "MY"}
 
@@ -319,7 +344,8 @@ def rom_version_tag(rom: RomInfo) -> str:
     return ""
 
 
-def output_paths(rom: RomInfo, out_dir: Path, ready_model: str = "", keep_rec: bool = False) -> tuple[Path, Path]:
+def output_paths(rom: RomInfo, out_dir: Path, ready_model: str = "", keep_rec: bool = False,
+                 cn: bool = False) -> tuple[Path, Path]:
     """(recovery zip, image folder): <name>-fullrom[-REGION].zip and <name>-fullrom[-REGION].
     A convert ready zip (for one phone) adds -ready-<its model>; one that keeps the custom
     recovery adds -keeprec, so neither is mistaken for the plain zip."""
@@ -331,13 +357,15 @@ def output_paths(rom: RomInfo, out_dir: Path, ready_model: str = "", keep_rec: b
         zip_base += "-ready-" + (re.sub(r"[^A-Za-z0-9]", "", ready_model) or "phone")
     if keep_rec:
         zip_base += "-keeprec"
+    if cn:
+        zip_base += "-cnhw"
     return Path(out_dir) / f"{zip_base}.zip", Path(out_dir) / base
 
 
 def existing_outputs(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
-                     keep_rec: bool = False) -> dict[str, Path]:
+                     keep_rec: bool = False, hardware: str = "") -> dict[str, Path]:
     """Outputs convert() would make that are already there: {"zip": path, "folder": path}."""
-    zip_out, folder_out = output_paths(rom, out_dir, keep_rec=keep_rec)
+    zip_out, folder_out = output_paths(rom, out_dir, keep_rec=keep_rec, cn=hardware == "cn")
     want = {"zip": (make_zip, zip_out), "folder": (make_folder, folder_out)}
     return {kind: path for kind, (wanted, path) in want.items() if wanted and path.exists()}
 
@@ -361,15 +389,17 @@ def verify_existing(paths: dict[str, Path], progress: Progress | None = None,
 
 def convert_or_reuse(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
                      progress: Progress | None = None, stage: Callable[[str], None] | None = None,
-                     cancel: Callable[[], bool] | None = None, keep_recovery_zip: bool = False) -> dict[str, Path]:
+                     cancel: Callable[[], bool] | None = None, keep_recovery_zip: bool = False,
+                     hardware: str = "") -> dict[str, Path]:
     """Like convert(), but outputs that already exist are verified and reused, not refused.
     (A convert ready zip is always made fresh with convert(): it carries backup files.)"""
-    have = existing_outputs(rom, out_dir, make_zip, make_folder, keep_recovery_zip)
+    have = existing_outputs(rom, out_dir, make_zip, make_folder, keep_recovery_zip, hardware)
     if have:
         (stage or (lambda s: None))("Already converted: verifying " + ", ".join(p.name for p in have.values()) + "...")
         verify_existing(have, progress, cancel)
     need_zip, need_folder = make_zip and "zip" not in have, make_folder and "folder" not in have
-    made = (convert(rom, out_dir, need_zip, need_folder, progress, stage, cancel, keep_recovery_zip=keep_recovery_zip)
+    made = (convert(rom, out_dir, need_zip, need_folder, progress, stage, cancel, keep_recovery_zip=keep_recovery_zip,
+                    hardware=hardware)
             if need_zip or need_folder else {})
     return {**have, **made}
 
@@ -377,11 +407,15 @@ def convert_or_reuse(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_fo
 def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: bool = False,
             progress: Progress | None = None, stage: Callable[[str], None] | None = None,
             cancel: Callable[[], bool] | None = None, chunk: int = CHUNK, replace: bool = False,
-            ready_backup: Path | None = None, keep_recovery_zip: bool = False) -> dict[str, Path]:
+            ready_backup: Path | None = None, keep_recovery_zip: bool = False,
+            hardware: str = "") -> dict[str, Path]:
     """Write the full ROM. Returns {"zip": path, "folder": path} for what was made.
     Existing outputs are refused unless `replace` (then they're deleted first).
     `ready_backup`: make the recovery zip convert ready from this backup (see make_ready).
-    `keep_recovery_zip`: the recovery zip leaves the phone's recovery alone."""
+    `keep_recovery_zip`: the recovery zip leaves the phone's recovery alone.
+    `hardware` ("cn" / "global"): needed for a recovery zip when `hardware_needed(rom)`; "cn" leaves the
+    phone's own abl / engineering_cdt in place (China hardware). A convert ready zip from a PJZ backup is
+    always China hardware."""
     if not (make_zip or make_folder):
         raise ConvertError("Choose a recovery zip, an image folder, or both.")
     if (ready_backup or keep_recovery_zip) and not make_zip:
@@ -395,12 +429,27 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
             ready_model = json.loads((Path(ready_backup) / "manifest.json").read_text("utf-8"))["device"]["model"]
         except (OSError, ValueError, KeyError, TypeError):
             ready_model = "phone"
+    if hardware not in ("", "cn", "global"):
+        raise ConvertError(f"Unknown hardware {hardware!r}: use cn or global.")
+    if ready_model.upper().startswith("PJZ"):
+        if hardware == "global":
+            raise ConvertError(f"The backup is from a {ready_model}: China hardware, also after a conversion. "
+                               "Make the zip for China hardware.")
+        if make_zip and hardware_needed(rom):
+            hardware = "cn"
+    if make_zip and not hardware and hardware_needed(rom):
+        raise ConvertError(
+            f"Android {rom.android or '17+'} recovery zips for the {_profile(rom).name} must know the phone's "
+            "hardware: China hardware (PJZ110, also converted to Global) keeps its Android 16 abl and "
+            "engineering_cdt, because this ROM's own break fastboot on it. Choose China or Global hardware "
+            "(CLI: --hardware cn / global).")
+    cn = make_zip and hardware == "cn" and bool(_profile(rom).cn_hardware_keep)
     if chunk <= 0 or chunk % (1 << 20):
         raise ConvertError("Parts must be whole MiB.")
     stage = stage or (lambda s: None)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    zip_out, folder_out = output_paths(rom, out_dir, ready_model, keep_recovery_zip)
+    zip_out, folder_out = output_paths(rom, out_dir, ready_model, keep_recovery_zip, cn)
     for target in ([zip_out] if make_zip else []) + ([folder_out] if make_folder else []):
         if target.exists() and replace:
             shutil.rmtree(target) if target.is_dir() else target.unlink()
@@ -417,6 +466,11 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                 make_ready(rom, p, Path(ready_backup), stage)
             if keep_recovery_zip:
                 keep_recovery(p, stage)
+                if hardware_needed(rom):
+                    stage("Careful: a custom recovery made for Android 16 may not start with this ROM's boot "
+                          "images (AERA for 16 didn't). Leaving the ROM's recovery in is safer.")
+            if cn:
+                keep_cn_boot_chain(rom, p, stage)
         except (RomError, OSError) as e:
             raise ConvertError(str(e)) from e
         if make_zip and not p.recovery_ok:
@@ -514,6 +568,8 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                     extra = {"convert_ready": {k: v for k, v in p.ready.items() if k != "serial"}} if p.ready else {}
                     if p.recovery_kept:
                         extra["recovery_kept"] = True
+                    if p.cn_kept:
+                        extra["china_hardware_kept"] = p.cn_kept
                     zf.writestr(FULLROM_JSON, json.dumps(dict(manifest, images=in_zip, kept_on_phone=p.kept, **extra),
                                                          indent=2))
                     zf.writestr("SHA256SUMS", "".join(f"{pt['sha256']}  {pt['entry']}\n"
@@ -585,6 +641,7 @@ def _install_list(rom: RomInfo, p: Plan, records: list[dict], chunk: int) -> str
         lines += [f"readyfile {n}" for n in p.ready["files"]]
     if p.recovery_kept:
         lines.append("keeprecovery")
+    lines += [f"cnkeep {n}" for n in p.cn_kept]  # China hardware: the phone's own (16) abl / engineering_cdt
     lines += [f"kept {n}" for n in p.kept]  # shown at the end: the phone's own network files stayed
     lines += [f"netrom {n}" for n in p.net_from_rom]  # ... or the ROM wrote its own
     for r in records:

@@ -517,3 +517,63 @@ def test_progress_bar_moves(rom_zip, tmp_path):
     steps = [float(ln.split()[1]) for ln in res.stdout.splitlines() if ln.startswith("set_progress ")]
     assert steps and steps == sorted(steps) and steps[-1] == 1.0 and 0.2 <= steps[len(steps) // 2] <= 1.0
     assert "ui_print Done: PJZ110" in res.stdout
+
+
+def _ota17(tmp_path, product="CPH2653"):
+    import romfactory as rf
+    from test_convert import images
+
+    parts = {**images(), "engineering_cdt": os.urandom(4096)}
+    payload = rf.build_payload(parts, groups={"qti_dynamic_partitions": LOGICAL})
+    meta = rf.ota_metadata(codename="dodge", product=product, android="17")
+    meta["post-timestamp"] = "1795000000"
+    return rf.build_ota_zip(tmp_path / f"{product}_17.zip", payload, meta), parts
+
+
+def test_android_17_zip_for_a_oneplus_13_needs_the_hardware(tmp_path):
+    ota, _ = _ota17(tmp_path)
+    rom = open_rom(ota)
+    assert cv.hardware_needed(rom)
+    with pytest.raises(cv.ConvertError, match="China or Global hardware"):
+        cv.convert(rom, tmp_path / "out", chunk=MB)
+    # the image folder doesn't: the hardware is asked when flashing it
+    made = cv.convert(rom, tmp_path / "f", make_zip=False, make_folder=True, chunk=MB)
+    assert (made["folder"] / "abl.img").exists()
+    g = cv.convert(rom, tmp_path / "g", chunk=MB, hardware="global")["zip"]
+    with zipfile.ZipFile(g) as zf:
+        assert "images/abl.img" in zf.namelist()
+
+
+def test_china_hardware_zip_leaves_abl_and_cdt_to_the_phone(tmp_path):
+    # PJZ110 converted to Global, GLO 17 in recovery: 17's abl / engineering_cdt break fastboot on it
+    ota, parts = _ota17(tmp_path)
+    z = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, hardware="cn")["zip"]
+    assert z.name.endswith("-cnhw.zip")
+    with zipfile.ZipFile(z) as zf:
+        names = zf.namelist()
+        assert not any(n.startswith(("images/abl", "images/engineering_cdt")) for n in names)
+        assert "images/boot.img" in names and "images/xbl_config.img" in names
+        rom_list = zf.read("opx/rom.list").decode()
+    assert "cnkeep abl" in rom_list and "cnkeep engineering_cdt" in rom_list
+    phone = Phone(tmp_path, parts, installed={**INSTALLED,
+                                               "ro.system.build.fingerprint":
+                                               "OnePlus/CPH2653/dodge:16/BP2A.250605.015/U.0:user/release-keys",
+                                               "ro.product.model": "CPH2653"})
+    abl_before = (phone.block / "abl_a").read_bytes()
+    code, out = phone.install(z)
+    assert code == 0, out
+    assert (phone.block / "abl_a").read_bytes() == abl_before  # the phone's own 16 abl stays
+    assert (phone.block / "abl_b").read_bytes() == abl_before
+    assert (phone.block / "xbl_config_a").read_bytes().startswith(parts["xbl_config"])
+    assert "China hardware: kept the phone's own abl engineering_cdt" in out
+
+
+def test_ready_zip_from_a_pjz_backup_is_always_china_hardware(tmp_path):
+    ota, _ = _ota17(tmp_path)
+    backup, _ = backup_with_region(tmp_path)  # model PJZ110
+    with pytest.raises(cv.ConvertError, match="China hardware, also after a conversion"):
+        cv.convert(open_rom(ota), tmp_path / "x", chunk=MB, ready_backup=backup, hardware="global")
+    z = cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, ready_backup=backup)["zip"]
+    assert z.name.endswith("-ready-PJZ110-cnhw.zip")
+    with zipfile.ZipFile(z) as zf:
+        assert "images/abl.img" not in zf.namelist()

@@ -190,7 +190,8 @@ How it flashes:
   `platform-tools` folder next to OPxFlasher (it's used first).
 - **Android 17 on a OnePlus 13:** the flash dialog asks for the phone's hardware. China hardware
   (PJZ110, also converted to Global) keeps its Android 16 `abl` and `engineering_cdt` and
-  never uses 17's fastboot (`--hardware cn` in the CLI); see *Convert to Global*.
+  never uses 17's fastboot (`--hardware cn` in the CLI). Recovery zips of such ROMs ask the same in
+  Convert (`-cnhw.zip`); see *Convert to Global*.
 - On Windows the switch to fastbootd is sometimes missed until the cable is plugged in again. If the
   phone's screen shows fastbootd and OPxFlasher keeps waiting, it says so after about 20 seconds:
   unplug the cable and plug it back in. **Resume** also waits for the phone, and switches it between

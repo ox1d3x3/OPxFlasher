@@ -1012,6 +1012,31 @@ def test_gui_convert_to_full_rom(window, tmp_path, monkeypatch):
     assert "OPxFlasher full ROM (zip)" in win.rom_summary.text()
 
 
+def test_gui_convert_android_17_zip_asks_the_hardware(window, tmp_path):
+    from test_rom_install import _ota17
+
+    from opx.gui import convert_dialog as cdlg
+
+    app, win = window
+    ota, _ = _ota17(tmp_path)
+    dlg = cdlg.ConvertDialog(win, win._dialog_job, str(ota))
+    settle(app)
+    dlg.out_edit.setText(str(tmp_path / "o"))
+    assert not dlg.hw_cn.isVisibleTo(dlg)  # image folder only: asked when flashing
+    dlg.want_zip.setChecked(True)
+    assert dlg.hw_cn.isVisibleTo(dlg) and dlg.hw_global.isVisibleTo(dlg)
+    dlg.start()
+    assert "China or Global" in dlg.status.text() and not dlg.busy
+    dlg.want_folder.setChecked(False)
+    dlg.hw_cn.setChecked(True)
+    dlg.start()
+    for _ in range(200):
+        settle(app, 5)
+        if dlg.made:
+            break
+    assert dlg.made["zip"].name.endswith("-cnhw.zip")
+
+
 def test_gui_convert_refuses_incremental(window, tmp_path):
     from test_convert import make_ota
 

@@ -486,6 +486,7 @@ fi
 
 ready=$(sed -n 's/^readyfile //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 keeprec=$(grep -c '^keeprecovery$' "$TMP/list")
+cnkeep=$(sed -n 's/^cnkeep //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 kept=$(sed -n 's/^kept //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 written=$(sed -n 's/^netrom //p' "$TMP/list" | tr '\n' ' ' | sed 's/ *$//')
 cleanup
@@ -503,6 +504,10 @@ elif [ -n "$ready" ]; then
 fi
 if [ "$keeprec" -gt 0 ]; then
   ui "Recovery: left alone, your custom recovery stays."
+fi
+if [ -n "$cnkeep" ]; then
+  ui "China hardware: kept the phone's own $cnkeep (Android 16)."
+  ui "Never relock the bootloader with this mix."
 fi
 if [ -n "$REGION_CHANGE" ] && [ -n "$formatted" ]; then
   ui "Data was formatted. If the phone doesn't start, boot to recovery and"

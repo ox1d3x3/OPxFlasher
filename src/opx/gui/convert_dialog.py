@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
 )
 
@@ -86,6 +87,18 @@ class ConvertDialog(QDialog):
             layout.addWidget(box)
         layout.addLayout(ready_row)
         self.ready_edit.textChanged.connect(self._update_buttons)
+
+        # Android 17 zips for the OnePlus 13: China hardware keeps its 16 abl / engineering_cdt
+        self.hw_label = QLabel(tr("Recovery zip for which hardware? China hardware (PJZ110, also converted to "
+                                  "Global) keeps its Android 16 abl and engineering_cdt: this ROM's own break "
+                                  "fastboot on it."))
+        self.hw_label.setWordWrap(True)
+        self.hw_label.setStyleSheet("color:#f0c24b")
+        self.hw_cn = QRadioButton(tr("China hardware (PJZ110, also converted to Global)"))
+        self.hw_global = QRadioButton(tr("Global hardware (CPH2653 / CPH2655 / CPH2649 from the factory)"))
+        for w in (self.hw_label, self.hw_cn, self.hw_global):
+            layout.addWidget(w)
+            w.hide()
 
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel(tr("Save in:")))
@@ -187,8 +200,12 @@ class ConvertDialog(QDialog):
         if self.ready.isChecked() and not self.ready_edit.text().strip():
             self.status.setText(tr("Choose the backup of this phone for the convert ready zip."))
             return
+        hardware = "cn" if self.hw_cn.isChecked() else "global" if self.hw_global.isChecked() else ""
+        if make_zip and not hardware and ready is None and cv.hardware_needed(d.rom):
+            self.status.setText(tr("Choose China or Global hardware for the recovery zip."))
+            return
         replace = ready is not None  # a convert ready zip carries backup files: always made fresh
-        have = {} if replace else cv.existing_outputs(d.rom, out, make_zip, make_folder, keep_rec)
+        have = {} if replace else cv.existing_outputs(d.rom, out, make_zip, make_folder, keep_rec, hardware)
         if have:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Question)
@@ -215,7 +232,7 @@ class ConvertDialog(QDialog):
         self.run_job(
             lambda emit=None: (cv.convert if replace else cv.convert_or_reuse)(
                 rom, out, make_zip=make_zip, make_folder=make_folder, keep_recovery_zip=keep_rec,
-                **({"ready_backup": ready} if ready is not None else {}),
+                hardware=hardware, **({"ready_backup": ready} if ready is not None else {}),
                 progress=lambda w, n, t: emit(("progress", w, n, t)),
                 stage=lambda s: emit(("stage", s)), cancel=self.cancel.is_set, **({"replace": True} if replace else {})),
             self._done, self._failed, event=self._event,
@@ -281,4 +298,8 @@ class ConvertDialog(QDialog):
             w.setEnabled(ok and zip_on and not self.busy and not self.made)
         if self.ready.isChecked():
             self.want_folder.setEnabled(False)
+        need_hw = ok and zip_on and cv.hardware_needed(self.detection.rom)
+        for w in (self.hw_label, self.hw_cn, self.hw_global):
+            w.setVisible(bool(need_hw))
+            w.setEnabled(not self.busy and not self.made)
         self.close_btn.setText(tr("Cancel") if self.busy and self.progress.isVisible() else tr("Close"))

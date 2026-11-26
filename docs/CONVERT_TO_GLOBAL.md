@@ -51,6 +51,12 @@ So OPxFlasher asks, for any Android 17 ROM on a OnePlus 13, which hardware the p
 
 Anti-rollback: OnePlus 13 builds from 16.0.3.501 up to 17.0.0.x all carry ARB index 1, so the 16
 `abl` and 17's firmware match. Never relock the bootloader with this mix (16 `abl` under a 17 system).
+
+**Recovery zips (AERA / OrangeFox) of an Android 17 ROM** ask the same question in **Convert**
+(`opx rom convert --hardware cn|global`). A China-hardware zip (`...-cnhw.zip`) leaves `abl` and
+`engineering_cdt` out, so the phone keeps its own 16 ones; a convert ready zip made from a PJZ110
+backup is always one. Leave the ROM's recovery in the zip: a custom recovery made for 16 may not start
+with 17's boot images. Download and convert makes only the image folder for such ROMs.
 A stopped 17 flash made before OPxFlasher asked for the hardware can't be resumed (it would write
 17's `abl`). If a 17 flash
 stopped half way, flash the 16 ROM again first (untick *Keep my custom recovery*), then go to 17.

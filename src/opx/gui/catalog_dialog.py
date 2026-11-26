@@ -334,8 +334,18 @@ def convert_download(path: Path, make_folder: bool, make_zip: bool, progress=Non
     from opx import convert as cv
     from opx.rom.ota import open_rom
 
-    return cv.convert_or_reuse(open_rom(path), path.parent, make_zip=make_zip, make_folder=make_folder,
-                      progress=progress, stage=stage, cancel=cancel)
+    rom = open_rom(path)
+    if make_zip and cv.hardware_needed(rom):
+        # the zip needs the China / Global hardware choice: made from Convert, where it's asked
+        if stage:
+            stage("Recovery zip not made: for this ROM it depends on the phone's hardware (China or Global). "
+                  "Make it from ROMs > Convert.")
+        make_zip = False
+        if not make_folder:
+            raise cv.ConvertError("For this ROM the recovery zip depends on the phone's hardware (China or "
+                                  "Global): make it from ROMs > Convert, where it's asked.")
+    return cv.convert_or_reuse(rom, path.parent, make_zip=make_zip, make_folder=make_folder,
+                               progress=progress, stage=stage, cancel=cancel)
 
 
 def published_text(ms: int) -> str:

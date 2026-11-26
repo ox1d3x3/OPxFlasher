@@ -365,7 +365,7 @@ def cmd_rom_convert(args) -> int:
     try:
         made = cv.convert(d.rom, Path(args.out), make_zip=not args.no_zip, make_folder=args.folder,
                           progress=show, stage=step, ready_backup=Path(args.ready_for) if args.ready_for else None,
-                          keep_recovery_zip=args.keep_recovery)
+                          keep_recovery_zip=args.keep_recovery, hardware=args.hardware or "")
     except (cv.ConvertError, OSError) as e:
         print(f"\n{e}")
         return 1
@@ -1267,6 +1267,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "recovery changes region (only installs on that phone; formats data)")
     rc.add_argument("--keep-recovery", action="store_true",
                     help="leave the ROM's recovery out of the zip: your custom recovery stays")
+    rc.add_argument("--hardware", choices=["cn", "global"], default="",
+                    help="OnePlus 13, Android 17 zips: cn = China hardware (PJZ110, also converted): the zip leaves "
+                         "abl / engineering_cdt out, the phone keeps its 16 ones; global = factory Global hardware")
     rc.set_defaults(fn=cmd_rom_convert)
     ra = rsub.add_parser("avb", help="show AVB rollback index and descriptors of an image")
     ra.add_argument("image")
