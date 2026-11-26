@@ -638,7 +638,7 @@ class Runner:
             return self.serial
         if len(serials) == 1:
             return serials[0]
-        raise FastbootError("phone not found in fastboot")
+        raise LostPhone("the phone isn't in fastboot (it may have restarted or dropped off USB)")
 
     def _ensure_any(self) -> Fastboot:
         """flash-any: the phone in the bootloader or in fastbootd, whichever it is in."""
@@ -833,6 +833,12 @@ class Runner:
         raise FlashError(f"unknown step {step.kind}")
 
     def run(self) -> FlashPlan:
+        from opx.tools import exclusive_fastboot
+
+        with exclusive_fastboot():  # nothing else talks to the phone over fastboot meanwhile
+            return self._run_all()
+
+    def _run_all(self) -> FlashPlan:
         plan = self.plan
         if not plan.ok:
             raise FlashError("Flashing is blocked:\n- " + "\n- ".join(plan.problems))

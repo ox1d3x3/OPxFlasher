@@ -91,7 +91,10 @@ def reboot(device: Device, target: str, blocked: set[str] | None,
     else:
         tool, args = (fastboot or Tool("fastboot")).bind(device.serial), _FASTBOOT[target]
     res = tool.run(*args, timeout=30)
-    if res.returncode != 0:
+    out = (res.stderr + res.stdout).lower()
+    if res.returncode != 0 and device.transport == "adb" and "error: closed" in out:
+        pass  # adb lost the phone because it was already restarting: the reboot went through
+    elif res.returncode != 0:
         msg = (res.stderr or res.stdout).strip().splitlines()
         raise RebootError(f"Reboot failed: {msg[-1] if msg else res.returncode}")
     return f"Rebooting {device.serial} to {TARGETS[target].lower()}..."

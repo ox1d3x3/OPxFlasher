@@ -18,8 +18,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +36,29 @@ _EXE = ".exe" if os.name == "nt" else ""
 
 class ToolNotFound(RuntimeError):
     pass
+
+
+class PhoneBusy(RuntimeError):
+    """Another part of OPxFlasher is flashing the phone: no other fastboot commands meanwhile."""
+
+
+# One fastboot command at a time, and none from other threads while a flash runs. A second fastboot
+# process asking the bootloader questions in the middle of a transfer (the phone panel filling in its
+# details, say) is exactly what a flaky USB link doesn't survive.
+_FASTBOOT_IO = threading.RLock()
+_flash_owner: int | None = None
+
+
+@contextmanager
+def exclusive_fastboot():
+    """While this is held, only the holding thread may run fastboot; the others get PhoneBusy."""
+    global _flash_owner
+    with _FASTBOOT_IO:  # wait for a command another thread already started
+        previous, _flash_owner = _flash_owner, threading.get_ident()
+    try:
+        yield
+    finally:
+        _flash_owner = previous
 
 
 def user_tools_dir() -> Path:
@@ -120,6 +145,14 @@ class Tool:
         return cmd + list(args)
 
     def run(self, *args: str, timeout: float = 30) -> Result:
+        if self.name != "fastboot":
+            return self._run(args, timeout)
+        if _flash_owner not in (None, threading.get_ident()):
+            raise PhoneBusy("the phone is being flashed")
+        with _FASTBOOT_IO:
+            return self._run(args, timeout)
+
+    def _run(self, args: tuple[str, ...], timeout: float) -> Result:
         try:
             proc = subprocess.run(
                 self.argv(*args),

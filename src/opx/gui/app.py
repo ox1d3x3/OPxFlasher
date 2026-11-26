@@ -59,7 +59,7 @@ from opx.i18n import tr
 from opx.profile import MODE_TEXT, MODES
 from opx.rom.ota import open_rom
 from opx.session import Session, open_session
-from opx.tools import Tool, fetch_platform_tools, missing_tools
+from opx.tools import PhoneBusy, Tool, fetch_platform_tools, missing_tools
 
 STYLE = """
 QMainWindow, QDialog, QMessageBox { background: #111318; }
@@ -1165,6 +1165,8 @@ class MainWindow(QMainWindow):
                 self.info_labels[key].setText(text)
 
     def _fastboot_info_failed(self, exc: BaseException) -> None:
+        if isinstance(exc, PhoneBusy):
+            return  # a flash started meanwhile; the panel fills in after it
         self.say(f"Couldn't read the phone's details in fastboot: {exc}")
 
     def _session_ready(self, session: Session) -> None:

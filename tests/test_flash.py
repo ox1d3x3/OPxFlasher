@@ -601,3 +601,35 @@ def test_real_oneplus_13_behaviour_end_to_end(adb, fastboot, phone, fb_state, tm
     assert log[-1] == "reboot" and "delete-logical-partition system_b" in log
     journal = json.loads((tmp_path / "journal.json").read_text())
     assert all(s["status"] == "done" for s in journal["steps"]), [s for s in journal["steps"] if s["status"] != "done"]
+
+
+def test_nothing_else_talks_fastboot_during_a_flash(adb, fastboot, phone, fb_state, tmp_path):
+    # rc.66 log: the phone panel's getvar product ran in the middle of flashing my_product
+    import threading
+
+    from opx.tools import PhoneBusy
+
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    seen = []
+    original = runner.emit
+
+    def emit(event):
+        if event.get("type") == "step_start" and not seen:
+            other = []
+            t = threading.Thread(target=lambda: other.append(_try(fastboot.bind("FAKE0001"))))
+            t.start()
+            t.join()
+            seen.extend(other)
+        original(event)
+
+    def _try(tool):
+        try:
+            tool.run("getvar", "product")
+            return "ran"
+        except PhoneBusy:
+            return "busy"
+
+    runner.emit = emit
+    runner.run()
+    assert seen == ["busy"]
+    assert _try(fastboot.bind("FAKE0001")) == "ran"  # free again afterwards

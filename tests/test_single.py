@@ -151,6 +151,20 @@ def test_reboot_commands(adb, fastboot, phone, fb_state):
         rb.reboot(phone_in("device"), "fastbootd", {"fastbootd"}, adb=adb)
 
 
+def test_adb_closed_while_rebooting_is_not_a_failure():
+    # real phone: `adb reboot bootloader` printed "error: closed" because the phone was already going
+    from opx.tools import Result
+
+    class Closing:
+        def bind(self, serial):
+            return self
+
+        def run(self, *args, timeout=30):
+            return Result(1, "", "error: closed")
+
+    assert "Rebooting" in rb.reboot(phone_in("device"), "recovery", set(), adb=Closing())
+
+
 # --- command line ------------------------------------------------------------
 
 from test_flash_cli import answers, ready  # noqa: E402,F401  (fixture)
