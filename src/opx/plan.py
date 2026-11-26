@@ -237,6 +237,20 @@ def device_from_backup(folder: Path) -> DeviceState:
 NO_DEVICE = "No phone or backup selected"
 
 
+def adopt_rom_profile(rom: RomInfo, dev: DeviceState) -> DeviceState:
+    """A phone in fastboot that the bootloader doesn't identify (generic profile): use the profile of the
+    phone the ROM is for, so its flash order and anti-rollback rules apply. The owner confirms the ROM is
+    for this phone (ROM identity) before anything is written."""
+    if dev.source != "fastboot" or dev.props or dev.profile.id != profiles.GENERIC or not rom.product:
+        return dev
+    prof = profiles.for_product(rom.product)
+    if prof.id == profiles.GENERIC:
+        return dev
+    from dataclasses import replace
+
+    return replace(dev, profile=prof, label=dev.label + f" (using the {prof.name} profile, from the ROM)")
+
+
 def no_device(label: str = NO_DEVICE) -> DeviceState:
     """`label` says what to do when a phone is connected but can't be compared yet."""
     return DeviceState(source="none", label=label, facts={}, props={}, profile=profiles.load("oplus-generic"))
@@ -333,10 +347,18 @@ def _int(text: str) -> int | None:
         return None
 
 
+def _board_known(dev: DeviceState) -> bool:
+    """The bootloader named this very phone (OnePlus 13: "dodge"), not just a chip platform ("sun")."""
+    board = dev.facts.get("board", "").lower()
+    prof = dev.profile
+    names = {n.lower() for n in (*prof.recovery_boards, *prof.codenames, *prof.match.get("ro.product.device", []))}
+    return dev.source == "fastboot" and bool(board) and prof.id != profiles.GENERIC and board in names
+
+
 def _board_matches(rom: RomInfo, dev: DeviceState) -> bool:
     """A phone known only from the bootloader: is the ROM for this phone (its profile's codenames)?"""
     prof = dev.profile
-    if dev.source != "fastboot" or not dev.facts.get("board") or prof.id == profiles.GENERIC:
+    if not _board_known(dev):
         return False
     if prof.codenames:
         return rom.codename.upper() in {c.upper() for c in prof.codenames}
@@ -439,10 +461,17 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
         add("Variant", WARN, "The phone's region can't be read in fastboot. If this ROM is for another region "
                              "than the one installed, tick Wipe data (a region change needs it) and your own network "
                              "files.")
+    elif not dev_codename and dev.source == "fastboot" and not _board_known(dev):
+        # the bootloader only names the chip platform ("sun") or nothing at all: the owner confirms the ROM
+        # is for this phone (in the anti-rollback warning), and the ROM's phone profile is used
+        board = dev.facts.get("board", "")
+        said = (f"reports '{board}', which isn't a phone OPxFlasher knows (often it's the chip platform, shared "
+                "by several phones)" if board else "doesn't say which phone it is")
+        add("ROM identity", BLOCK, f"The bootloader {said}, so OPxFlasher can't confirm this ROM ({rom.product}, "
+                                   f"'{rom.codename}') is for this phone. Only flash it if it is; you confirm it in "
+                                   "the anti-rollback warning.")
     elif not dev_codename:
-        hint = (" The bootloader didn't say which phone this is: press Refresh and Check ROM again, or reboot "
-                "to fastbootd (Fastbootd button), which reports it more reliably." if dev.source == "fastboot" else "")
-        add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.{hint}")
+        add("Device match", BLOCK, f"ROM is for '{rom.codename}', but the phone's codename is unknown.")
     elif not prof.same_phone(rom.codename, dev_codename):
         add("Device match", BLOCK, f"ROM is for '{rom.codename}', this phone is '{dev_codename}'.")
     else:

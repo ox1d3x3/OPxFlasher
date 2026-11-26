@@ -2061,7 +2061,7 @@ def run_rom_check(rom_path: str, backup: str, session: Session | None, serial: s
     elif serial:
         # never seen in Android (or its Android doesn't start): known from what the bootloader /
         # recovery says; the installed build is then the user's to confirm
-        device = pn.device_from_fastboot(serial, None, where, _phone_info(session, serial))
+        device = pn.adopt_rom_profile(rom, pn.device_from_fastboot(serial, None, where, _phone_info(session, serial)))
     else:
         device = pn.no_device()
     return rom, device, pn.build_report(rom, device)

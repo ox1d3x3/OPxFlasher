@@ -1326,7 +1326,7 @@ def test_rom_check_in_fastboot_uses_what_android_reported(adb_env, tmp_path):
     finally:
         gui_app.support.fastboot_info = orig
     assert device.source == "fastboot" and "bootloader only" in device.label
-    assert report.verdict == "BLOCKED"  # an unknown phone is never flashed
+    assert report.verdict == "BLOCKED"  # an unknown phone: only with the owner's confirmation
 
 
 def test_gui_arb_risk_dialog_gates(window, monkeypatch):

@@ -300,7 +300,8 @@ def test_phone_known_only_from_the_bootloader(tmp_path):
     unknown = pn.device_from_fastboot("SER1", None, "fastboot", {"product": "mystery"})
     assert unknown.profile.id == profiles.GENERIC
     r = pn.build_report(rom_zip(tmp_path, codename="OP5D55L1", product="CPH2653"), unknown)
-    assert status(r, "Device match") == "block"
+    # not identified: the owner's confirmation, never a silent pass
+    assert status(r, "ROM identity") == "block" and "'mystery'" in detail(r, "ROM identity")
 
 
 def test_loose_images_are_the_owners_call(tmp_path):
@@ -318,4 +319,20 @@ def test_loose_images_are_the_owners_call(tmp_path):
     assert fl.hard_blocks(r, list(fl.RISK_OVERRIDES)) == []  # all lifted by the owner's confirmation
     # an unknown phone: never
     unknown = pn.device_from_fastboot("SER1", None, "fastboot", {"product": "mystery"})
-    assert status(pn.build_report(rom, unknown), "Device match") == "block"
+    assert status(pn.build_report(rom, unknown), "Device match") == "block"  # loose images AND unknown phone
+
+
+def test_bootloader_that_only_names_the_chip_platform(tmp_path):
+    # real OnePlus 13 bootloader on a second PC: getvar product = "sun" (the SM8750 platform)
+    from opx import flash as fl
+
+    rom = rom_zip(tmp_path, codename="OP5D55L1", product="CPH2653")
+    dev = pn.device_from_fastboot("SER1", None, "fastboot", {"product": "sun", "current-slot": "a", "unlocked": "yes"})
+    assert dev.profile.id == "oplus-generic"  # a platform name is never a phone's identity
+    dev = pn.adopt_rom_profile(rom, dev)
+    assert dev.profile.id == "oneplus-13" and dev.profile.firmware_in_fastbootd  # flash order + fuse rules
+    r = pn.build_report(rom, dev)
+    assert status(r, "ROM identity") == "block" and "'sun'" in detail(r, "ROM identity")
+    assert status(r, "Installed build") == "block"
+    assert fl.hard_blocks(r, list(fl.RISK_OVERRIDES)) == []  # all the owner's call in the warning
+    assert fl.hard_blocks(r, []) != []  # but never without it
