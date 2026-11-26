@@ -403,3 +403,26 @@ def test_earlier_zip_becomes_convert_ready(tmp_path):
     code, out = phone.install(z, {"OPX_TWRP": str(fake_twrp(tmp_path)), **keys(tmp_path, "up", "up")})
     assert code == 0, out
     assert (phone.mapper / "my_region_a").read_bytes() == own
+
+
+def test_partition_held_by_the_recovery_writes_nothing(rom_zip, tmp_path):
+    # AERA keeps odm busy: lptools can't unmap it, so nothing may be written at all
+    z, parts = rom_zip
+    phone = Phone(tmp_path, parts)
+    (phone.mapper / "odm_a.held").write_bytes(b"")
+    before = phone.snapshot()
+    code, out = phone.install(z)
+    assert code != 0
+    assert "In use by this recovery, so it can't be resized safely: odm." in out
+    assert "Nothing was written." in out and "half flashed" not in out
+    assert phone.snapshot() == before
+
+
+def test_install_keeps_a_log_and_names_the_phone(rom_zip, tmp_path):
+    z, parts = rom_zip
+    phone = Phone(tmp_path, parts)
+    code, out = phone.install(z)
+    assert code == 0, out
+    log = (tmp_path / "rtmp" / "opx-install.log").read_text()
+    assert "lptools unmap odm_a" in log and "lptools resize odm_a" in log and "read back odm" in log
+    assert "Done: PJZ110" in log

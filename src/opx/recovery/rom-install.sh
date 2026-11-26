@@ -31,9 +31,15 @@ TIMEOUT=${OPX_TIMEOUT:-timeout}
 LPTOOLS=${OPX_LPTOOLS:-lptools}
 METADATA=${OPX_METADATA:-/metadata}
 TMP=${OPX_TMP:-/tmp}/opx-rom
+LOG=${OPX_LOG:-${OPX_TMP:-/tmp}/opx-install.log}
 MB=1048576
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+{ true > "$LOG"; } 2>/dev/null
+
+note() { echo "$*" >> "$LOG" 2>/dev/null; }
 
 ui() {
+  note "$1"
   if [ -n "$OUTFD" ] && [ -e "/proc/self/fd/$OUTFD" ]; then
     echo "ui_print $1" > "/proc/self/fd/$OUTFD"
     echo "ui_print" > "/proc/self/fd/$OUTFD"
@@ -57,6 +63,7 @@ fail_written() {
   ui "! $1"
   ui "! The phone is half flashed. Do NOT reboot: flash this zip again,"
   ui "! or flash the ROM from the PC with OPxFlasher."
+  ui "! Details for support: $LOG (adb pull $LOG)"
   cleanup
   exit 1
 }
@@ -132,19 +139,19 @@ fi
 # --- 1. right phone ------------------------------------------------------------
 # Device codenames only: ro.product.board is the chip platform (sun, canoe ...),
 # shared by many phones, so it never counts.
-ok=""
+ok=""; matched=""
 for p in ro.product.device ro.build.product ro.product.vendor.device ro.product.odm.device; do
   have=$(prop "$p")
   [ -n "$have" ] || continue
   for b in $(sed -n 's/^board //p' "$TMP/list"); do
-    [ "$have" = "$b" ] && ok=1
+    [ "$have" = "$b" ] && { ok=1; matched=$b; }
   done
 done
 [ -n "$ok" ] || abort "This ROM is for $PRODUCT ($(sed -n 's/^board //p' "$TMP/list" | tr '\n' ' ')); this phone is '$(prop ro.product.device)'."
 
 slot=$(prop ro.boot.slot_suffix)
 case "$slot" in _a|_b) ;; *) abort "Can't tell which slot is active." ;; esac
-ui "- Phone: $(prop ro.product.device), slot ${slot#_}"
+ui "- Phone: $matched, slot ${slot#_}"
 
 # --- 2. nothing half-updated ---------------------------------------------------------
 mount "$METADATA" >/dev/null 2>&1
@@ -272,8 +279,70 @@ if [ -n "$REGION_CHANGE" ]; then
   ask || abort "Cancelled: you chose not to flash."
 fi
 
-# --- 7. write --------------------------------------------------------------------------
-for m in /system_root /system /vendor /product /odm /system_ext; do umount "$m" >/dev/null 2>&1; done
+cat "$TMP/targets" "$TMP/targets_net" > "$TMP/all_targets"
+
+# --- 7. write ---
+# A logical partition can only be resized and re-mapped once nothing uses it. Recoveries like
+# AERA mount odm / vendor for their own services; lptools unmap then fails, the old mapping stays
+# and the image would land where super no longer says the partition is. So: unmount and unmap
+# everything first and stop BEFORE writing anything if a partition is still held.
+MOUNTS=${OPX_MOUNTS:-/proc/mounts}
+mounted_from() { # device -> its mount points
+  [ -r "$MOUNTS" ] || return 0
+  real=$(readlink -f "$1" 2>/dev/null)
+  while read -r src mnt rest; do
+    case "$src" in "$1"|"$real") echo "$mnt" ;; esac
+  done < "$MOUNTS"
+}
+still_mapped() { [ -b "$1" ] || [ -e "$1.held" ]; }  # .held: the tests' stand-in for a busy device
+release() { # name device
+  for m in $(mounted_from "$2"); do umount "$m" >/dev/null 2>&1 || umount -l "$m" >/dev/null 2>&1; done
+  out=$("$LPTOOLS" unmap "$1$slot" 2>&1); note "lptools unmap $1$slot: $? $out"
+  still_mapped "$2" && return 1
+  return 0
+}
+map_logical() { # kind name device size -> prints the block device to write to
+  if out=$("$LPTOOLS" resize "$2$slot" "$4" 2>&1); then
+    note "lptools resize $2$slot $4: ok $out"
+  else
+    note "lptools resize $2$slot $4: failed $out"
+    [ "$1" = logical ] || return 1
+    out=$("$LPTOOLS" create "$2$slot" "$4" 2>&1) || { note "lptools create: failed $out"; return 1; }
+    note "lptools create $2$slot $4: ok $out"
+  fi
+  out=$("$LPTOOLS" map "$2$slot" 2>&1); note "lptools map $2$slot: $? $out"
+  i=0
+  while [ ! -e "$3" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+  [ -e "$3" ] || return 1
+  real=$(readlink -f "$3")
+  b=$(basename "$real")
+  if [ -d "/sys/class/block/$b/dm" ]; then  # a real dm device: the right one, at the new size
+    dmname=$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)
+    have=$(devsize "$real")
+    note "$2$slot -> $real ($dmname, $have bytes)"
+    [ "$dmname" = "$2$slot" ] || return 1
+    [ -n "$have" ] && [ "$have" -ge "$4" ] && [ "$have" -lt $(($4 + 16 * MB)) ] || return 1
+  fi
+  echo "$real"
+}
+check_one() { # name device size
+  want=$(sed -n "s/^image [a-z]* $1 $3 //p" "$TMP/list" | head -n 1)
+  got=$(dd if="$2" bs=$MB count=$((($3 + MB - 1) / MB)) 2>/dev/null | head -c "$3" | sha256sum | cut -d' ' -f1)
+  note "read back $1 ($2): $got want $want"
+  [ "$got" = "$want" ]
+}
+-----------------------------------------------------------------------
+for m in /system_root /system /vendor /product /odm /system_ext /vendor/odm /mnt/vendor/odm; do
+  umount "$m" >/dev/null 2>&1
+done
+: > "$TMP/held"
+while read -r kind name dev size; do
+  [ "$kind" = physical ] && continue
+  release "$name" "$dev" || echo "$name" >> "$TMP/held"
+done < "$TMP/all_targets"
+if [ -s "$TMP/held" ]; then
+  abort "In use by this recovery, so it can't be resized safely: $(tr '\n' ' ' < "$TMP/held" | sed 's/ *$//'). Reboot to recovery (Reboot > Recovery) and flash again straight away. If it says this again, flash from the PC with OPxFlasher."
+fi
 
 write_parts() { # name device
   per=$((CHUNK / MB))
@@ -296,14 +365,10 @@ ui "- Writing system, vendor, odm, ... inside super..."
 while read -r kind name dev size; do
   [ "$kind" = physical ] && continue
   ui "  $name"
-  "$LPTOOLS" unmap "$name$slot" >/dev/null 2>&1
-  if ! "$LPTOOLS" resize "$name$slot" "$size" >/dev/null 2>&1; then
-    [ "$kind" = logical ] && "$LPTOOLS" create "$name$slot" "$size" >/dev/null 2>&1 \
-      || fail_written "Can't make room for $name inside super."
-  fi
-  "$LPTOOLS" map "$name$slot" >/dev/null 2>&1
-  [ -e "$dev" ] || fail_written "$name$slot isn't available after resizing."
-  write_parts "$name" "$dev" || fail_written "Writing $name failed."
+  real=$(map_logical "$kind" "$name" "$dev" "$size") || fail_written "Can't make room for $name inside super."
+  write_parts "$name" "$real" || fail_written "Writing $name failed."
+  sync
+  check_one "$name" "$real" "$size" || fail_written "$name doesn't match right after writing it."
 done < "$TMP/targets"
 
 ui "- Writing vbmeta..."
@@ -315,12 +380,15 @@ done < "$TMP/targets"
 sync
 
 # --- 8. read back --------------------------------------------------------------------
+# everything again, from the disk rather than the cache: a later write must not have hit
+# an earlier partition
 ui "- Reading back what was written..."
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+: > "$TMP/bad"
 while read -r kind name dev size; do
-  want=$(sed -n "s/^image [a-z]* $name $size //p" "$TMP/list" | head -n 1)
-  got=$(dd if="$dev" bs=$MB count=$(((size + MB - 1) / MB)) 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
-  [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
+  check_one "$name" "$dev" "$size" || echo "$name" >> "$TMP/bad"
 done < "$TMP/targets"
+[ -s "$TMP/bad" ] && fail_written "$(tr '\n' ' ' < "$TMP/bad" | sed 's/ *$//') doesn't match after writing."
 
 # --- 9. your network files, if you want them -------------------------------------------------
 net_done=""
@@ -332,18 +400,11 @@ if [ -s "$TMP/targets_net" ]; then
     while read -r kind name dev size; do
       ui "  $name"
       if [ "$kind" != physical ]; then
-        "$LPTOOLS" unmap "$name$slot" >/dev/null 2>&1
-        if ! "$LPTOOLS" resize "$name$slot" "$size" >/dev/null 2>&1; then
-          [ "$kind" = logical ] && "$LPTOOLS" create "$name$slot" "$size" >/dev/null 2>&1 \
-            || fail_written "Can't make room for $name inside super."
-        fi
-        "$LPTOOLS" map "$name$slot" >/dev/null 2>&1
-        [ -e "$dev" ] || fail_written "$name$slot isn't available after resizing."
+        dev=$(map_logical "$kind" "$name" "$dev" "$size") || fail_written "Can't make room for $name inside super."
       fi
       write_parts "$name" "$dev" || fail_written "Writing $name failed."
-      want=$(sed -n "s/^image [a-z]* $name $size //p" "$TMP/list" | head -n 1)
-      got=$(dd if="$dev" bs=$MB count=$(((size + MB - 1) / MB)) 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
-      [ "$got" = "$want" ] || fail_written "$name doesn't match after writing."
+      sync
+      check_one "$name" "$dev" "$size" || fail_written "$name doesn't match after writing."
     done < "$TMP/targets_net"
     sync
     net_done=1
