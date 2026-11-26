@@ -426,3 +426,19 @@ def test_install_keeps_a_log_and_names_the_phone(rom_zip, tmp_path):
     log = (tmp_path / "rtmp" / "opx-install.log").read_text()
     assert "lptools unmap odm_a" in log and "lptools resize odm_a" in log and "read back odm" in log
     assert "Done: PJZ110" in log
+
+
+def test_mismatch_after_writing_is_explained_in_the_log(rom_zip, tmp_path):
+    # something changes odm between writing and reading it back: stop, and say which piece differs
+    z, parts = rom_zip
+    phone = Phone(tmp_path, parts)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_sync = bin_dir / "sync"
+    fake_sync.write_text(f"#!/bin/sh\n[ -s {phone.mapper}/odm_a ] && printf 'X' | dd of={phone.mapper}/odm_a "
+                         "conv=notrunc 2>/dev/null\nexit 0\n")
+    fake_sync.chmod(0o755)
+    code, out = phone.install(z, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+    assert code != 0 and "odm doesn't match right after writing it" in out
+    log = (tmp_path / "rtmp" / "opx-install.log").read_text()
+    assert "piece 0 DIFFERS" in log

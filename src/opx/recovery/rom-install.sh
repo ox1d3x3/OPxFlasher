@@ -329,9 +329,24 @@ check_one() { # name device size
   want=$(sed -n "s/^image [a-z]* $1 $3 //p" "$TMP/list" | head -n 1)
   got=$(dd if="$2" bs=$MB count=$((($3 + MB - 1) / MB)) 2>/dev/null | head -c "$3" | sha256sum | cut -d' ' -f1)
   note "read back $1 ($2): $got want $want"
-  [ "$got" = "$want" ]
+  [ "$got" = "$want" ] && return 0
+  explain "$1" "$2"
+  return 1
 }
------------------------------------------------------------------------
+# on a mismatch: which pieces differ, and what the kernel says the device is (for support)
+explain() { # name device
+  per=$((CHUNK / MB))
+  grep "^part $1 " "$TMP/list" | while read -r tag name index entry sha len; do
+    got=$(dd if="$2" bs=$MB skip=$((index * per)) count=$(((len + MB - 1) / MB)) 2>/dev/null | head -c "$len" | sha256sum | cut -d' ' -f1)
+    [ "$got" = "$sha" ] && note "  piece $index ok" || note "  piece $index DIFFERS (at $((index * per)) MiB, $len bytes)"
+  done
+  real=$(readlink -f "$2"); b=$(basename "$real")
+  note "  $2 -> $real, $(devsize "$real") bytes, ro=$(cat "/sys/class/block/$b/ro" 2>/dev/null), dm=$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)"
+  note "  holders: $(ls "/sys/class/block/$b/holders" 2>/dev/null | tr '\n' ' ')"
+  command -v dmctl >/dev/null 2>&1 && note "  $(dmctl table "$(cat "/sys/class/block/$b/dm/name" 2>/dev/null)" 2>&1 | tr '\n' ' ')"
+  command -v dmsetup >/dev/null 2>&1 && note "  $(dmsetup table 2>&1 | tr '\n' ';')"
+  grep -i " $1\|$real\|$2" "${OPX_MOUNTS:-/proc/mounts}" 2>/dev/null | while read -r ln; do note "  mounted: $ln"; done
+}
 for m in /system_root /system /vendor /product /odm /system_ext /vendor/odm /mnt/vendor/odm; do
   umount "$m" >/dev/null 2>&1
 done
@@ -347,7 +362,8 @@ fi
 write_parts() { # name device
   per=$((CHUNK / MB))
   grep "^part $1 " "$TMP/list" | while read -r tag name index entry sha len; do
-    unzip -p "$ZIP" "$entry" | dd of="$2" bs=$MB seek=$((index * per)) conv=notrunc,fsync 2>/dev/null || exit 1
+    err=$(unzip -p "$ZIP" "$entry" | dd of="$2" bs=$MB seek=$((index * per)) conv=notrunc,fsync 2>&1) \
+      || { note "write $1 piece $index failed: $err"; exit 1; }
   done
 }
 
