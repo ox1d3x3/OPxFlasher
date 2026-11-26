@@ -157,7 +157,7 @@ an explicit factory reset, which you choose and confirm, erases it.
 
 | Phone | Models | Status |
 |---|---|---|
-| **OnePlus 13** | PJZ110 (China), CPH2653 (EU), CPH2655 (NA), CPH2649 (India) | Full profile: backup, ROM check, flashing, restore zips (AERA board `dodge`), fuse guard |
+| **OnePlus 13** | PJZ110 (China), CPH2653 (Global; product CPH2653EEA = EU), CPH2655 (NA), CPH2649 (India) | Full profile: backup, ROM check, flashing, restore zips (AERA board `dodge`), fuse guard |
 | **OnePlus 13T / 13s** | PKX110 (China), CPH2723 (India) | New profile: backup, ROM check, fuse guard |
 | **OnePlus 15** | PLK110 (China), CPH2747 (Global) | New profile: backup, ROM check, fuse guard |
 | Other OnePlus / OPPO | — | Generic profile: backup and ROM check |

@@ -1107,7 +1107,7 @@ class MainWindow(QMainWindow):
         }[session.access.kind]
         self.info_labels["access"].setText(access_text)
         self.info_labels["profile"].setText(session.profile.name)
-        self.info_labels["variant"].setText(session.profile.variant_name(facts.get("model", "")) or "-")
+        self.info_labels["variant"].setText(session.profile.phone_variant(facts) or "-")
         self.info_labels["bootloader"].setText(support.bootloader_text(session.props))
         self._refresh_last_backup()
 

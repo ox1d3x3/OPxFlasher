@@ -102,7 +102,7 @@ def test_other_variant_blocks_until_confirmed(adb, phone, tmp_path):
     r = report_for(adb, rom_zip(tmp_path, product="CPH2653"))
     assert status(r, "Variant") == "block"
     detail = next(c.detail for c in r.checks if c.name == "Variant")
-    assert "OnePlus 13 EU (CPH2653)" in detail and "OnePlus 13 China (PJZ110)" in detail
+    assert "OnePlus 13 Global (CPH2653)" in detail and "OnePlus 13 China (PJZ110)" in detail
     assert fl.region_change(r)
     assert [c.name for c in fl.hard_blocks(r, [fl.OVERRIDE_VARIANT]) if c.name == "Variant"] == []
 

@@ -100,10 +100,22 @@ class Profile:
     def is_variant(self, model: str) -> bool:
         return model.upper() in {m.upper() for m in self.variants}
 
+    def region_of(self, model: str) -> str:
+        """The variant's region. Products can add a region to the model (CPH2649IN, CPH2653EEA): the
+        longest listed model or product it starts with decides (CPH2653EEA = EU, CPH2653 = Global)."""
+        up = (model or "").upper()
+        best = max((m for m in self.variants if up.startswith(m.upper())), key=len, default="")
+        return self.variants.get(best, "") if best else ""
+
     def variant_name(self, model: str) -> str:
         """e.g. "OnePlus 13 China (PJZ110)"; falls back to the model number."""
-        region = self.variants.get(model.upper())
+        region = self.region_of(model)
         return f"{self.name} {region} ({model})" if region else model
+
+    def phone_variant(self, facts: dict[str, str]) -> str:
+        """The phone's variant from its product (tells EU from Global), else its model."""
+        product, model = facts.get("product", ""), facts.get("model", "")
+        return self.variant_name(product if self.region_of(product) else model)
 
     def is_conditional(self, partition: str) -> bool:
         return any(PartitionRule(p, False).matches(partition) for p in self.conditional)

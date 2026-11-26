@@ -394,7 +394,7 @@ def test_existing_outputs_are_verified_and_reused_or_replaced(tmp_path):
 @pytest.mark.parametrize(("product", "name", "want"), [
     ("PJZ110", "PJZ110_11.C.93_1930_202608031342.zip", "PJZ110_11.C.93_1930_202608031342-fullrom-CN"),
     ("CPH2649IN", "CPH2649_11.H.05_3050_202610210133.zip", "CPH2649_11.H.05_3050_202610210133-fullrom-IN"),
-    ("CPH2653", "CPH2653_11.F.05_3050_202610210134.zip", "CPH2653_11.F.05_3050_202610210134-fullrom-EU"),
+    ("CPH2653", "CPH2653_11.F.05_3050_202610210134.zip", "CPH2653_11.F.05_3050_202610210134-fullrom-GLO"),
     ("CPH2655", "x.zip", "x-fullrom-NA"),
     ("CPH2747", "y.zip", "y-fullrom-GLO"),  # OnePlus 15 Global
     ("", "z.zip", "z-fullrom"),  # unknown: no region rather than a guess
@@ -506,3 +506,10 @@ def test_india_rom_zip_knows_every_codename_of_the_phone(tmp_path):
     ota, _ = make_ota(tmp_path, product="CPH2649IN", codename="OP5D55L1")
     p = cv.plan(open_rom(ota))
     assert {"OP5D55L1", "OP5D0DL1", "dodge"} <= set(p.boards)
+
+
+@pytest.mark.parametrize(("product", "code"), [("CPH2653", "GLO"), ("CPH2653EEA", "EU"), ("CPH2649IN", "IN"),
+                                               ("PJZ110", "CN")])
+def test_region_codes_for_oneplus_13_products(tmp_path, product, code):
+    ota, _ = make_ota(tmp_path, product=product)
+    assert cv.region_code(open_rom(ota)) == code

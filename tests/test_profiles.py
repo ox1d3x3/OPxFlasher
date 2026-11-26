@@ -102,3 +102,11 @@ def test_ota_products_with_a_region_suffix_find_their_phone():
     assert profiles.for_product("PJZ110").id == "oneplus-13"
     assert profiles.for_product("CPH9999").id == "oplus-generic"
     assert profiles.for_product("").id == "oplus-generic"
+
+
+def test_global_and_eu_are_told_apart_by_product():
+    p = profiles.load("oneplus-13")
+    assert p.region_of("CPH2653") == "Global" and p.region_of("CPH2653EEA") == "EU"
+    assert p.region_of("CPH2649IN") == "India" and p.region_of("PJZ110") == "China" and p.region_of("X") == ""
+    assert p.phone_variant({"model": "CPH2653", "product": "CPH2653EEA"}) == "OnePlus 13 EU (CPH2653EEA)"
+    assert p.phone_variant({"model": "CPH2653", "product": "OnePlus13"}) == "OnePlus 13 Global (CPH2653)"

@@ -66,7 +66,7 @@ def fastboot_panel(info: dict[str, str], last_props: dict[str, str] | None = Non
         for key in ("model", "build", "android", "security_patch"):
             if facts.get(key):
                 out[key] = facts[key] + (" (last seen in Android)" if key == "build" else "")
-        out["variant"] = prof.variant_name(facts.get("model", "")) or "-"
+        out["variant"] = prof.phone_variant(facts) or "-"
         out["profile"] = prof.name
     elif info.get("product"):
         out["model"] = f"board '{info['product']}'"
