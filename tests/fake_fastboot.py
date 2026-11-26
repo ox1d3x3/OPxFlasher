@@ -8,6 +8,7 @@ folder as fake_adb.py plus a state file:
     fail_flash        partition name whose flash fails
     refuse            {"bootloader": [...], "fastbootd": [...]}: partitions a mode won't write
                       (real OnePlus 13: the bootloader refuses xbl, fastbootd refuses modem)
+    silent            listed in `fastboot devices` but answers nothing (a stuck bootloader / dead USB link)
     drop_on_flash     partition name whose flash loses the USB link and the phone restarts to Android
     no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
     log               every command that changed something
@@ -56,6 +57,9 @@ def main(argv: list[str]) -> int:
         return 0
     if not in_fastboot:
         err("< waiting for any device >")
+        return 1
+    if state.get("silent"):
+        err(f"{' '.join(args)} FAILED (Status read failed (Too many links))\nfastboot: error: Command failed")
         return 1
 
     slot = state["slot"]

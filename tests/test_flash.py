@@ -395,7 +395,7 @@ def test_phone_dropping_off_usb_stops_and_resumes(adb, fastboot, phone, fb_state
     # carry on (the next fastboot command would wait for the phone for half an hour).
     fb_state(drop_on_flash="boot_a")
     plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
-    with pytest.raises(fl.FlashError, match="dropped off USB") as err:
+    with pytest.raises(fl.FlashError, match="stopped answering over USB") as err:
         runner.run()
     assert "Resume" in str(err.value)
     journal = json.loads((tmp_path / "journal.json").read_text())
@@ -419,9 +419,60 @@ def test_phone_gone_before_a_step_is_not_waited_for(adb, fastboot, phone, fb_sta
 
     runner.fb = Fastboot(fastboot.bind("FAKE0001"), load("oneplus-13"))
     fb_state(mode="android")
-    with pytest.raises(LostPhone, match="no longer in fastboot"):
+    with pytest.raises(LostPhone, match="didn't answer"):
         runner._ensure("bootloader")
-    assert runner.fb is None
+
+
+def test_silent_bootloader_writes_nothing(adb, fastboot, phone, fb_state, tmp_path):
+    # rc.64 on a flaky PC: listed in `fastboot devices`, but no answers. That once read as "current slot ?"
+    # and "init_boot does not exist"; now nothing is written and the reason is the USB link.
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    fb_state(mode="bootloader", silent=True, log=[])
+    with pytest.raises(fl.FlashError, match="stopped answering over USB"):
+        runner.run()
+    assert not any(c.startswith("flash") for c in fb_state.read()["log"])
+
+
+def test_phone_going_silent_mid_flash_is_not_a_missing_partition(adb, fastboot, phone, fb_state, tmp_path):
+    # rc.65 resume: modem "does not exist on this phone" because the stuck bootloader answered nothing
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    fb_state(drop_on_flash="dtbo_b")
+    with pytest.raises(fl.FlashError, match="stopped answering over USB"):
+        runner.run()
+    fb_state(drop_on_flash=None, mode="bootloader", silent=True)  # restarted, but stuck
+    from opx.profile import load
+
+    with pytest.raises(fl.FlashError) as err:
+        fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
+    assert "does not exist" not in str(err.value) and "stopped answering over USB" in str(err.value)
+    fb_state(silent=False)  # forced back into the bootloader: carries on and finishes
+    fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    assert all(s["status"] == "done" for s in journal["steps"])
+
+
+def test_bootloader_images_go_to_both_slots_without_questions(adb, fastboot, phone, fb_state, tmp_path):
+    # Super Flasher's way: flash name_a, flash name_b. No has-slot / partition-size round trips first.
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    runner.run()
+    log = fb_state.read()["log"]
+    assert log.index("flash boot_a") + 1 == log.index("flash boot_b")
+    assert log.index("flash dtbo_a") + 1 == log.index("flash dtbo_b")
+
+
+def test_query_tells_silence_from_no(fastboot, fb_state):
+    from opx.fastboot import NoAnswer
+    from opx.profile import load
+
+    fb = Fastboot(fastboot.bind("FAKE0001"), load("oneplus-13"))
+    fb_state(mode="bootloader")
+    assert fb.query("current-slot") in ("a", "b")
+    assert fb.query("no-such-variable") is None
+    fb_state(silent=True)
+    with pytest.raises(NoAnswer):
+        fb.query("current-slot")
+    with pytest.raises(NoAnswer):
+        fb.partition_size("modem_a")
 
 
 def test_transport_errors_are_told_apart_from_refusals():
@@ -505,13 +556,13 @@ def test_resume_when_the_phone_is_already_in_fastbootd(adb, fastboot, phone, fb_
 
 def test_partition_size_not_answered_is_left_to_fastboot(adb, fastboot, phone, fb_state, tmp_path):
     # real OnePlus 13 fastbootd: no partition-size for modem_a / modem_b, though they exist
-    fb_state(no_size=["dtbo_a", "dtbo_b"])
+    fb_state(no_size=["xbl_config_a", "xbl_config_b"])
     plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
     runner.run()
-    assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
+    assert (phone / "by-name" / "xbl_config_b").read_bytes()[:4] == b"\x7fELF"
     journal = json.loads((tmp_path / "journal.json").read_text())
-    dtbo = next(s for s in journal["steps"] if s["partition"] == "dtbo")
-    assert "size checked by fastboot" in dtbo["detail"]
+    xbl = next(s for s in journal["steps"] if s["partition"] == "xbl_config")
+    assert "size checked by fastboot" in xbl["detail"]
 
 
 def test_real_oneplus_13_behaviour_end_to_end(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):

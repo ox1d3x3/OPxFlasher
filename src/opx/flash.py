@@ -29,7 +29,7 @@ from pathlib import Path
 
 from opx import __version__
 from opx.backup import manifest_file
-from opx.fastboot import Fastboot, FastbootError, LostPhone, fastboot_serials, wait_for_fastboot
+from opx.fastboot import Fastboot, FastbootError, LostPhone, NoAnswer, wait_for_fastboot
 from opx.plan import BLOCK, DeviceState, Report
 from opx.profile import Profile
 from opx.rom.ota import RomInfo, materialize, open_rom
@@ -640,18 +640,8 @@ class Runner:
             return serials[0]
         raise FastbootError("phone not found in fastboot")
 
-    def _still_there(self) -> None:
-        """Before each write: the phone we were talking to must still be in fastboot. Without this, a
-        phone that dropped off USB (or restarted) leaves fastboot waiting for it for half an hour."""
-        if self.fb is None:
-            return
-        if self.fb.tool.serial not in fastboot_serials(self.fastboot_tool):
-            self.fb = None
-            raise LostPhone("the phone is no longer in fastboot")
-
     def _ensure_any(self) -> Fastboot:
         """flash-any: the phone in the bootloader or in fastbootd, whichever it is in."""
-        self._still_there()
         if self.fb is None:
             try:
                 self.fb = self._connect_now()
@@ -659,11 +649,11 @@ class Runner:
                 if not self._adb_in_android():
                     raise
                 self._to_bootloader()  # resuming after the phone restarted to Android
+        self.fb.mode()  # is it still answering? (raises NoAnswer, so nothing waits on a silent phone)
         return self.fb
 
     def _ensure(self, mode: str) -> Fastboot:
-        """Before each step: the phone must already be in the expected mode."""
-        self._still_there()
+        """Before each step: the phone must already be in the expected mode (and answering)."""
         if self.fb is None:
             try:
                 self.fb = self._connect_now()
@@ -703,6 +693,15 @@ class Runner:
         note = f" (size checked by fastboot: {', '.join(unchecked)})" if unchecked else ""
         return " + ".join(targets) + note
 
+    def _flash_both_slots(self, fb: Fastboot, name: str, image_for) -> str:
+        """The profile's bootloader images, the way Super Flasher writes them: name_a then name_b, no
+        questions first. Every extra question is another USB round trip to a bootloader that may be
+        flaky, and a missed answer must never turn "both slots" into something else. The phone
+        checks the size itself and says why if it refuses."""
+        for target in (f"{name}_a", f"{name}_b"):
+            fb.flash(target, image_for(target))
+        return f"{name}_a + {name}_b"
+
     def _backup_image(self, name: str, target: str) -> Path:
         """The backup image for a target, falling back to the other slot's copy."""
         slot = self.plan.device.get("slot_suffix", "")
@@ -736,17 +735,28 @@ class Runner:
 
         fb = self._ensure(step.mode) if step.mode else self._ensure_any()
         if step.kind == "preflight":
-            unlocked = ""
-            for _ in range(3):  # a bootloader that just came up can miss the first question
-                unlocked = fb.getvar("unlocked") or ""
-                if unlocked:
+            unlocked = None
+            for attempt in range(3):  # a bootloader that just came up can miss the first question
+                try:
+                    unlocked = fb.query("unlocked")
                     break
-                time.sleep(1)
+                except NoAnswer:
+                    if attempt == 2:
+                        raise
+                    time.sleep(1.5)
             if unlocked != "yes":
                 raise FlashError("The bootloader is locked. Flashing is not possible." if unlocked == "no" else
                                  "The bootloader didn't say whether it's unlocked. Nothing was written; try again.")
-            return f"unlocked, current slot {fb.getvar('current-slot') or '?'}"
-        if step.kind in ("flash", "flash-fw", "flash-any"):
+            slot = fb.query("current-slot")
+            if slot not in ("a", "b") and self.profile.bootloader_images:
+                raise FlashError(f"The bootloader didn't report its current slot ({slot!r}). Nothing was written.")
+            return f"unlocked, current slot {slot or '?'}"
+        if step.kind == "flash-any":
+            if step.source == "backup":
+                return "restored " + self._flash_both_slots(fb, step.partition,
+                                                            lambda t: self._backup_image(step.partition, t))
+            return "wrote " + self._flash_both_slots(fb, step.partition, lambda t: files[step.partition])
+        if step.kind in ("flash", "flash-fw"):
             if step.source == "backup":
                 return "restored " + self._flash_physical(fb, step.partition, lambda t: self._backup_image(step.partition, t))
             return "wrote " + self._flash_physical(fb, step.partition, lambda t: files[step.partition])
@@ -850,7 +860,11 @@ class Runner:
             except LostPhone as exc:
                 self._fail(step, index, exc, lost=True)
             except FastbootError as exc:
-                if step.kind == "flash-any" and self.fb is not None and self.fb.mode() == "bootloader":
+                try:
+                    in_bootloader = self.fb is not None and self.fb.mode() == "bootloader"
+                except LostPhone as lost:
+                    self._fail(step, index, lost, lost=True)
+                if step.kind == "flash-any" and in_bootloader:
                     # the bootloader refused it: written from fastbootd after the reboot there
                     step.status, step.detail = "deferred", f"the bootloader refused it ({exc}); written from fastbootd"
                     save_journal(plan, self.journal)
@@ -897,10 +911,13 @@ class Runner:
 
 
 USB_LOST = (
-    "The phone dropped off USB (or restarted) in the middle of this step, so this write didn't finish; nothing "
-    "after it was written. That's the USB link, not the ROM. Plug the phone straight into a port on the PC itself "
-    "(a rear port; USB 2.0 if there is one; no hub, extension or front-panel port), use a good data cable, and keep "
-    "the PC from sleeping. Then put the phone back in the bootloader and press Resume."
+    "The phone stopped answering over USB (it dropped off, restarted or got stuck), so this step didn't finish; "
+    "nothing after it was written. That's the USB link between this PC and the phone, not the ROM.\n"
+    "1. Restart the phone into the bootloader (fastboot mode); if it's stuck, hold the buttons to force it. "
+    "Don't start Android before the flash is finished.\n"
+    "2. Plug it straight into a port on the PC itself (a rear port, USB 2.0 if there is one; no hub, extension or "
+    "front-panel port) with a good data cable.\n"
+    "3. Press Resume: finished steps are skipped and this one is written again."
 )
 
 

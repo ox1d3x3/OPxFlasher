@@ -29,6 +29,10 @@ class LostPhone(FastbootError):
     """The USB link broke mid-command (the phone dropped off or restarted): not the phone refusing."""
 
 
+class NoAnswer(LostPhone):
+    """A question to the phone got no answer at all (as opposed to the phone saying "not found")."""
+
+
 # fastboot's own words when the USB transfer itself fails, as opposed to the phone answering FAILED (remote: ...)
 TRANSPORT_ERRORS = (
     "status read failed", "write to device failed", "read from device failed", "too many links",
@@ -40,6 +44,11 @@ TRANSPORT_ERRORS = (
 def is_transport_error(text: str) -> bool:
     low = text.lower()
     return any(marker in low for marker in TRANSPORT_ERRORS)
+
+
+def _last_line(text: str) -> str:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1] if lines else ""
 
 
 def poll_interval() -> float:
@@ -69,25 +78,44 @@ class Fastboot:
                 return value or None
         return None
 
+    def query(self, name: str, timeout: float = 12) -> str | None:
+        """getvar that tells silence from "no": the value, None when the phone answers that it has no
+        such variable, NoAnswer when it doesn't answer at all (USB link down, phone gone or stuck).
+        A silent phone is never read as "this partition doesn't exist" or "this isn't fastbootd"."""
+        res = self.tool.run("getvar", name, timeout=timeout)
+        out = res.stderr + "\n" + res.stdout
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("(bootloader) "):
+                line = line[len("(bootloader) ") :]
+            if line.startswith(name + ":"):
+                value = line[len(name) + 1 :].strip()
+                if value and not (value.startswith("FAILED") and is_transport_error(value)):
+                    return value
+        low = out.lower()
+        if res.returncode == 124 or "waiting for" in low or (is_transport_error(out) and "remote:" not in low):
+            raise NoAnswer(f"the phone didn't answer 'getvar {name}' ({_last_line(out) or 'no reply'})")
+        return None
+
     def getvar_all(self) -> dict[str, str]:
         res = self.tool.run("getvar", "all", timeout=30)
         return parse_getvar_all(res.stderr + "\n" + res.stdout)
 
     def mode(self) -> str:
-        return "fastbootd" if self.getvar("is-userspace") == "yes" else "bootloader"
+        return "fastbootd" if self.query("is-userspace") == "yes" else "bootloader"
 
     def has_slot(self, name: str) -> bool:
-        return self.getvar(f"has-slot:{check_name(name)}") == "yes"
+        return self.query(f"has-slot:{check_name(name)}") == "yes"
 
     def partition_size(self, name: str) -> int | None:
-        value = self.getvar(f"partition-size:{check_name(name)}")
+        value = self.query(f"partition-size:{check_name(name)}")
         try:
             return int(value, 16) if value else None
         except ValueError:
             return None
 
     def is_logical(self, name: str) -> bool | None:
-        value = self.getvar(f"is-logical:{check_name(name)}")
+        value = self.query(f"is-logical:{check_name(name)}")
         return None if value is None else value == "yes"
 
     # --- writing ------------------------------------------------------

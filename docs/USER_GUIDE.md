@@ -181,11 +181,15 @@ How it flashes:
 - Every step is saved to `journal.json`. The run stops at the first error, and
   `opx flash --resume journal.json` continues without repeating finished steps.
   **Stop** waits for the current step; a running write is never interrupted.
-- If the phone drops off USB in the middle of a write (fastboot says `Status read failed`,
-  `Write to device failed` or `Too many links`, and the phone often restarts), the flash stops right
-  there. That's the USB link, not the ROM: use a port on the PC itself (a rear port, USB 2.0 if there
-  is one, no hub or front-panel port) and a good data cable, then press **Resume**; if the phone
-  restarted to Android, Resume puts it back in the bootloader. The log names the fastboot used.
+- If the phone drops off USB or stops answering (fastboot says `Status read failed`,
+  `Write to device failed`, `Too many links` or `no link`, or a question gets no reply), the flash
+  stops right there. A silent phone is never taken for "this partition doesn't exist". That's the
+  USB link, not the ROM: restart the phone into the bootloader (force it if it's stuck), use a port
+  on the PC itself (a rear port, USB 2.0 if there is one, no hub or front-panel port) and a good data
+  cable, then press **Resume**. The log names the fastboot used; if it's an old copy, put a current
+  `platform-tools` folder next to OPxFlasher (it's used first).
+- The bootloader images (boot, dtbo, init_boot, modem, recovery, vbmeta*, vendor_boot on the
+  OnePlus 13) go to `_a` then `_b` with no questions in between, the way Super Flasher writes them.
 - Optional: factory reset (`--wipe`), don't reboot at the end (`--no-reboot`: the phone stays in the bootloader,
   or goes back to it from fastbootd),
   flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
