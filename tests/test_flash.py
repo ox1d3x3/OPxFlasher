@@ -650,3 +650,33 @@ def test_nothing_else_talks_fastboot_during_a_flash(adb, fastboot, phone, fb_sta
     runner.run()
     assert seen == ["busy"]
     assert _try(fastboot.bind("FAKE0001")) == "ran"  # free again afterwards
+
+
+def test_silent_phone_is_waited_for_with_a_replug_hint(fastboot, fb_state):
+    # Windows sometimes misses the switch to fastbootd until the cable is plugged in again
+    from opx.fastboot import wait_for_fastboot
+
+    fb_state(mode="bootloader", silent=True)
+    hints = []
+    with pytest.raises(fl.FastbootError, match="did not appear"):
+        wait_for_fastboot(fastboot, "FAKE0001", False, timeout=0.5, on_slow=hints.append, slow_after=0)
+    assert len(hints) == 1 and "plug it back in" in hints[0]  # and a silent phone wasn't taken for the bootloader
+    fb_state(silent=False)
+    assert wait_for_fastboot(fastboot, "FAKE0001", None, timeout=5) == "FAKE0001"
+
+
+def test_resume_puts_a_restarted_phone_back_in_fastbootd(adb, fastboot, phone, fb_state, tmp_path):
+    # rc.67: fastbootd dropped off USB at uefi; the phone came back in the bootloader. Resume carries on.
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    fb_state(drop_on_flash="xbl_config_a")
+    with pytest.raises(fl.FlashError, match="stopped answering over USB"):
+        runner.run()
+    fb_state(drop_on_flash=None, mode="bootloader")
+    from opx.profile import load
+
+    events = []
+    fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5,
+                     on_event=events.append).run()
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    assert all(s["status"] == "done" for s in journal["steps"])
+    assert any("switching it to fastbootd" in e.get("message", "") for e in events)

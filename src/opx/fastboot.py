@@ -185,15 +185,28 @@ def fastboot_serials(fastboot: Tool) -> list[str]:
     return parse_fastboot_devices(res.stdout + "\n" + res.stderr)
 
 
+REPLUG_HINT = (
+    "Still waiting for the phone. If its screen already shows {where}, unplug the USB cable and plug it back in: "
+    "Windows sometimes misses the switch to {where} until the phone is plugged in again."
+)
+
+
 def wait_for_fastboot(
     fastboot: Tool,
     serial: str | None,
-    userspace: bool,
+    userspace: bool | None,
     timeout: float = 120,
     cancel=None,
+    on_slow=None,
+    slow_after: float = 20,
 ) -> str:
-    """Wait until the phone shows up in bootloader (userspace=False) or fastbootd."""
-    deadline = time.monotonic() + timeout
+    """Wait until the phone shows up in bootloader (userspace=False), fastbootd (True) or either (None).
+    `on_slow(text)` is called once if it takes longer than `slow_after` seconds (the replug hint). A phone
+    that's listed but doesn't answer is still being waited for: silence never counts as the bootloader."""
+    start = time.monotonic()
+    deadline = start + timeout
+    hinted = False
+    where = "fastboot mode" if userspace is None else "fastbootd" if userspace else "the bootloader"
     while time.monotonic() < deadline:
         if cancel is not None and cancel.is_set():
             raise FastbootError("cancelled while waiting for the phone")
@@ -204,11 +217,18 @@ def wait_for_fastboot(
         if len(candidates) == 1:
             fb = fastboot.bind(candidates[0])
             res = fb.run("getvar", "is-userspace", timeout=15)
-            is_user = "is-userspace: yes" in (res.stderr + res.stdout)
-            if is_user == userspace:
-                return candidates[0]
+            out = res.stderr + res.stdout
+            low = out.lower()
+            answered = res.returncode != 124 and "waiting for" not in low and not (
+                is_transport_error(out) and "remote:" not in low)
+            if answered:
+                is_user = "is-userspace: yes" in out
+                if userspace is None or is_user == userspace:
+                    return candidates[0]
+        if on_slow is not None and not hinted and time.monotonic() - start > slow_after:
+            hinted = True
+            on_slow(REPLUG_HINT.format(where=where))
         time.sleep(poll_interval())
-    where = "fastbootd" if userspace else "the bootloader"
     raise FastbootError(f"The phone did not appear in {where} within {int(timeout)} seconds.")
 
 

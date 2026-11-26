@@ -616,8 +616,9 @@ class Runner:
                 return True
         return False
 
-    def _connect(self, userspace: bool) -> Fastboot:
-        serial = wait_for_fastboot(self.fastboot_tool, self.serial, userspace, self.wait_timeout, self.cancel)
+    def _connect(self, userspace: bool | None) -> Fastboot:
+        serial = wait_for_fastboot(self.fastboot_tool, self.serial, userspace, self.wait_timeout, self.cancel,
+                                   on_slow=lambda text: self.emit({"type": "log", "message": text}))
         self.serial = self.serial or serial
         self.fb = Fastboot(self.fastboot_tool.bind(serial), self.profile)
         return self.fb
@@ -658,24 +659,33 @@ class Runner:
             try:
                 self.fb = self._connect_now()
             except FastbootError:
-                if not self._adb_in_android():
-                    raise
-                self._to_bootloader()  # resuming after the phone restarted to Android
+                if self._adb_in_android():
+                    self._to_bootloader()  # resuming after the phone restarted to Android
+                else:
+                    self._connect(userspace=None)  # resuming: wait for it (a replug, on Windows)
         self.fb.mode()  # is it still answering? (raises NoAnswer, so nothing waits on a silent phone)
         return self.fb
 
     def _ensure(self, mode: str) -> Fastboot:
         """Before each step: the phone must already be in the expected mode (and answering)."""
-        if self.fb is None:
+        fresh = self.fb is None  # (re)connecting, e.g. on Resume: the phone may be in the other fastboot mode
+        if fresh:
             try:
                 self.fb = self._connect_now()
             except FastbootError:
                 if mode == "bootloader" and self._adb_in_android():
                     self._to_bootloader()  # resuming after the phone booted back to Android
                 else:
-                    raise
+                    # resuming with the phone not (yet) seen: wait for it, with the replug hint
+                    self._connect(userspace=None)
         fb = self.fb
         actual = fb.mode()
+        if actual != mode and fresh and "fastbootd" not in self.plan.blocked_actions:
+            # Resume with the phone in the bootloader for a fastbootd step (it restarted), or the other way round
+            self.emit({"type": "log", "message": f"The phone is in {actual}; switching it to {mode} to carry on..."})
+            fb.reboot("fastboot" if mode == "fastbootd" else "bootloader")
+            fb = self._connect(userspace=mode == "fastbootd")
+            actual = fb.mode()
         if actual != mode:
             raise FlashError(f"Expected the phone in {mode}, but it is in {actual}. Stopping.")
         return fb
@@ -949,11 +959,13 @@ FASTBOOTD_DIDNT_START = (
 USB_LOST = (
     "The phone stopped answering over USB (it dropped off, restarted or got stuck), so this step didn't finish; "
     "nothing after it was written. That's the USB link between this PC and the phone, not the ROM.\n"
-    "1. Restart the phone into the bootloader (fastboot mode); if it's stuck, hold the buttons to force it. "
-    "Don't start Android before the flash is finished.\n"
+    "1. Unplug the USB cable and plug it back in. If the phone still shows the bootloader or fastbootd, leave it "
+    "there; if it restarted or is stuck, put it in the bootloader (hold the buttons to force it). Don't start "
+    "Android before the flash is finished.\n"
     "2. Plug it straight into a port on the PC itself (a rear port, USB 2.0 if there is one; no hub, extension or "
     "front-panel port) with a good data cable.\n"
-    "3. Press Resume: finished steps are skipped and this one is written again."
+    "3. Press Resume: finished steps are skipped and this one is written again. Resume waits for the phone, in "
+    "either mode, and takes it from there."
 )
 
 

@@ -188,6 +188,10 @@ How it flashes:
   on the PC itself (a rear port, USB 2.0 if there is one, no hub or front-panel port) and a good data
   cable, then press **Resume**. The log names the fastboot used; if it's an old copy, put a current
   `platform-tools` folder next to OPxFlasher (it's used first).
+- On Windows the switch to fastbootd is sometimes missed until the cable is plugged in again. If the
+  phone's screen shows fastbootd and OPxFlasher keeps waiting, it says so after about 20 seconds:
+  unplug the cable and plug it back in. **Resume** also waits for the phone, and switches it between
+  the bootloader and fastbootd if it came back in the other mode.
 - **Keep my custom recovery** only works when nothing is written from fastbootd. fastbootd starts
   from the recovery partition, and a custom recovery made for another build may not start with the
   new boot images (AERA for 16 under a 17 ROM never brought fastbootd up). For a full ROM on the
