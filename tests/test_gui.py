@@ -432,7 +432,7 @@ def test_gui_flash_image_tab(window, monkeypatch, tmp_path, fb_state):
 
 
 def test_gui_flash_image_without_a_backup(window, monkeypatch, tmp_path, fb_state):
-    """A phone without root (no backup possible): tick the box, type NO BACKUP."""
+    """A phone without root (no backup possible): tick "I agree with the risk", type FLASH."""
     import os
     import sys
     from pathlib import Path
@@ -450,13 +450,11 @@ def test_gui_flash_image_without_a_backup(window, monkeypatch, tmp_path, fb_stat
     tab.check()
     assert not tab.plan.ok and "backup" in tab.summary.text().lower()
     tab.no_backup.setChecked(True)
-    assert not tab.backup_edit.isEnabled() and tab.confirm_label.text() == "Type NO BACKUP:"
+    assert not tab.backup_edit.isEnabled() and tab.confirm_label.text() == "Type FLASH:"
     tab.check()
     assert tab.plan.ok, tab.summary.text()
     assert "No backup" in tab.summary.text()
     tab.confirm.setText("FLASH")
-    assert not tab.flash_btn.isEnabled()
-    tab.confirm.setText("NO BACKUP")
     assert tab.flash_btn.isEnabled()
     tab.flash_btn.click()
     settle(app, 400)
@@ -1287,10 +1285,8 @@ def test_gui_flash_without_root_or_backup(adb_env, fb_state, monkeypatch, tmp_pa
                 self.accept_arb()
                 self.confirm_edit.setText("FLASH")
                 seen["blocked_without"] = not self.start_btn.isEnabled()  # no backup chosen, box not ticked
-                self.no_backup.setChecked(True)
-                seen["word"] = self.confirm_label.text()
-                assert not self.start_btn.isEnabled()  # FLASH isn't the word any more
-                self.confirm_edit.setText("NO BACKUP")
+                self.no_backup.setChecked(True)  # "I agree with the risk": no extra word to type
+                seen["word"] = self.no_backup.text()
                 seen["enabled"] = self.start_btn.isEnabled()
                 seen["preview"] = self.preview.toPlainText()
                 return QDialog.DialogCode.Accepted
@@ -1298,7 +1294,7 @@ def test_gui_flash_without_root_or_backup(adb_env, fb_state, monkeypatch, tmp_pa
         monkeypatch.setattr(gui_app, "FlashDialog", AutoDialog)
         win.start_flash()
         settle(app, cycles=600)
-        assert seen["blocked_without"] and "NO BACKUP" in seen["word"] and seen["enabled"]
+        assert seen["blocked_without"] and "I agree with the risk" in seen["word"] and seen["enabled"]
         assert "No backup" in seen["preview"]
         assert win.flash_label.text() == "Done: flash complete"
         assert (adb_env / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)

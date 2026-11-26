@@ -185,6 +185,18 @@ def main(argv: list[str]) -> int:
         save(state)
         err("Erasing 'userdata' OKAY\nErasing 'metadata' OKAY")
         return 0
+    if args[:1] == ["delete-logical-partition"] and len(args) == 2:
+        if state.get("mode") != "fastbootd":
+            err("FAILED (remote: 'unknown command')")
+            return 1
+        target = ROOT / "mapper" / args[1]
+        if not target.exists():
+            err(f"FAILED (remote: 'Could not find partition {args[1]}')")
+            return 1
+        target.unlink()
+        log(f"delete-logical-partition {args[1]}")
+        save(state)
+        return 0
     if args == ["snapshot-update", "cancel"]:
         state["snapshot"] = "none"
         log("snapshot-update cancel")

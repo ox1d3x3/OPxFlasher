@@ -137,7 +137,8 @@ class RootTab(QWidget):
         row.addWidget(self.backup_edit, 1)
         row.addWidget(b)
         l4.addLayout(row)
-        self.no_backup = QCheckBox(tr("Flash without a backup (a phone without root can't make one yet)"))
+        self.no_backup = QCheckBox(tr("Flash without a backup: I agree with the risk (a phone without root can't "
+                                      "make one yet)"))
         self.no_backup.setToolTip(tr("Only init_boot / boot of the current slot is written, and the stock image "
                                      "prepared in step 1 is kept for Restore stock image. Make your backups "
                                      "right after rooting."))
@@ -213,8 +214,6 @@ class RootTab(QWidget):
         if on:
             self.backup_edit.clear()
         self.backup_edit.setEnabled(not on)
-        self.confirm_label.setText(tr("Type ROOT NO BACKUP or UNROOT NO BACKUP:") if on else tr("Type ROOT or UNROOT:"))
-        self.confirm.setMaximumWidth(220 if on else 140)
         self.confirm.clear()
         self.refresh_buttons()
 
@@ -224,7 +223,7 @@ class RootTab(QWidget):
         self.prepare_btn.setEnabled(live)
         self.pull_btn.setEnabled(live and self.session is not None)
         word = self.confirm.text().strip()
-        tail = " NO BACKUP" if self.no_backup.isChecked() else ""
+        tail = ""  # without a backup, the ticked "I agree with the risk" box is the agreement
         patched_ok = self.session is not None and self.pull_problems == []
         self.root_btn.setEnabled(live and patched_ok and word == "ROOT" + tail)
         self.unroot_btn.setEnabled(live and self.session is not None and word == "UNROOT" + tail)

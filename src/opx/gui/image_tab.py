@@ -80,10 +80,10 @@ class ImageTab(QWidget):
         row.addWidget(pick_b)
         form.addLayout(row)
 
-        self.no_backup = QCheckBox(tr("Flash without a backup (I accept the risk)"))
+        self.no_backup = QCheckBox(tr("Flash without a backup: I agree with the risk"))
         self.no_backup.setToolTip(tr("For a phone that can't be backed up yet (no root). Only this one image is "
                                      "written; identity partitions, the bootloader chain and wrong images are still "
-                                     "refused. You type NO BACKUP to flash."))
+                                     "refused."))
         self.no_backup.toggled.connect(self._no_backup_toggled)
         form.addWidget(self.no_backup)
 
@@ -160,13 +160,12 @@ class ImageTab(QWidget):
 
     @property
     def word(self) -> str:
-        return "NO BACKUP" if self.no_backup.isChecked() else "FLASH"
+        return "FLASH"  # without a backup: the ticked "I agree with the risk" box is the agreement
 
     def _no_backup_toggled(self, on: bool) -> None:
         if on:
             self.backup_edit.clear()
         self.backup_edit.setEnabled(not on)
-        self.confirm_label.setText(tr("Type NO BACKUP:") if on else tr("Type FLASH:"))
         self._invalidate()
 
     def _invalidate(self, *_a) -> None:

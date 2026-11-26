@@ -82,7 +82,7 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
 - **Tabs:** *ROMs* gets, verifies and converts ROMs (nothing touches the phone); *Flash ROM* is
   just: choose the ROM → **Check ROM** → **Flash...**.
 - **A backup is recommended, not required.** The Flash dialog asks for one; without it, tick *Flash
-  without a backup (I accept the risk)* (`opx flash --no-backup`) and type `NO BACKUP`. Every other
+  without a backup: I agree with the risk* (CLI: `opx flash --no-backup`, type `NO BACKUP`). Every other
   check stays: wrong phone, older build (fuse), region change (wipe + confirmation), ARB, identity
   partitions never written.
 - **Mobile network files** (`oplusstanvbk`, `my_region`) aren't written by a same-region flash: the
@@ -283,7 +283,7 @@ those projects recommend. OPxFlasher handles the error-prone parts around it:
 4. **Flashed to the current slot only**, behind the usual gates (verified backup,
    known-bad firmware block, typed `ROOT`). The image is re-hashed right before writing.
    **First root:** a phone without root can't be backed up yet, so tick *Flash without a backup*
-   and type `ROOT NO BACKUP`. Only init_boot / boot of the current slot is written, and the stock
+   (*I agree with the risk*; CLI: type `ROOT NO BACKUP`). Only init_boot / boot of the current slot is written, and the stock
    image from step 1 stays ready for *Restore stock image*. Make your Critical and Full backups
    right after.
 5. **Unroot** writes the stock image back the same way (typed `UNROOT`).
@@ -332,7 +332,7 @@ phone is required, the image is re-hashed right before writing, and you confirm 
 FLASH. If the phone is already in fastboot, the backup tells OPxFlasher which phone it is.
 
 **Without a backup** (e.g. installing a custom recovery on a phone that isn't rooted yet):
-tick *Flash without a backup (I accept the risk)* (`--no-backup`) and type `NO BACKUP`.
+tick *Flash without a backup: I agree with the risk* (CLI: `--no-backup`, type `NO BACKUP`).
 Everything above is still refused (identity partitions, `super`, the bootloader chain, wrong
 types, firmware with a broken bootloader); only the backup isn't required. The phone can
 already be in fastboot: OPxFlasher knows it by its serial number. A full ROM flash works the same

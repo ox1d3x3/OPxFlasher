@@ -100,6 +100,13 @@ class Fastboot:
                 raise FastbootError("verity flags only apply to vbmeta")
         return self._check((*flags, "flash", partition, str(image)), timeout)
 
+    def delete_logical(self, name: str) -> bool:
+        """fastbootd: remove a logical partition from super (e.g. the other slot's copy). False if it
+        wasn't there or couldn't be removed; never raises for that."""
+        res = self.tool.run("delete-logical-partition", check_name(name), timeout=60)
+        out = (res.stderr + res.stdout)
+        return res.returncode == 0 and "FAILED" not in out
+
     def set_active(self, slot: str) -> None:
         if slot not in ("a", "b"):
             raise FastbootError(f"invalid slot {slot!r}")

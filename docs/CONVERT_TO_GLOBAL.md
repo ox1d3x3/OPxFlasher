@@ -72,7 +72,7 @@ In the Flash dialog:
   `my_region` when the new ROM doesn't check it at boot, are written back from your backup.
 - **Different variant → Yes, I want to flash this other variant**.
 - **Validate ROM / ARB** with the phone in Android, then *Read the warning and accept the risk*
-  (only after the numbers were checked), and type `FLASH` (or `NO BACKUP`).
+  (only after the numbers were checked), and type `FLASH` (without a backup, tick *I agree with the risk*).
 
 The flash goes: reboot to the bootloader → check it's unlocked → **wipe** → firmware to both slots
 → fastbootd → system partitions and your region files → **reboot**. It never goes back to the

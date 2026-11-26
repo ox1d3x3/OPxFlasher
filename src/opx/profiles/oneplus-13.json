@@ -39,5 +39,7 @@
     "dodge"
   ],
   "rollback_fuse": "16.0.3.501",
-  "firmware_in_fastbootd": true
+  "firmware_in_fastbootd": true,
+  "bootloader_images": ["boot", "dtbo", "init_boot", "modem", "recovery", "vbmeta", "vbmeta_system",
+                        "vbmeta_vendor", "vendor_boot"]
 }

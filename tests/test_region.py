@@ -69,7 +69,7 @@ def test_conversion_keeps_own_region_files(adb, fastboot, phone, fb_state, tmp_p
     plan, runner, _, orig = prepare(adb, fastboot, tmp_path, options, rom=rom_for(tmp_path))
     assert plan.ok, plan.problems
     labels = [s.label for s in plan.steps]
-    assert "Restore oplusstanvbk from your backup (both slots)" in labels
+    assert "Restore oplusstanvbk from your backup (both slots, in fastbootd)" in labels  # OnePlus 13
     assert "Restore my_region from your backup (logical, in fastbootd)" in labels
     simulate_ota_overwrite(phone)  # prove the restore really writes
     runner.run()

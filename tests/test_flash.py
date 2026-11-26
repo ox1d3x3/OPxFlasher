@@ -107,8 +107,11 @@ def test_full_flash_via_fastbootd(adb, fastboot, phone, fb_state, tmp_path):
 
     log = fb_state.read()["log"]
     assert log[0] == "adb reboot bootloader"
-    physical = [e for e in log if e.startswith("flash ") and e[6:].endswith(("_a", "_b"))]
-    assert physical[-2:] == ["flash vbmeta_a", "flash vbmeta_b"]  # vbmeta last
+    in_bootloader = log[:log.index("reboot fastboot")]
+    physical = [e for e in in_bootloader if e.startswith("flash ") and e[6:].endswith(("_a", "_b"))]
+    assert physical[-2:] == ["flash vbmeta_a", "flash vbmeta_b"]  # vbmeta last in the bootloader
+    # OnePlus 13, as Super Flasher: xbl_config (firmware) from fastbootd
+    assert log.index("reboot fastboot") < log.index("flash xbl_config_a")
     assert "reboot fastboot" in log and log[-1] == "reboot"
     assert fb_state.read()["mode"] == "android"
 
@@ -329,24 +332,41 @@ def test_no_backup_with_a_network_backup_for_own_network_files(adb, fastboot, ph
 
 
 def test_firmware_from_fastbootd_when_the_bootloader_refuses_it(adb, fastboot, phone, fb_state, tmp_path):
-    # real OnePlus 13: the bootloader refuses xbl (here dtbo), fastbootd refuses modem (here vbmeta).
-    # Each image goes in from the bootloader if it takes it, otherwise from fastbootd.
-    fb_state(refuse={"bootloader": ["dtbo"], "fastbootd": ["vbmeta"]})
+    # the real OnePlus 13: its bootloader writes boot, dtbo, modem, vbmeta ... (the profile's
+    # bootloader_images, as Super Flasher does) and refuses the rest; its fastbootd refuses modem.
+    fb_state(refuse={"bootloader": ["xbl_config", "oplusstanvbk"], "fastbootd": ["modem", "vbmeta"]})
     plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
     assert plan.ok, plan.problems
+    by_name = {st.partition: st.kind for st in plan.steps if st.kind.startswith("flash-") and st.partition}
+    assert by_name["vbmeta"] == "flash-any" and by_name["dtbo"] == "flash-any"
+    assert by_name["xbl_config"] == "flash-fw"
     kinds = [st.kind for st in plan.steps]
-    assert "flash" not in kinds and "flash-fw" not in kinds
-    assert kinds.index("flash-any") < kinds.index("to-fastbootd") < kinds.index("flash-logical")
+    assert kinds.index("to-fastbootd") < kinds.index("flash-fw") < kinds.index("free-super") < kinds.index("flash-logical")
     runner.run()
-    for slot in ("_a", "_b"):
-        assert (phone / "by-name" / f"dtbo{slot}").read_bytes().startswith(b"D" * 4096)
     log = fb_state.read()["log"]
-    first_dtbo = next(i for i, c in enumerate(log) if c == "flash dtbo_a")
-    first_vbmeta = next(i for i, c in enumerate(log) if c == "flash vbmeta_a")
-    assert first_vbmeta < log.index("reboot fastboot") < first_dtbo  # vbmeta: bootloader; dtbo: fastbootd
-    journal = json.loads((tmp_path / "journal.json").read_text())
+    fbd = log.index("reboot fastboot")
+    assert log.index("flash vbmeta_a") < fbd < log.index("flash xbl_config_a")
+    assert (phone / "by-name" / "xbl_config_b").read_bytes()[:4] == b"\x7fELF"
+    # a bootloader-list image the bootloader refuses after all: written from fastbootd (fallback)
+    fb_state(refuse={"bootloader": ["dtbo"]}, log=[])
+    (tmp_path / "again").mkdir()
+    plan, runner = setup(adb, fastboot, tmp_path / "again", fl.FlashOptions(**ALLOW))
+    runner.run()
+    journal = json.loads((tmp_path / "again" / "journal.json").read_text())
     dtbo = next(s for s in journal["steps"] if s["partition"] == "dtbo")
     assert dtbo["status"] == "done" and "from fastbootd" in dtbo["detail"]
+
+
+def test_other_slots_logical_copies_are_removed_first(adb, fastboot, phone, fb_state, tmp_path):
+    # super has room for one set of system partitions: the other slot's and any OTA -cow go first
+    (phone / "mapper" / "system_b").write_bytes(b"x" * 4096)
+    (phone / "mapper" / "system_a-cow").write_bytes(b"c" * 4096)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    runner.run()
+    log = fb_state.read()["log"]
+    assert "delete-logical-partition system_b" in log and "delete-logical-partition system_a-cow" in log
+    assert log.index("delete-logical-partition system_b") < log.index("flash system")
+    assert (phone / "mapper" / "system_a").exists() and not (phone / "mapper" / "system_b").exists()
 
 
 def test_refused_in_both_modes_stops_with_the_phones_reason(adb, fastboot, phone, fb_state, tmp_path):
@@ -449,3 +469,41 @@ def test_partition_size_not_answered_is_left_to_fastboot(adb, fastboot, phone, f
     journal = json.loads((tmp_path / "journal.json").read_text())
     dtbo = next(s for s in journal["steps"] if s["partition"] == "dtbo")
     assert "size checked by fastboot" in dtbo["detail"]
+
+
+def test_real_oneplus_13_behaviour_end_to_end(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    # Everything the real OnePlus 13 did on 26 Nov 2026, at once:
+    # - the bootloader writes only boot, dtbo, init_boot, modem, recovery, vbmeta*, vendor_boot
+    # - fastbootd refuses modem and doesn't report its size
+    # - `fastboot reboot fastboot` hangs the tool after rebooting the phone
+    # - the other slot has its own copy of system in super
+    from opx import tools
+
+    for slot in ("_a", "_b"):
+        put(phone, f"modem{slot}", b"\0" * 65536)
+        put(phone, f"abl{slot}", b"\0" * 65536)
+    (phone / "mapper" / "system_b").write_bytes(b"x" * 4096)
+    fb_state(refuse={"bootloader": ["xbl_config", "abl", "oplusstanvbk"], "fastbootd": ["modem"]},
+             no_size=["modem_a", "modem_b"])
+    real_run = tools.Tool.run
+
+    def run(self, *args, timeout=30):
+        res = real_run(self, *args, timeout=timeout)
+        return tools.Result(124, "", "fastboot timed out") if args[:2] == ("reboot", "fastboot") else res
+
+    monkeypatch.setattr(tools.Tool, "run", run)
+    parts = {**ROM_PARTS, "modem": b"M" * 4096, "abl": rf.build_qcom_elf(arb=1)}
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=make_rom(tmp_path, parts))
+    assert plan.ok, plan.problems
+    runner.run()
+    for name, data in (("modem", b"M" * 4096), ("dtbo", b"D" * 4096), ("boot", b"B" * 8192)):
+        for slot in ("_a", "_b"):
+            assert (phone / "by-name" / f"{name}{slot}").read_bytes().startswith(data), name + slot
+    for slot in ("_a", "_b"):
+        assert (phone / "by-name" / f"abl{slot}").read_bytes()[:4] == b"\x7fELF"
+    log = fb_state.read()["log"]
+    fbd = log.index("reboot fastboot")
+    assert log.index("flash modem_a") < fbd < log.index("flash abl_a") < log.index("flash system")
+    assert log[-1] == "reboot" and "delete-logical-partition system_b" in log
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    assert all(s["status"] == "done" for s in journal["steps"]), [s for s in journal["steps"] if s["status"] != "done"]

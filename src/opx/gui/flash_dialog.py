@@ -60,10 +60,9 @@ class FlashDialog(QDialog):
         row.addWidget(self.backup_edit, 1)
         row.addWidget(browse)
         b_layout.addLayout(row)
-        self.no_backup = QCheckBox(tr("Flash without a backup (I accept the risk)"))
+        self.no_backup = QCheckBox(tr("Flash without a backup: I agree with the risk"))
         self.no_backup.setToolTip(tr("A backup lets you go back if something goes wrong. Without one, the ROM can "
-                                     "still be flashed again. Every other safety check stays on. You type NO BACKUP "
-                                     "to flash."))
+                                     "still be flashed again. Every other safety check stays on."))
         b_layout.addWidget(self.no_backup)
         b_hint = QLabel(tr("Recommended: Backup tab > Critical (needs root). Without root, tick the box above."))
         b_hint.setStyleSheet("color:#9aa3b5")
@@ -370,10 +369,7 @@ class FlashDialog(QDialog):
                 lines.append("All data on the phone will be erased.")
         lines += [f"Note: {w}" for w in self.plan.warnings]
         self.preview.setPlainText("\n".join(lines))
-        word = "NO BACKUP" if self.no_backup.isChecked() else "FLASH"
-        self.confirm_label.setText(tr("Type NO BACKUP to enable the button:") if word == "NO BACKUP"
-                                   else tr("Type FLASH to enable the button:"))
         if self.keep_region_box is not None:
             self._sync_warn_only()
-        typed = self.confirm_edit.text().strip() == word
+        typed = self.confirm_edit.text().strip() == "FLASH"
         self.start_btn.setEnabled(self.plan.ok and typed)

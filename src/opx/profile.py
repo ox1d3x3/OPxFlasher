@@ -79,6 +79,9 @@ class Profile:
     # the bootloader's fastboot refuses firmware partitions (xbl, xbl_config, abl ...): write every
     # physical image from fastbootd instead (OnePlus 13, Nov 2026)
     firmware_in_fastbootd: bool = False
+    # with firmware_in_fastbootd: the images the bootloader does write (OnePlus 13: boot, dtbo, modem,
+    # vbmeta ..., as koaaN's Super Flasher does); every other physical image goes in from fastbootd
+    bootloader_images: list[str] = field(default_factory=list)
 
     def rules_for(self, mode: str) -> list[PartitionRule]:
         if mode == "network":
@@ -135,7 +138,7 @@ ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
               "conditional", "avb_images", "variants", "codenames", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
-              "qcom_arb_validated", "firmware_in_fastbootd"}
+              "qcom_arb_validated", "firmware_in_fastbootd", "bootloader_images"}
 
 
 class ProfileError(ValueError):
@@ -288,6 +291,7 @@ def _build(raw: dict) -> Profile:
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
         firmware_in_fastbootd=bool(raw.get("firmware_in_fastbootd", False)),
+        bootloader_images=list(raw.get("bootloader_images", [])),
     )
 
 
