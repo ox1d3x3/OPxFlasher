@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -70,6 +71,7 @@ class FlashOptions:
     keep_recovery: bool = False  # don't write recovery: a custom recovery (AERA, OrangeFox) stays
     no_backup: bool = False  # the user typed NO BACKUP: a backup is recommended, not required
     network_backup: str = ""  # where restore_from_backup comes from, if not the main backup (Network essentials)
+    hardware: str = ""  # "cn" / "global": asked for ROMs where China hardware needs its own way (OnePlus 13, 17)
 
 
 def override_key(check) -> str | None:
@@ -219,7 +221,7 @@ class Step:
             extra = " with verity disabled" if self.flags else ""
             return f"Flash {Path(self.image).name} to {self.partition} ({where}){extra}"
         if self.source == "backup":
-            where = {"flash": "both slots", "flash-any": "both slots",
+            where = {"flash": "both slots", "flash-any": "both slots", "flash-bl": "both slots",
                      "flash-fw": "both slots, in fastbootd"}.get(self.kind, "logical, in fastbootd")
             return f"Restore {self.partition} from your backup ({where})"
         return {
@@ -228,6 +230,7 @@ class Step:
             "flash": f"Flash {self.partition} (both slots)",
             "flash-fw": f"Flash {self.partition} (both slots, in fastbootd)",
             "flash-any": f"Flash {self.partition} (both slots)",
+            "flash-bl": f"Flash {self.partition} (both slots)",
             "free-super": "Make room in super (remove the other slot's copies)",
             "to-fastbootd": "Reboot to fastbootd",
             "snapshot": "Cancel any pending OTA snapshot",
@@ -244,7 +247,8 @@ class Step:
         """The mode the phone must be in before this step runs (flash-any: either)."""
         if self.kind == "flash-any":
             return None
-        if self.kind in ("preflight", "flash", "flash-super", "flash-current", "flash-image", "to-fastbootd", "wipe", "reboot"):
+        if self.kind in ("preflight", "flash", "flash-bl", "flash-super", "flash-current", "flash-image", "to-fastbootd",
+                         "wipe", "reboot"):
             return "bootloader"
         if self.kind in ("snapshot", "flash-fw", "free-super", "flash-logical", "back-to-bootloader",
                          "reboot-from-fastbootd"):
@@ -308,6 +312,25 @@ def prepare(
     has_super_image = "super" in physical
     if has_super_image:
         physical.remove("super")
+    profile = device.profile
+    android = _major(getattr(rom, "android", ""))
+    if options.hardware not in ("", "cn", "global"):
+        problems.append(f"Unknown hardware choice {options.hardware!r}.")
+    cn = options.hardware == "cn"
+    if needs_hardware_choice(profile, android) and not options.hardware:
+        problems.append(HARDWARE_QUESTION.format(android=android or "17+", phone=profile.name))
+    china = next((m for m in (_backup_model(backup_folder), _backup_model(options.network_backup),
+                              device.facts.get("model", "")) if m.upper().startswith("PJZ")), "")
+    if options.hardware == "global" and profile.cn_hardware_keep and china:
+        problems.append(f"This phone or its backup is a {china}: China hardware, also after a conversion. "
+                        "Choose China hardware.")
+    if cn:
+        if not profile.cn_hardware_keep or not profile.firmware_in_fastbootd:
+            problems.append(f"China-hardware mode isn't defined for {profile.name}.")
+            cn = False
+        else:
+            physical = [n for n in physical if n not in profile.cn_hardware_keep]
+            warnings.append(CN_HARDWARE_NOTE.format(kept=", ".join(profile.cn_hardware_keep)))
     kept_recovery = options.keep_recovery and "recovery" in physical
     if kept_recovery:
         physical = [n for n in physical if n != "recovery"]
@@ -347,6 +370,7 @@ def prepare(
             problems=problems,
             fw_in_fastbootd=device.profile.firmware_in_fastbootd,
             bootloader_images=device.profile.bootloader_images,
+            cn_hardware=cn,
         )
 
     steps = assemble(physical)
@@ -403,7 +427,7 @@ def _restore_targets(options, profile, backup_folder, chosen, problems, skip=fro
 
 
 def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems,
-              fw_in_fastbootd: bool = False, bootloader_images=()) -> list[Step]:
+              fw_in_fastbootd: bool = False, bootloader_images=(), cn_hardware: bool = False) -> list[Step]:
     # a phone whose bootloader refuses some firmware (OnePlus 13: xbl ...) and whose fastbootd refuses
     # other firmware (modem): each image goes in from the bootloader if it takes it, else from fastbootd
     def kind_for(name: str) -> str:
@@ -437,6 +461,17 @@ def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_
         # before the system partitions: the other slot's copies and leftover OTA "-cow" partitions out of
         # super, so the new images have room (as Super Flasher does)
         free = [Step("free-super", flags=[st.partition for st in logical])] if logical else []
+        if cn_hardware:
+            # China hardware with a ROM whose fastbootd / abl break fastboot on it: fastbootd first, from the
+            # phone's own (old) recovery while its old boot images are still in place - the setup that works -
+            # then back to the bootloader (old abl) for the boot images. Nothing here needs the new fastbootd.
+            late = [Step("flash-bl", st.partition, source=st.source) for st in in_bootloader]
+            # system first, then firmware: a stop in the long system writes leaves 16 firmware in place
+            steps += [Step("to-fastbootd"), Step("snapshot"), *free, *logical, *in_fastbootd,
+                      Step("back-to-bootloader"), *late]
+            if options.reboot_after:
+                steps.append(Step("reboot"))
+            return steps
         steps += [*in_bootloader, Step("to-fastbootd"), Step("snapshot"), *in_fastbootd, *free, *logical]
         steps.append(Step("reboot-from-fastbootd" if options.reboot_after else "back-to-bootloader"))
         return steps
@@ -519,7 +554,8 @@ def load_journal(path: Path) -> FlashPlan:
 
 
 def _image_names(plan: FlashPlan) -> list[str]:
-    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-fw", "flash-any", "flash-logical", "flash-super") and s.source == "rom"]
+    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-fw", "flash-any", "flash-bl", "flash-logical", "flash-super")
+            and s.source == "rom"]
 
 
 def verified_step_images(plan: FlashPlan) -> None:
@@ -757,7 +793,8 @@ class Runner:
             except FastbootError as exc:
                 # a phone stuck in a fastbootd that doesn't answer lands here too (rc.67, AERA for 16 + a 17 ROM)
                 self.fb = None
-                raise FlashError(f"{FASTBOOTD_DIDNT_START}\n({exc})") from exc
+                text = FASTBOOTD_DIDNT_START_CN if self.plan.options.hardware == "cn" else FASTBOOTD_DIDNT_START
+                raise FlashError(f"{text}\n({exc})") from exc
             return "in fastbootd"
 
         fb = self._ensure(step.mode) if step.mode else self._ensure_any()
@@ -778,7 +815,7 @@ class Runner:
             if slot not in ("a", "b") and self.profile.bootloader_images:
                 raise FlashError(f"The bootloader didn't report its current slot ({slot!r}). Nothing was written.")
             return f"unlocked, current slot {slot or '?'}"
-        if step.kind == "flash-any":
+        if step.kind in ("flash-any", "flash-bl"):
             if step.source == "backup":
                 return "restored " + self._flash_both_slots(fb, step.partition,
                                                             lambda t: self._backup_image(step.partition, t))
@@ -943,6 +980,43 @@ class Runner:
         ) from exc
 
 
+HARDWARE_QUESTION = (
+    "Say which hardware this {phone} is. With Android {android} ROMs, China hardware (PJZ110, also when it was "
+    "converted to Global) needs its own way: the ROM's own fastboot breaks on it. Choose China hardware or "
+    "Global hardware (in the CLI: --hardware cn / global)."
+)
+CN_HARDWARE_NOTE = (
+    "China hardware: {kept} stay as the phone has them (they must be the last Android 16 ones: flash the newest "
+    "16 ROM first if the phone isn't on 16). The phone's own (16) recovery runs fastbootd for the system and "
+    "firmware, then the 16 bootloader writes the new boot images and recovery. Never relock the bootloader "
+    "with this mix."
+)
+FASTBOOTD_DIDNT_START_CN = (
+    "fastbootd didn't start. In China-hardware mode it runs from the phone's own recovery, which must be the "
+    "Android 16 one. Put the phone in the bootloader, flash the newest Android 16 ROM first (Keep my custom "
+    "recovery unticked), let it start, then flash this ROM again with China hardware chosen."
+)
+
+
+def needs_hardware_choice(profile, android: int | None) -> bool:
+    """Does this ROM need the China / Global hardware question? Also when its Android version is unknown."""
+    return bool(profile.cn_hardware_keep and profile.firmware_in_fastbootd
+                and (android is None or android >= profile.cn_hardware_from_android))
+
+
+def _backup_model(folder) -> str:
+    try:
+        manifest = json.loads((Path(folder) / "manifest.json").read_text("utf-8")) if folder else {}
+    except (OSError, ValueError):
+        return ""
+    return str((manifest.get("device") or {}).get("model", "")) if isinstance(manifest, dict) else ""
+
+
+def _major(version: str) -> int | None:
+    m = re.match(r"\s*(\d+)", version or "")
+    return int(m.group(1)) if m else None
+
+
 KEEP_RECOVERY_NEEDS_STOCK = (
     "Keep my custom recovery: not possible for this flash. Part of it is written from fastbootd, which starts from "
     "the recovery partition, and a custom recovery made for another build may not start with this ROM's boot "
@@ -980,4 +1054,14 @@ def resume_runner(journal: Path, profile: Profile, adb: Tool, fastboot: Tool, **
             if st.kind == "to-fastbootd":
                 st.status = "pending"
     rom = open_rom(plan.rom_path) if plan.rom_path else None
+    if rom is not None and not plan.options.hardware and needs_hardware_choice(profile, _major(rom.android)):
+        left = [st.partition for st in plan.steps if st.status != "done" and st.partition in profile.cn_hardware_keep]
+        if left:
+            # a flash planned before the hardware question existed (rc.68 and older): resuming it would write
+            # this ROM's own abl / engineering_cdt, which break fastboot on China hardware
+            raise FlashError(
+                f"This stopped flash would still write {', '.join(left)} from an Android {rom.android or '17+'} ROM, "
+                "and it was planned before OPxFlasher asked which hardware the phone is. On China hardware that "
+                "breaks fastboot. Don't resume it: start a new flash (choose the hardware), or flash the newest "
+                "Android 16 ROM first if the phone doesn't start.")
     return Runner(plan, rom, profile, adb, fastboot, journal, Path(journal).parent / "images", **kwargs)

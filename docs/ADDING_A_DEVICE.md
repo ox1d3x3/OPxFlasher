@@ -45,6 +45,10 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
   `["com.oplus.battery", "com.oplus.telephony*"]` (a trailing `*` matches a prefix). Only adds to the built-in list.
 - `firmware_in_fastbootd: true` when the phone's bootloader fastboot refuses firmware partitions
   (`xbl`, `abl` ...; OnePlus 13): every physical image is then written from fastbootd.
+- `cn_hardware_keep` / `cn_hardware_from_android` (OnePlus 13: `["abl", "engineering_cdt"]`, `17`):
+  from that Android version the flash dialog asks whether the phone is China hardware; if it is, those
+  images stay as the phone has them, fastbootd runs first from the phone's own recovery, and the
+  bootloader images (recovery included) are written last from the old bootloader.
 - Leave `qcom_arb_validated` out. It's only set after anti-rollback numbers are checked
   against real firmware.
 

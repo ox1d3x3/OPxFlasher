@@ -265,6 +265,32 @@ def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
     assert d.options().restore_from_backup == []
 
 
+def test_flash_dialog_asks_for_the_hardware_with_android_17(adb_env, fb_state, monkeypatch, tmp_path):
+    import romfactory as rf
+
+    from opx import plan as pn
+    from opx.gui.flash_dialog import FlashDialog
+    from opx.rom.ota import open_rom
+    from opx.session import open_session
+
+    _gui_phone(adb_env, monkeypatch)
+    _app = QApplication.instance() or QApplication([])
+    s = open_session("FAKE0001")
+    parts = {"boot": b"B" * 8192, "abl": rf.build_qcom_elf(arb=1), "recovery": b"C" * 8192, "system": b"S" * 8192}
+    payload = rf.build_payload(parts, groups={"main": ["system"]})
+    rom = open_rom(rf.build_ota_zip(tmp_path / "r17.zip", payload,
+                                    rf.ota_metadata(product="CPH2653", android="17")))
+    device = pn.device_from_session(s)
+    d = FlashDialog(None, rom, device, pn.build_report(rom, device))
+    assert d.hw_cn is not None and d.hw_global is not None
+    assert d.hw_cn.isChecked()  # the fake phone is a PJZ110: China hardware preselected
+    assert d.options().hardware == "cn"
+    assert not any("which hardware" in p for p in d.plan.problems)
+    assert "abl" not in [st.partition for st in d.plan.steps]
+    d.hw_global.setChecked(True)
+    assert d.options().hardware == "global" and "abl" in [st.partition for st in d.plan.steps]
+
+
 def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
     from test_root import STOCK, magisk_patch, rom_with_init_boot
     from test_root_cli import make_rootable

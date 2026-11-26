@@ -82,6 +82,11 @@ class Profile:
     # with firmware_in_fastbootd: the images the bootloader does write (OnePlus 13: boot, dtbo, modem,
     # vbmeta ..., as koaaN's Super Flasher does); every other physical image goes in from fastbootd
     bootloader_images: list[str] = field(default_factory=list)
+    # China hardware (OnePlus 13 PJZ110, also when converted to Global): from this Android version on, the
+    # ROM's own abl / engineering_cdt / recovery break fastboot on it, so these stay as the phone has them
+    # (the last 16 ones) and fastbootd runs from the old recovery, before the new boot images go in
+    cn_hardware_keep: list[str] = field(default_factory=list)
+    cn_hardware_from_android: int = 0
 
     def rules_for(self, mode: str) -> list[PartitionRule]:
         if mode == "network":
@@ -138,7 +143,8 @@ ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
               "conditional", "avb_images", "variants", "codenames", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
-              "qcom_arb_validated", "firmware_in_fastbootd", "bootloader_images"}
+              "qcom_arb_validated", "firmware_in_fastbootd", "bootloader_images",
+              "cn_hardware_keep", "cn_hardware_from_android"}
 
 
 class ProfileError(ValueError):
@@ -292,6 +298,8 @@ def _build(raw: dict) -> Profile:
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
         firmware_in_fastbootd=bool(raw.get("firmware_in_fastbootd", False)),
         bootloader_images=list(raw.get("bootloader_images", [])),
+        cn_hardware_keep=list(raw.get("cn_hardware_keep", [])),
+        cn_hardware_from_android=int(raw.get("cn_hardware_from_android", 0) or 0),
     )
 
 

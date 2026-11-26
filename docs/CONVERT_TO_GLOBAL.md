@@ -31,11 +31,29 @@ A step-by-step for turning a **PJZ110** (China, ColorOS) into a **CPH2653** (EU 
 
 ### Global 16 or Global 17?
 
-A ColorOS / OxygenOS 17 bootloader (`abl`) is reported to leave fastboot mode within a second on
-Chinese OnePlus 13 hardware. If that's true, after flashing a 17 build you can't use the
-bootloader's fastboot mode any more (fastbootd and recovery still work). OPxFlasher's conversion is
-built not to need it after the first write, but **Global 16 is the more cautious first step**: it
-keeps a 16 bootloader, and the phone can move to 17 later.
+**Go to Global 16 first.** On Chinese OnePlus 13 hardware (PJZ110), ColorOS / OxygenOS 17 breaks
+fastboot, also with Global 17 firmware (confirmed on a converted phone, 27 Nov 2026):
+
+- 17's **fastbootd** (from 17's recovery) restarts by itself after a few seconds, so a normal full
+  flash stops half way;
+- 17's **`abl`** is reported to leave bootloader fastboot within a second (the community fix is to put
+  the last 16 `abl` and `engineering_cdt` back).
+
+So OPxFlasher asks, for any Android 17 ROM on a OnePlus 13, which hardware the phone is. With
+**China hardware** it:
+
+1. keeps the phone's own `abl` and `engineering_cdt` (the phone must be on Android 16, so these are
+   the 16 ones; the same end state as the community fix);
+2. writes the system and then the firmware from **16's fastbootd** (the phone's own 16 recovery),
+   while the 16 boot images are still in place;
+3. goes back to the **16 bootloader** and writes 17's `boot`, `init_boot`, `vendor_boot`,
+   `recovery`, `dtbo`, `modem` and `vbmeta*` to both slots, then starts Android.
+
+Anti-rollback: OnePlus 13 builds from 16.0.3.501 up to 17.0.0.x all carry ARB index 1, so the 16
+`abl` and 17's firmware match. Never relock the bootloader with this mix (16 `abl` under a 17 system).
+A stopped 17 flash made before OPxFlasher asked for the hardware can't be resumed (it would write
+17's `abl`). If a 17 flash
+stopped half way, flash the 16 ROM again first (untick *Keep my custom recovery*), then go to 17.
 
 ## 1. Before converting
 

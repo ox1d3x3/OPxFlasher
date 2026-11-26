@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -96,6 +97,32 @@ class FlashDialog(QDialog):
         for w in (self.wipe_box, self.reboot_box, self.fastbootd_box, self.keep_recovery_box):
             o_layout.addWidget(w)
         layout.addWidget(o_box)
+
+        # China hardware: from Android 17 the ROM's own fastboot breaks on it (OnePlus 13 PJZ110)
+        self.hw_cn: QRadioButton | None = None
+        self.hw_global: QRadioButton | None = None
+        prof = device.profile
+        android = fl._major(getattr(rom, "android", ""))
+        if fl.needs_hardware_choice(prof, android):
+            h_box = QGroupBox(tr("Phone hardware (needed for this ROM)"))
+            h_layout = QVBoxLayout(h_box)
+            note = QLabel(tr("On China hardware (PJZ110, also when converted to Global) this ROM's own fastboot "
+                             "breaks: its fastbootd restarts by itself and its abl breaks bootloader fastboot. "
+                             "China hardware keeps the phone's Android 16 abl and engineering_cdt, writes the system "
+                             "and firmware from the phone's own (16) recovery's fastbootd first, then the boot "
+                             "images and recovery from the bootloader. The phone must "
+                             "be on Android 16 now. Never relock the bootloader afterwards."))
+            note.setWordWrap(True)
+            note.setStyleSheet("color:#f0c24b")
+            h_layout.addWidget(note)
+            self.hw_cn = QRadioButton(tr("China hardware (PJZ110, also when converted to Global)"))
+            self.hw_global = QRadioButton(tr("Global hardware (CPH2653 / CPH2655 / CPH2649 from the factory)"))
+            model = (device.facts.get("model") or "").upper()
+            if model.startswith("PJZ"):
+                self.hw_cn.setChecked(True)
+            h_layout.addWidget(self.hw_cn)
+            h_layout.addWidget(self.hw_global)
+            layout.addWidget(h_box)
 
         # region conversion
         self.keep_region_box: QCheckBox | None = None
@@ -235,7 +262,8 @@ class FlashDialog(QDialog):
         btns.addWidget(self.start_btn)
         outer.addLayout(btns)
 
-        extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box) if b is not None]
+        extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box, self.hw_cn,
+                             self.hw_global) if b is not None]
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
                    self.keep_recovery_box, self.no_backup, *extra]:
             cb.toggled.connect(self.refresh)
@@ -347,6 +375,8 @@ class FlashDialog(QDialog):
             restore_from_backup=restore,
             network_backup=self.net_edit.text().strip() if self.net_edit is not None else "",
             keep_recovery=self.keep_recovery_box.isChecked(),
+            hardware=("cn" if self.hw_cn is not None and self.hw_cn.isChecked() else
+                      "global" if self.hw_global is not None and self.hw_global.isChecked() else ""),
             no_backup=self.no_backup.isChecked(),
             include_optional=[p for p, cb in self.optional_boxes.items() if cb.isChecked()],
             wipe_data=self.wipe_box.isChecked(),

@@ -680,3 +680,91 @@ def test_resume_puts_a_restarted_phone_back_in_fastbootd(adb, fastboot, phone, f
     journal = json.loads((tmp_path / "journal.json").read_text())
     assert all(s["status"] == "done" for s in journal["steps"])
     assert any("switching it to fastbootd" in e.get("message", "") for e in events)
+
+
+def _rom17(tmp_path, parts):
+    payload = rf.build_payload(parts, groups={"main": ["system", "my_region"]})
+    return open_rom(rf.build_ota_zip(tmp_path / "rom17.zip", payload, rf.ota_metadata(android="17")))
+
+
+CN_PARTS = {**ROM_PARTS, "abl": rf.build_qcom_elf(arb=1), "engineering_cdt": b"E" * 4096, "recovery": b"C" * 8192}
+
+
+def test_android_17_on_a_oneplus_13_asks_which_hardware(adb, fastboot, phone, fb_state, tmp_path):
+    rom = _rom17(tmp_path, CN_PARTS)
+    plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=rom)
+    assert any("China hardware" in p for p in plan.problems)
+    plan, _ = setup(adb, fastboot, tmp_path / "g", fl.FlashOptions(hardware="global", **ALLOW), rom=rom)
+    assert any("China hardware, also after a conversion" in p for p in plan.problems)  # the fake phone: PJZ110
+    # a factory Global phone: the usual plan
+    s = open_session("FAKE0001", adb)
+    device = pn.device_from_session(s)
+    device.facts["model"] = "CPH2653"
+    plan = fl.prepare(rom, pn.build_report(rom, device), device,
+                      fl.FlashOptions(hardware="global", no_backup=True, **ALLOW), None)
+    assert not any("hardware" in p for p in plan.problems), plan.problems
+    assert {"abl", "engineering_cdt", "recovery"} <= {s.partition for s in plan.steps}
+    # the usual order: bootloader images (with the ROM's recovery) before fastbootd
+    first_fastbootd = next(i for i, s in enumerate(plan.steps) if s.kind == "to-fastbootd")
+    assert any(s.partition == "boot" for s in plan.steps[:first_fastbootd])
+
+
+def test_china_hardware_keeps_16s_abl_and_cdt_and_never_uses_the_new_fastbootd(
+        adb, fastboot, phone, fb_state, tmp_path):
+    # Real OnePlus 13 PJZ110 converted to Global, GLO 17 ROM: 17's fastbootd restarted by itself, and 17's abl
+    # breaks bootloader fastboot on China hardware. Keep the phone's 16 abl / engineering_cdt (the community
+    # fix's end state), do fastbootd first from the phone's own 16 recovery, then the boot images and 17's
+    # recovery from the (16) bootloader.
+    for name, data in (("abl", b"\x16" * 4096), ("engineering_cdt", b"\x16" * 4096), ("recovery", b"\x16" * 65536)):
+        for slot in ("_a", "_b"):
+            put(phone, f"{name}{slot}", data)
+    rom = _rom17(tmp_path, CN_PARTS)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(hardware="cn", **ALLOW), rom=rom)
+    assert plan.ok, plan.problems
+    assert any("China hardware" in w for w in plan.warnings)
+    names = [s.partition for s in plan.steps]
+    assert not {"abl", "engineering_cdt"} & set(names)
+    kinds = [s.kind for s in plan.steps]
+    to_fbd, back = kinds.index("to-fastbootd"), kinds.index("back-to-bootloader")
+    boot, rec = names.index("boot"), names.index("recovery")
+    # system first, then firmware, all in fastbootd; boot images and recovery only after it
+    assert to_fbd < kinds.index("flash-logical") < kinds.index("flash-fw") < back < min(boot, rec)
+    assert plan.steps[boot].kind == "flash-bl" and plan.steps[rec].kind == "flash-bl" and kinds[-1] == "reboot"
+    assert "reboot-from-fastbootd" not in kinds
+    runner.run()
+    for name in ("abl", "engineering_cdt"):
+        for slot in ("_a", "_b"):
+            assert (phone / "by-name" / f"{name}{slot}").read_bytes() == b"\x16" * 4096, name + slot
+    assert (phone / "by-name" / "boot_b").read_bytes().startswith(b"B" * 8192)
+    assert (phone / "by-name" / "recovery_b").read_bytes().startswith(b"C" * 8192)
+    assert (phone / "by-name" / "xbl_config_a").read_bytes()[:4] == b"\x7fELF"
+    log = fb_state.read()["log"]
+    back_at = log.index("reboot bootloader")
+    assert back_at < log.index("flash boot_a") and back_at < log.index("flash recovery_a")
+
+
+def test_android_version_unknown_still_asks_and_a_china_backup_refuses_global(
+        adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    rom = _rom17(tmp_path, CN_PARTS)
+    monkeypatch.setattr(type(rom), "android", property(lambda self: ""))
+    plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=rom)
+    assert any("which hardware" in p for p in plan.problems)  # fails closed when the version is unknown
+    # the fake phone (and so its backup) is a PJZ110: Global hardware is refused
+    plan, _ = setup(adb, fastboot, tmp_path / "g", fl.FlashOptions(hardware="global", **ALLOW), rom=rom)
+    assert any("China hardware, also after a conversion" in p for p in plan.problems)
+
+
+def test_old_17_journals_cant_be_resumed_on_a_oneplus_13(adb, fastboot, phone, fb_state, tmp_path):
+    # the two stopped GLO 17 flashes from rc.67 still had abl / engineering_cdt pending: resuming them (now
+    # that 16's fastbootd works again) would write 17's abl on China hardware
+    from opx.profile import load
+
+    rom = _rom17(tmp_path, CN_PARTS)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(hardware="global", **ALLOW), rom=rom,
+                         backup=None)
+    plan.options.hardware = ""  # as written by rc.67
+    plan.options.no_backup = True
+    fl.save_journal(plan, tmp_path / "journal.json")
+    with pytest.raises(fl.FlashError, match="Don't resume it"):
+        fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5)
+    assert fb_state.read()["log"] == []

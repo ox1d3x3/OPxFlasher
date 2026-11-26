@@ -523,6 +523,7 @@ def cmd_flash(args) -> int:
         include_optional=[p for p in (args.include or "").split(",") if p],
         wipe_data=args.wipe,
         keep_recovery=args.keep_recovery,
+        hardware=getattr(args, "hardware", "") or "",
         reboot_after=not args.no_reboot,
         allow_fastbootd=args.allow_fastbootd,
         overrides=overrides,
@@ -1376,6 +1377,9 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--wipe", action="store_true", help="factory reset (needed when changing region or OS)")
     f.add_argument("--keep-recovery", action="store_true",
                    help="don't write the ROM's recovery: your custom recovery (AERA, OrangeFox) stays")
+    f.add_argument("--hardware", choices=["cn", "global"], default="",
+                   help="OnePlus 13 with Android 17 ROMs: cn = China hardware (PJZ110, also converted to Global): "
+                        "keeps the phone's 16 abl / engineering_cdt; global = factory Global hardware")
     f.add_argument("--no-reboot", action="store_true", help="stay in the bootloader when done")
     f.add_argument("--allow-fastbootd", action="store_true", help="allow fastbootd for logical partitions")
     f.add_argument("--accept-variant-change", action="store_true",
