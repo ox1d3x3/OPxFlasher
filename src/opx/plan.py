@@ -476,7 +476,7 @@ def build_report(rom: RomInfo, dev: DeviceState) -> Report:
             except (RomError, PayloadError) as e:
                 add(f"Qualcomm ARB {name}", BLOCK, f"Couldn't read {name} from the ROM: {e}")
                 continue
-            rv = rom_arb.value if rom_arb else "?"
+            rv = rom_arb.value if rom_arb and rom_arb.value is not None else "?"
             add(f"Qualcomm ARB {name}", BLOCK,
                 f"The phone's value can't be read without root (ROM {rv}, phone ?). Flashing a LOWER anti-rollback "
                 "version than the phone's hard-bricks it. Same or newer builds of the same phone keep it; confirm "

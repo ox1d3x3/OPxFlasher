@@ -71,7 +71,8 @@ In the Flash dialog:
 - **Region conversion → Keep mobile signal**: on (recommended). Your phone's own `oplusstanvbk`, and
   `my_region` when the new ROM doesn't check it at boot, are written back from your backup.
 - **Different variant → Yes, I want to flash this other variant**.
-- Type `ARB CHECKED` (only after the numbers were checked) and `FLASH`.
+- **Validate ROM / ARB** with the phone in Android, then *Read the warning and accept the risk*
+  (only after the numbers were checked), and type `FLASH` (or `NO BACKUP`).
 
 The flash goes: reboot to the bootloader → check it's unlocked → **wipe** → firmware to both slots
 → fastbootd → system partitions and your region files → **reboot**. It never goes back to the

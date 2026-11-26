@@ -163,7 +163,7 @@ an explicit factory reset, which you choose and confirm, erases it.
 | Other OnePlus / OPPO | — | Generic profile: backup and ROM check |
 
 Until the Qualcomm anti-rollback reader has been validated against real firmware for a phone,
-flashing asks you to confirm the numbers yourself (`ARB CHECKED`). Phones are described by
+flashing asks you to confirm the numbers yourself (a warning you accept; Validate ROM / ARB compares the ROM with the installed build). Phones are described by
 small JSON profiles; to add yours, see **[Adding a device](docs/ADDING_A_DEVICE.md)**.
 
 ## Project status

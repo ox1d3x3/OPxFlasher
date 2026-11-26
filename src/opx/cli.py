@@ -565,9 +565,9 @@ def cmd_flash(args) -> int:
         return 1
     if fl.OVERRIDE_QCOM_UNVALIDATED in overrides and not _confirm(
         "ARB CHECKED",
-        "\nWARNING: the Qualcomm anti-rollback reader is not validated for this phone.\n"
-        "Flashing firmware with a lower ARB than the phone's hard-bricks it permanently.\n"
-        "Only continue if you have confirmed the ROM's ARB is equal to or higher than the phone's.",
+        "\nWARNING: OPxFlasher can't check the Qualcomm anti-rollback version here.\n"
+        + "".join(f"  - {w}\n" for w in fl.ARB_WARNINGS)
+        + "Only continue if you have confirmed the ROM's ARB is equal to or higher than the phone's.",
     ):
         print("Cancelled. Nothing was written.")
         return 1

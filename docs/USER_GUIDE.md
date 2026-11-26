@@ -73,7 +73,7 @@ flash on **this** phone, and exactly what would be written where. Nothing is fla
   passed, then notes.
 - A phone **without root** is compared with what Android reports about it (model, variant, build,
   hardware project). Its partitions can't be read: the bootloader checks each image fits before
-  writing, and the Qualcomm anti-rollback numbers are confirmed by you (`ARB CHECKED`).
+  writing, and the Qualcomm anti-rollback numbers are your decision (see *Anti-rollback you confirm*).
 - A phone already in **fastboot / fastbootd / recovery** is compared with what it reported the last
   time OPxFlasher saw it in Android (same serial). Never seen in Android: start it in Android once,
   so the installed build is known (needed for the anti-rollback fuse).
@@ -154,7 +154,7 @@ before you use it. No phone needed, nothing is written.
 Flashing only starts when **every** gate passes:
 
 1. The ROM check has no blocking result. The single exception is the *unvalidated*
-   Qualcomm ARB reader, which you can override only by typing `ARB CHECKED` after
+   Qualcomm ARB reader, which you can override only through the anti-rollback warning (or `ARB CHECKED` in the CLI) after
    checking the numbers yourself. A lower ARB, a lower AVB index, a different
    device or an incremental OTA can never be overridden.
 2. A verified **Critical or Full backup of this phone** is selected (same serial; the model may differ only
@@ -547,3 +547,16 @@ catalog). Each shows exactly which apps it will remove and asks first:
   `plugdev`). It also spots a phone stuck in Qualcomm 9008 (EDL) mode. OPxFlasher never installs
   drivers, opens Windows settings or asks for administrator rights itself; only the driver install
   asks for approval.
+
+## Anti-rollback you confirm
+
+When OPxFlasher can't read the Qualcomm anti-rollback (ARB) version (no root, or a reader not yet
+validated for the phone), the Flash dialog asks you to **Read the warning and accept the risk**: a
+serious warning (a lower ARB bricks the phone; sometimes only an official OPPO / OnePlus service
+centre can repair it), a minute of reading, a small sum, your agreement and a last "Are you sure?".
+
+**Validate ROM / ARB** (ROM check row, and in that warning) helps you decide: with the phone running
+Android it compares the ROM with the installed build. Same or newer: anti-rollback stays the same or
+goes up. **Older: don't flash it** — the warning then can't be accepted. The result is saved for
+that phone and ROM, so it's shown later even with the phone in fastboot. In the CLI you type
+`ARB CHECKED`.

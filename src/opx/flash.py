@@ -85,6 +85,19 @@ def overridable_blocks(report: Report, key: str | None = None) -> list:
     return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
 
+# shown before the user confirms anti-rollback themselves (GUI dialog, CLI prompt)
+ARB_WARNINGS = (
+    "Qualcomm phones carry anti-rollback fuses. Firmware (xbl, xbl_config, abl ...) with a LOWER anti-rollback "
+    "version than the phone's is refused by the chip itself: the phone no longer starts.",
+    "OnePlus 13 / 13T / 15 from ColorOS 16.0.3.501 also burn a fuse when an older build is installed. That damage "
+    "is permanent.",
+    "A phone bricked this way can't be fixed with fastboot, recovery or OPxFlasher. Sometimes only an authorised "
+    "OnePlus / OPPO service centre (official EDL tools, often a board replacement) can repair it, and sometimes "
+    "nothing can.",
+    "Only flash the same build as the phone, or a newer one, of your phone's own model line. Never go back to an "
+    "older build to \"fix\" something.",
+    "Make sure the ROM is complete and works on your phone (check it in Verify ROM; read reports from other users).",
+)
 NO_BACKUP_ROM_WARNING = ("No backup: you chose to flash without one. If the phone doesn't start afterwards, there's "
                          "no backup of this phone to restore it from; the ROM itself can be flashed again.")
 NO_BACKUP_WARNING = ("No backup: you chose to flash without one. Only this image is written; if the phone doesn't "

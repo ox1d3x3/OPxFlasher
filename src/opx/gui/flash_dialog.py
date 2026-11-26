@@ -181,26 +181,30 @@ class FlashDialog(QDialog):
             f_layout.addWidget(self.not_updated_box)
             layout.addWidget(f_box)
 
-        # unvalidated Qualcomm anti-rollback reader
-        self.arb_edit: QLineEdit | None = None
-        if fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED):
-            a_box = QGroupBox(tr("Qualcomm anti-rollback: not validated"))
+        # anti-rollback the app can't read or trust: the user's own, deliberate confirmation
+        self.arb_accepted = False
+        self.arb_btn: QPushButton | None = None
+        self.arb_details = [f"{c.name}: {c.detail.split('.')[0]}."
+                            for c in fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED)]
+        if self.arb_details:
+            a_box = QGroupBox(tr("Anti-rollback: your confirmation"))
             a_box.setStyleSheet("QGroupBox { border-color: #8a2b26; }")
             a_layout = QVBoxLayout(a_box)
-            detail = "\n".join(c.detail for c in fl.overridable_blocks(report, fl.OVERRIDE_QCOM_UNVALIDATED))
-            warn = QLabel(
-                "OPxFlasher can't yet confirm the Qualcomm anti-rollback version for this phone.\n"
-                "Flashing firmware with a LOWER anti-rollback version than the phone hard-bricks it permanently.\n\n"
-                f"{detail}\n\nOnly continue if you have confirmed these numbers yourself. Type ARB CHECKED:"
-            )
+            warn = QLabel(tr("OPxFlasher can't check the Qualcomm anti-rollback version here. Flashing older "
+                             "firmware than the phone's can brick it permanently. Read the warning and accept the "
+                             "risk yourself to continue."))
             warn.setWordWrap(True)
-            warn.setMinimumHeight(warn.sizeHint().height() + 40)
             warn.setStyleSheet("color:#ffb3ad")
-            self.arb_edit = QLineEdit()
-            self.arb_edit.setPlaceholderText("ARB CHECKED")
+            self.arb_btn = QPushButton(tr("Read the warning and accept the risk..."))
+            self.arb_btn.setObjectName("danger")
+            self.arb_btn.clicked.connect(self._ask_arb)
+            self.arb_status = QLabel()
+            self.arb_status.setWordWrap(True)
             a_layout.addWidget(warn)
-            a_layout.addWidget(self.arb_edit)
+            a_layout.addWidget(self.arb_status)
+            a_layout.addWidget(self.arb_btn)
             layout.addWidget(a_box)
+            self._show_arb_validation()
 
         # plan preview
         layout.addWidget(QLabel(tr("What will happen:")))
@@ -231,7 +235,7 @@ class FlashDialog(QDialog):
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
                    self.keep_recovery_box, self.no_backup, *extra]:
             cb.toggled.connect(self.refresh)
-        for edit in (self.backup_edit, self.confirm_edit, self.arb_edit):
+        for edit in (self.backup_edit, self.confirm_edit):
             if edit is not None:
                 edit.textChanged.connect(self.refresh)
         self.refresh()
@@ -253,13 +257,49 @@ class FlashDialog(QDialog):
         region = fl.region_change(self.report)
         self.region_warn.setVisible((not keep) if region else (keep and not self.backup_edit.text().strip()))
 
+    def _validation(self):
+        from opx import arb
+
+        return arb.saved_for(self.device.facts.get("serial", ""), self.rom.path.name)
+
+    def _show_arb_validation(self) -> None:
+        from opx import arb
+
+        v = self._validation()
+        if v is None:
+            text, colour = tr("Not validated yet: Validate ROM / ARB compares this ROM with the build the phone runs."), "#f0c24b"
+        else:
+            text = tr("Validated:") + " " + v.detail
+            colour = "#ff6b63" if v.result == arb.OLDER else "#9aa3b5"
+        self.arb_status.setText(text)
+        self.arb_status.setStyleSheet(f"color:{colour}")
+
+    def _ask_arb(self) -> None:
+        from opx.gui.arb_dialog import ArbRiskDialog
+
+        validate = getattr(self.parent(), "validate_arb_now", None)
+        dialog = ArbRiskDialog(self, self.arb_details, validation=self._validation(),
+                               validate=(lambda: validate(self.rom)) if validate else None)
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
+        self._show_arb_validation()
+        if accepted:
+            self.accept_arb()
+
+    def accept_arb(self) -> None:
+        """The user went through the anti-rollback warning and accepted the risk."""
+        self.arb_accepted = True
+        if self.arb_btn is not None:
+            self.arb_btn.setText(tr("Risk accepted"))
+            self.arb_btn.setEnabled(False)
+        self.refresh()
+
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose your backup of this phone", self.backup_edit.text())
         if folder:
             self.backup_edit.setText(folder)
 
     def options(self) -> fl.FlashOptions:
-        arb_ok = self.arb_edit is not None and self.arb_edit.text().strip() == "ARB CHECKED"
+        arb_ok = self.arb_accepted
         backup = self.backup_edit.text().strip()
         restore = []
         if self.keep_region_box is not None and self.keep_region_box.isChecked():

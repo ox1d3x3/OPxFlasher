@@ -170,7 +170,7 @@ def test_gui_flash_flow(adb_env, fb_state, monkeypatch, tmp_path):
             assert not self.start_btn.isEnabled()  # nothing typed yet
             self.confirm_edit.setText("FLASH")
             assert not self.start_btn.isEnabled()  # ARB confirmation still missing
-            self.arb_edit.setText("ARB CHECKED")
+            self.accept_arb()
             seen["enabled"] = self.start_btn.isEnabled()
             seen["preview"] = self.preview.toPlainText()
             return QDialog.DialogCode.Accepted
@@ -251,7 +251,7 @@ def test_flash_dialog_conversion_mode(adb_env, fb_state, monkeypatch, tmp_path):
     assert d.wipe_box.isChecked() and not d.wipe_box.isEnabled()
     assert not d.optional_boxes["oplusstanvbk"].isEnabled()
     assert d.options().restore_from_backup == ["oplusstanvbk", "my_region"]
-    d.arb_edit.setText("ARB CHECKED")
+    d.accept_arb()
     d.confirm_edit.setText("FLASH")
     assert d.variant_box is not None and not d.variant_box.isChecked()  # default: no
     assert not d.plan.ok and any("Different variant" in p for p in d.plan.problems)
@@ -1284,7 +1284,7 @@ def test_gui_flash_without_root_or_backup(adb_env, fb_state, monkeypatch, tmp_pa
 
         class AutoDialog(gui_app.FlashDialog):
             def exec(self):
-                self.arb_edit.setText("ARB CHECKED")
+                self.accept_arb()
                 self.confirm_edit.setText("FLASH")
                 seen["blocked_without"] = not self.start_btn.isEnabled()  # no backup chosen, box not ticked
                 self.no_backup.setChecked(True)
@@ -1322,3 +1322,56 @@ def test_rom_check_in_fastboot_uses_what_android_reported(adb_env, tmp_path):
     # never seen in Android (or only in a recovery): not compared, and says what to do
     _, device, report = run_rom_check(str(rom.path), "", None, "FAKE0001", None, "fastbootd")
     assert report.verdict == "NOT COMPARED" and "Start it in Android" in device.label
+
+
+def test_gui_arb_risk_dialog_gates(window, monkeypatch):
+    # anti-rollback the app can't check: a minute of reading, a sum, the agreement, then "Are you sure?"
+    import random
+
+    from opx.gui import arb_dialog as ad
+
+    app, win = window
+    assert ad.READ_SECONDS == 60
+    dlg = ad.ArbRiskDialog(win, ["Qualcomm ARB abl: The phone's value can't be read without root (ROM ?, phone ?)."],
+                           seconds=2, rng=random.Random(2))
+    text = " ".join(lb.text() for lb in dlg.findChildren(ad.QLabel))
+    assert "service centre" in text and "permanent" in text and "ROM ?, phone ?" in text
+    assert not dlg.go.isEnabled()
+    dlg.agree.setChecked(True)
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    assert not dlg.go.isEnabled()  # still reading
+    dlg._tick()
+    dlg._tick()
+    assert dlg.go.isEnabled()
+    dlg.answer.setText("0")
+    assert not dlg.go.isEnabled()
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    monkeypatch.setattr(ad.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.No)
+    dlg._confirm()
+    assert dlg.result() != QDialog.DialogCode.Accepted
+    monkeypatch.setattr(ad.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    dlg._confirm()
+    assert dlg.result() == QDialog.DialogCode.Accepted
+
+
+def test_gui_arb_risk_dialog_refuses_an_older_rom(window, monkeypatch):
+    # Validate found the ROM older than the installed build: no way to accept
+    import random
+
+    from opx import arb
+    from opx.gui import arb_dialog as ad
+
+    app, win = window
+    older = arb.Validation("SER1", "rom", "16.0.7.201", "16.0.10.501", arb.OLDER, "The ROM is OLDER. DON'T flash it.")
+    dlg = ad.ArbRiskDialog(win, [], seconds=0, rng=random.Random(1), validation=older)
+    dlg.agree.setChecked(True)
+    dlg.answer.setText(str(dlg.a + dlg.b))
+    assert dlg.refused and not dlg.go.isEnabled() and "OLDER" in dlg.validation_label.text()
+    # Validate runs again (phone updated / other ROM): the answer replaces the old one
+    same = arb.Validation("SER1", "rom", "16.0.10.501", "16.0.10.501", arb.SAME, "The ROM is the SAME build.")
+    dlg2 = ad.ArbRiskDialog(win, [], seconds=0, rng=random.Random(1), validation=older, validate=lambda: same)
+    dlg2.agree.setChecked(True)
+    dlg2.answer.setText(str(dlg2.a + dlg2.b))
+    assert not dlg2.go.isEnabled()
+    dlg2.validate_btn.click()
+    assert dlg2.go.isEnabled() and "SAME" in dlg2.validation_label.text()

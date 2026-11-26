@@ -473,8 +473,14 @@ class MainWindow(QMainWindow):
         self.verify_btn.setToolTip(tr("Is this ROM complete and undamaged, and can OPxFlasher / OrangeFox / AERA "
                                       "install it? No phone needed."))
         self.verify_btn.clicked.connect(self.open_verify)
+        self.arb_btn = QPushButton(tr("Validate ROM / ARB"))
+        self.arb_btn.setToolTip(tr("With the phone running Android: is this ROM the same, a newer or an OLDER build "
+                                   "than the installed one? (anti-rollback only allows the same or newer). Saved "
+                                   "for this phone."))
+        self.arb_btn.clicked.connect(self.validate_arb)
         act_row.addWidget(self.check_btn)
         act_row.addWidget(self.verify_btn)
+        act_row.addWidget(self.arb_btn)
         act_row.addWidget(self.save_report_btn)
         act_row.addWidget(self.convert_btn)
         self.flash_btn = QPushButton(tr("Flash..."))
@@ -788,6 +794,8 @@ class MainWindow(QMainWindow):
         self.check_btn.setEnabled(not self.busy)
         self.convert_btn.setEnabled(not self.busy)
         self.verify_btn.setEnabled(not self.busy)
+        if hasattr(self, "arb_btn"):
+            self.arb_btn.setEnabled(not self.busy)
         self.use_backup_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
@@ -1548,6 +1556,40 @@ class MainWindow(QMainWindow):
             Path(path).write_text(self.report.to_json(), "utf-8")
             self.say(f"Report saved to {path}")
 
+
+    # --- anti-rollback: validate ------------------------------------------------
+
+    def validate_arb_now(self, rom=None):
+        """Compare the ROM with the build the connected phone runs; saved per phone. None if it can't run."""
+        from opx import arb
+
+        if self.session is None or pn.is_recovery(self.session.props):
+            QMessageBox.information(self, tr("Validate ROM / ARB"),
+                                    tr("Start the phone in Android with USB debugging on and let OPxFlasher "
+                                       "connect, then validate again. In fastboot or a custom recovery the "
+                                       "installed build can't be read."))
+            return None
+        if rom is None:
+            rom_path = self.rom_edit.text().strip()
+            if not rom_path:
+                QMessageBox.information(self, tr("Validate ROM / ARB"), tr("Choose a ROM file or folder first."))
+                return None
+            try:
+                rom = open_rom(rom_path)
+            except Exception as e:  # noqa: BLE001 (shown to the user)
+                QMessageBox.warning(self, tr("Validate ROM / ARB"), str(e))
+                return None
+        v = arb.validate(rom, self.session.props, self.session.serial)
+        arb.save(v)
+        self.say(f"Validate ROM / ARB: {v.detail}")
+        return v
+
+    def validate_arb(self) -> None:
+        v = self.validate_arb_now()
+        if v is None:
+            return
+        box = QMessageBox.warning if v.result == "older" else QMessageBox.information
+        box(self, tr("Validate ROM / ARB"), v.detail)
 
     # --- flashing -----------------------------------------------------------
 
