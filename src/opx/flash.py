@@ -662,6 +662,12 @@ class Runner:
         if step.kind == "to-fastbootd":
             if "fastbootd" in self.plan.blocked_actions:
                 raise FlashError("Refusing to reboot to fastbootd: this firmware is known to break it.")
+            try:  # resuming after the reboot already happened: nothing to do
+                if self._connect_now().mode() == "fastbootd":
+                    self.fb = self._connect_now()
+                    return "already in fastbootd"
+            except FastbootError:
+                pass
             fb = self._ensure("bootloader")
             fb.reboot("fastboot")
             self._connect(userspace=True)

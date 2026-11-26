@@ -381,3 +381,42 @@ def test_network_files_from_their_own_backup(adb, fastboot, phone, tmp_path):
     assert any(st.partition == "oplusstanvbk" and st.source == "backup" for st in plan.steps)
     files = fl.verified_backup_files(plan, lambda e: None)
     assert any(k.startswith("oplusstanvbk") for k in files)
+
+
+def test_reboot_to_fastbootd_that_hangs_the_fastboot_tool(adb, fastboot, phone, fb_state, tmp_path, monkeypatch):
+    # Windows, real OnePlus 13: `fastboot reboot fastboot` reboots the phone but the tool itself hangs
+    # waiting for it, and is killed after the timeout. The flash must go on once fastbootd shows up.
+    from opx import tools
+
+    real_run = tools.Tool.run
+
+    def run(self, *args, timeout=30):
+        res = real_run(self, *args, timeout=timeout)
+        if args[:2] == ("reboot", "fastboot"):
+            return tools.Result(124, "", "fastboot timed out after 30s")
+        return res
+
+    monkeypatch.setattr(tools.Tool, "run", run)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    assert plan.ok, plan.problems
+    runner.run()
+    assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
+
+
+def test_resume_when_the_phone_is_already_in_fastbootd(adb, fastboot, phone, fb_state, tmp_path):
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    fb_state(fail_flash="boot_a")
+    with pytest.raises(fl.FlashError):
+        runner.run()
+    assert fb_state.read()["mode"] == "fastbootd"
+    # mark the reboot to fastbootd as not done, as when the tool timed out on it
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    for st in journal["steps"]:
+        if st["kind"] == "to-fastbootd":
+            st["status"] = "failed"
+    (tmp_path / "journal.json").write_text(json.dumps(journal))
+    fb_state(fail_flash=None)
+    from opx.profile import load
+
+    fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
+    assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)

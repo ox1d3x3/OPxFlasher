@@ -112,7 +112,12 @@ class Fastboot:
         if target not in ("", "bootloader", "fastboot", "recovery"):
             raise FastbootError(f"invalid reboot target {target!r}")
         args = ("reboot", target) if target else ("reboot",)
-        res = self.tool.run(*args, timeout=30)
+        res = self.tool.run(*args, timeout=90 if target in ("fastboot", "bootloader") else 30)
+        if res.returncode == 124 and target in ("fastboot", "bootloader"):
+            # fastboot itself waits for the phone to come back in the new mode, and on Windows it can
+            # hang there (the phone shows up under another USB id). The reboot was sent: whoever called
+            # this waits for the phone in the new mode and fails if it never appears.
+            return
         if res.returncode != 0:
             raise FastbootError(f"fastboot {' '.join(args)} failed: {res.stderr.strip()}")
 
