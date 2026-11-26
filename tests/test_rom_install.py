@@ -502,6 +502,7 @@ def test_convert_ready_from_internal_storage_asks_for_a_manual_format(tmp_path):
     assert not twrp_log.exists()  # didn't even try
 
 
+@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="the recovery's output pipe is found via /proc (Linux/Android)")
 def test_progress_bar_moves(rom_zip, tmp_path):
     z, parts = rom_zip
     phone = Phone(tmp_path, parts)
