@@ -118,20 +118,33 @@ def test_full_flash_via_fastbootd(adb, fastboot, phone, fb_state, tmp_path):
 
 
 def test_logical_partitions_need_fastbootd_or_super(adb, fastboot, phone, tmp_path):
+    import dataclasses
+
     plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(overrides=[fl.OVERRIDE_QCOM_UNVALIDATED]))
-    assert any("logical partitions" in p for p in plan.problems)
+    assert plan.ok, plan.problems  # a OnePlus 13 always uses fastbootd: nothing to allow
+    s = open_session("FAKE0001", adb)
+    device = pn.device_from_session(s)
+    device = dataclasses.replace(device, profile=dataclasses.replace(device.profile, firmware_in_fastbootd=False))
+    rom = make_rom(tmp_path)
+    plan = fl.prepare(rom, pn.build_report(rom, device), device,
+                      fl.FlashOptions(overrides=[fl.OVERRIDE_QCOM_UNVALIDATED]), backup_of(adb, tmp_path))
+    assert any("logical partitions" in p for p in plan.problems)  # other phones: fastbootd must be allowed
 
 
 def test_super_image_flashed_from_bootloader(adb, fastboot, phone, fb_state, tmp_path):
     parts = {k: v for k, v in ROM_PARTS.items() if k not in ("system", "my_region")}
     parts["super"] = b"P" * 8192
     rom = make_rom(tmp_path, parts, folder=True)
-    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(overrides=[fl.OVERRIDE_QCOM_UNVALIDATED]), rom=rom)
+    # super.img from the bootloader; a OnePlus 13 then writes its firmware from fastbootd
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW), rom=rom)
     assert plan.ok, plan.problems
-    assert [s.kind for s in plan.steps if s.kind.startswith("flash-")] == ["flash-super"]
+    kinds = [s.kind for s in plan.steps]
+    assert "flash-logical" not in kinds
+    assert kinds.index("flash-super") < kinds.index("to-fastbootd") < kinds.index("flash-fw")
     runner.run()
     assert (phone / "super.flashed").read_bytes() == b"P" * 8192
-    assert "reboot fastboot" not in fb_state.read()["log"]
+    log = fb_state.read()["log"]
+    assert log.index("flash super") < log.index("reboot fastboot")
 
 
 def test_optional_partition_only_when_chosen(adb, fastboot, phone, fb_state, tmp_path):
@@ -150,9 +163,9 @@ def test_failure_stops_and_resume_finishes(adb, fastboot, phone, fb_state, tmp_p
         runner.run()
     journal = json.loads((tmp_path / "journal.json").read_text())
     statuses = {(s["kind"], s["partition"]): s["status"] for s in journal["steps"]}
-    assert statuses[("flash", "boot")] == "failed"
-    assert statuses[("flash", "vbmeta")] == "pending"
-    assert fb_state.read()["mode"] == "bootloader"
+    assert statuses[("flash-fw", "boot")] == "failed"
+    assert statuses[("flash-fw", "vbmeta")] == "pending"
+    assert fb_state.read()["mode"] == "fastbootd"  # a OnePlus 13 writes its firmware from fastbootd
     flashes_before = fb_state.read()["log"].count("flash dtbo_a")
 
     fb_state(fail_flash=None)
@@ -312,3 +325,44 @@ def test_no_backup_with_a_network_backup_for_own_network_files(adb, fastboot, ph
     plan = fl.prepare(rom, report, device, opts, folder)
     assert plan.ok, plan.problems
     assert any(st.partition == "oplusstanvbk" and st.source == "backup" for st in plan.steps)
+
+
+def test_firmware_from_fastbootd_when_the_bootloader_refuses_it(adb, fastboot, phone, fb_state, tmp_path):
+    # OnePlus 13: the bootloader's fastboot refuses xbl / abl ...; every physical image goes in from fastbootd
+    import dataclasses
+
+    rom = make_rom(tmp_path)
+    s = open_session("FAKE0001", adb)
+    device = pn.device_from_session(s)
+    device = dataclasses.replace(device, profile=dataclasses.replace(device.profile, firmware_in_fastbootd=True))
+    report = pn.build_report(rom, device)
+    folder = backup_of(adb, tmp_path)
+    plan = fl.prepare(rom, report, device, fl.FlashOptions(**ALLOW), folder)
+    assert plan.ok, plan.problems
+    kinds = [st.kind for st in plan.steps]
+    assert "flash" not in kinds
+    assert kinds.index("to-fastbootd") < kinds.index("flash-fw") < kinds.index("flash-logical")
+    assert all(st.mode == "fastbootd" for st in plan.steps if st.kind == "flash-fw")
+    fl.Runner(plan, rom, device.profile, adb, fastboot, tmp_path / "journal.json", tmp_path / "work",
+              wait_timeout=5).run()
+    for slot in ("_a", "_b"):
+        assert (phone / "by-name" / f"dtbo{slot}").read_bytes().startswith(b"D" * 4096)
+    log = fb_state.read()["log"]
+    assert log.index("reboot fastboot") < next(i for i, c in enumerate(log) if c.startswith("flash dtbo"))
+
+
+def test_other_phones_still_write_firmware_from_the_bootloader(adb, fastboot, phone, fb_state, tmp_path):
+    import dataclasses
+
+    rom = make_rom(tmp_path)
+    s = open_session("FAKE0001", adb)
+    device = pn.device_from_session(s)
+    device = dataclasses.replace(device, profile=dataclasses.replace(device.profile, firmware_in_fastbootd=False))
+    plan = fl.prepare(rom, pn.build_report(rom, device), device, fl.FlashOptions(**ALLOW), backup_of(adb, tmp_path))
+    assert plan.ok, plan.problems
+    kinds = [st.kind for st in plan.steps]
+    assert "flash-fw" not in kinds and kinds.index("flash") < kinds.index("to-fastbootd")
+    fl.Runner(plan, rom, device.profile, adb, fastboot, tmp_path / "journal.json", tmp_path / "work",
+              wait_timeout=5).run()
+    log = fb_state.read()["log"]
+    assert next(i for i, c in enumerate(log) if c.startswith("flash dtbo")) < log.index("reboot fastboot")

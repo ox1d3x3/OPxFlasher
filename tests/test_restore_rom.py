@@ -47,7 +47,8 @@ def test_restore_brings_the_os_back(adb, fastboot, phone, fb_state, tmp_path):
     assert plan.ok, plan.problems
     assert any(c.name == "Same phone" and c.status == "pass" for c in report.checks)
     kinds = [st.kind for st in plan.steps]
-    assert "flash-super" in kinds and "to-fastbootd" not in kinds  # super from the bootloader
+    # super from the bootloader; a OnePlus 13 then writes its firmware from fastbootd
+    assert kinds.index("flash-super") < kinds.index("to-fastbootd")
     assert not any(st.partition in ("userdata", "metadata", "persist") for st in plan.steps)
 
     run(plan, rom, s.profile, adb, fastboot, tmp_path)

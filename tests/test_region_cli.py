@@ -16,9 +16,7 @@ def test_region_restore_after_ota(ready, monkeypatch, tmp_path, capsys):
     original = (phone / "mapper" / "my_region_a").read_bytes()
     simulate_ota_overwrite(phone)
 
-    assert cli.main(["region", "restore", "--backup", str(backup)]) == 3  # my_region needs fastbootd
-    assert "needs fastbootd" in capsys.readouterr().out
-
+    # a OnePlus 13 writes everything from fastbootd: no separate --allow-fastbootd needed
     answers(monkeypatch, "restore")  # wrong word cancels
     assert cli.main(["region", "restore", "--backup", str(backup), "--allow-fastbootd"]) == 1
     assert state.read()["log"] == []
@@ -33,8 +31,9 @@ def test_region_restore_only_physical(ready, monkeypatch, tmp_path):
     phone, state, rom, backup = ready
     answers(monkeypatch, "RESTORE")
     args = ["region", "restore", "--backup", str(backup), "--only", "oplusstanvbk", "--work", str(tmp_path / "w")]
-    assert cli.main(args) == 0  # no fastbootd needed
-    assert "reboot fastboot" not in state.read()["log"]
+    assert cli.main(args) == 0
+    log = state.read()["log"]
+    assert "flash oplusstanvbk_a" in log and "flash oplusstanvbk_b" in log  # both slots (from fastbootd on OP13)
 
 
 def test_flash_conversion_restores_region_by_default(ready, monkeypatch, tmp_path, capsys):

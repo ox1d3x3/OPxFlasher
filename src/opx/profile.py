@@ -76,6 +76,9 @@ class Profile:
     rollback_fuse: str = ""  # OS version (e.g. "16.0.3.501") from which installing an older build blows a fuse
     qcom_arb_images: list[str] = field(default_factory=list)
     qcom_arb_validated: bool = False
+    # the bootloader's fastboot refuses firmware partitions (xbl, xbl_config, abl ...): write every
+    # physical image from fastbootd instead (OnePlus 13, Nov 2026)
+    firmware_in_fastbootd: bool = False
 
     def rules_for(self, mode: str) -> list[PartitionRule]:
         if mode == "network":
@@ -132,7 +135,7 @@ ISSUE_SEVERITIES = ("info", "warning", "danger")
 BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
               "conditional", "avb_images", "variants", "codenames", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
-              "qcom_arb_validated"}
+              "qcom_arb_validated", "firmware_in_fastbootd"}
 
 
 class ProfileError(ValueError):
@@ -230,6 +233,8 @@ def validate(raw: dict, builtin: bool = False) -> list[str]:
             errors.append(f"known_issues[{i}].severity must be one of {', '.join(ISSUE_SEVERITIES)}")
         if not set(issue.get("blocks", [])) <= set(BLOCKABLE):
             errors.append(f"known_issues[{i}].blocks may only contain {', '.join(BLOCKABLE)}")
+    if "firmware_in_fastbootd" in raw and not isinstance(raw["firmware_in_fastbootd"], bool):
+        errors.append("firmware_in_fastbootd must be true or false")
     if raw.get("qcom_arb_validated") and not builtin:
         errors.append("qcom_arb_validated can only be set in a built-in profile, after checking real firmware")
     return errors
@@ -282,6 +287,7 @@ def _build(raw: dict) -> Profile:
         rollback_fuse=raw.get("rollback_fuse", ""),
         qcom_arb_images=raw.get("qcom_arb_images", []),
         qcom_arb_validated=bool(raw.get("qcom_arb_validated", False)),
+        firmware_in_fastbootd=bool(raw.get("firmware_in_fastbootd", False)),
     )
 
 

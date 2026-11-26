@@ -43,6 +43,8 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
 - `recovery_boards` (optional): the board name custom recoveries report (for restore zips).
 - `keep_apps` (optional): apps the **Apps** tab must never remove on this phone, e.g.
   `["com.oplus.battery", "com.oplus.telephony*"]` (a trailing `*` matches a prefix). Only adds to the built-in list.
+- `firmware_in_fastbootd: true` when the phone's bootloader fastboot refuses firmware partitions
+  (`xbl`, `abl` ...; OnePlus 13): every physical image is then written from fastbootd.
 - Leave `qcom_arb_validated` out. It's only set after anti-rollback numbers are checked
   against real firmware.
 

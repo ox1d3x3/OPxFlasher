@@ -38,5 +38,6 @@
   "recovery_boards": [
     "dodge"
   ],
-  "rollback_fuse": "16.0.3.501"
+  "rollback_fuse": "16.0.3.501",
+  "firmware_in_fastbootd": true
 }

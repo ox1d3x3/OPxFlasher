@@ -209,12 +209,13 @@ class Step:
             extra = " with verity disabled" if self.flags else ""
             return f"Flash {Path(self.image).name} to {self.partition} ({where}){extra}"
         if self.source == "backup":
-            where = "both slots" if self.kind == "flash" else "logical, in fastbootd"
+            where = {"flash": "both slots", "flash-fw": "both slots, in fastbootd"}.get(self.kind, "logical, in fastbootd")
             return f"Restore {self.partition} from your backup ({where})"
         return {
             "to-bootloader": "Reboot to bootloader",
             "preflight": "Check bootloader (unlocked, slot)",
             "flash": f"Flash {self.partition} (both slots)",
+            "flash-fw": f"Flash {self.partition} (both slots, in fastbootd)",
             "to-fastbootd": "Reboot to fastbootd",
             "snapshot": "Cancel any pending OTA snapshot",
             "flash-logical": f"Flash {self.partition} (logical, in fastbootd)",
@@ -230,7 +231,7 @@ class Step:
         """The mode the phone must be in before this step runs."""
         if self.kind in ("preflight", "flash", "flash-super", "flash-current", "flash-image", "to-fastbootd", "wipe", "reboot"):
             return "bootloader"
-        if self.kind in ("snapshot", "flash-logical", "back-to-bootloader", "reboot-from-fastbootd"):
+        if self.kind in ("snapshot", "flash-fw", "flash-logical", "back-to-bootloader", "reboot-from-fastbootd"):
             return "fastbootd"
         return None
 
@@ -321,6 +322,7 @@ def prepare(
         options=options,
         blocked=blocked,
         problems=problems,
+        fw_in_fastbootd=device.profile.firmware_in_fastbootd,
     )
 
     return FlashPlan(
@@ -366,8 +368,10 @@ def _restore_targets(options, profile, backup_folder, chosen, problems, skip=fro
     return restore_physical, restore_logical
 
 
-def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems) -> list[Step]:
-    physical = [Step("flash", n) for n in rom_physical] + [Step("flash", n, source="backup") for n in restore_physical]
+def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems,
+              fw_in_fastbootd: bool = False) -> list[Step]:
+    kind = "flash-fw" if fw_in_fastbootd else "flash"
+    physical = [Step(kind, n) for n in rom_physical] + [Step(kind, n, source="backup") for n in restore_physical]
     physical.sort(key=lambda st: (AVB_ORDER_LAST.index(st.partition) + 1) if st.partition in AVB_ORDER_LAST else 0)
     steps = [Step("to-bootloader"), Step("preflight")]
     # The wipe runs first, while the bootloader is still the phone's own. A region conversion writes a
@@ -376,6 +380,19 @@ def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_
     # (fastbootd, reboot) doesn't need the bootloader's fastboot mode.
     if options.wipe_data:
         steps.append(Step("wipe"))
+    if fw_in_fastbootd and physical:
+        # this bootloader refuses firmware partitions: everything is written from fastbootd
+        # (a whole super.img still goes in from the bootloader first)
+        if super_image:
+            steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
+        logical = [Step("flash-logical", n) for n in rom_logical] + [Step("flash-logical", n, source="backup") for n in restore_logical]
+        # no separate consent: this phone can't be flashed any other way (firmware known to break
+        # fastbootd is still refused)
+        if "fastbootd" in blocked:
+            problems.append("This phone writes its firmware from fastbootd, which is known to be broken on this firmware.")
+        steps += [Step("to-fastbootd"), Step("snapshot"), *physical, *logical]
+        steps.append(Step("reboot-from-fastbootd" if options.reboot_after else "back-to-bootloader"))
+        return steps
     steps += physical
     if super_image:
         steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
@@ -409,7 +426,8 @@ def prepare_restore(device: DeviceState, backup_folder: Path | None, options: Fl
     if options.include_optional or options.wipe_data:
         problems.append("A restore only writes region files from your backup.")
     restore_physical, restore_logical = _restore_targets(options, device.profile, backup_folder, set(), problems)
-    steps = _assemble([], [], False, restore_physical, restore_logical, options, blocked, problems)
+    steps = _assemble([], [], False, restore_physical, restore_logical, options, blocked, problems,
+                      fw_in_fastbootd=device.profile.firmware_in_fastbootd)
     return FlashPlan(
         rom_path="",
         device=dict(device.facts),
@@ -453,7 +471,7 @@ def load_journal(path: Path) -> FlashPlan:
 
 
 def _image_names(plan: FlashPlan) -> list[str]:
-    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-logical", "flash-super") and s.source == "rom"]
+    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-fw", "flash-logical", "flash-super") and s.source == "rom"]
 
 
 def verified_step_images(plan: FlashPlan) -> None:
@@ -595,7 +613,9 @@ class Runner:
     # --- steps --------------------------------------------------------
 
     def _flash_physical(self, fb: Fastboot, name: str, image_for) -> str:
-        targets = [f"{name}_a", f"{name}_b"] if fb.has_slot(name) else [name]
+        # some bootloaders don't answer has-slot for every partition: an existing name_a also means A/B
+        slotted = fb.has_slot(name) or fb.partition_size(f"{name}_a") is not None
+        targets = [f"{name}_a", f"{name}_b"] if slotted else [name]
         chosen = {t: image_for(t) for t in targets}
         for target, image in chosen.items():
             size = image.stat().st_size
@@ -638,7 +658,7 @@ class Runner:
             if fb.getvar("unlocked") != "yes":
                 raise FlashError("The bootloader is locked. Flashing is not possible.")
             return f"unlocked, current slot {fb.getvar('current-slot') or '?'}"
-        if step.kind == "flash":
+        if step.kind in ("flash", "flash-fw"):
             if step.source == "backup":
                 return "restored " + self._flash_physical(fb, step.partition, lambda t: self._backup_image(step.partition, t))
             return "wrote " + self._flash_physical(fb, step.partition, lambda t: files[step.partition])
