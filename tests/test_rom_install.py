@@ -426,3 +426,15 @@ def test_install_keeps_a_log_and_names_the_phone(rom_zip, tmp_path):
     log = (tmp_path / "rtmp" / "opx-install.log").read_text()
     assert "lptools unmap odm_a" in log and "lptools resize odm_a" in log and "read back odm" in log
     assert "Done: PJZ110" in log
+
+
+def test_convert_ready_leaves_the_backup_alone(tmp_path):
+    # the network files are packed from the backup itself: they must still be there afterwards,
+    # so the same backup can make the next zip
+    ota, _parts = make_ota(tmp_path, product="CPH2653")
+    backup, own = backup_with_region(tmp_path)
+    before = {p.name: p.read_bytes() for p in backup.iterdir()}
+    cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, ready_backup=backup)
+    assert {p.name: p.read_bytes() for p in backup.iterdir()} == before
+    again = cv.convert(open_rom(ota), tmp_path / "out2", chunk=MB, ready_backup=backup)["zip"]
+    assert again.exists()
