@@ -140,7 +140,7 @@ def test_super_image_flashed_from_bootloader(adb, fastboot, phone, fb_state, tmp
     assert plan.ok, plan.problems
     kinds = [s.kind for s in plan.steps]
     assert "flash-logical" not in kinds
-    assert kinds.index("flash-super") < kinds.index("to-fastbootd") < kinds.index("flash-fw")
+    assert kinds.index("flash-super") < kinds.index("flash-any") < kinds.index("to-fastbootd")
     runner.run()
     assert (phone / "super.flashed").read_bytes() == b"P" * 8192
     log = fb_state.read()["log"]
@@ -163,9 +163,10 @@ def test_failure_stops_and_resume_finishes(adb, fastboot, phone, fb_state, tmp_p
         runner.run()
     journal = json.loads((tmp_path / "journal.json").read_text())
     statuses = {(s["kind"], s["partition"]): s["status"] for s in journal["steps"]}
-    assert statuses[("flash-fw", "boot")] == "failed"
-    assert statuses[("flash-fw", "vbmeta")] == "pending"
-    assert fb_state.read()["mode"] == "fastbootd"  # a OnePlus 13 writes its firmware from fastbootd
+    # a OnePlus 13: boot failed in the bootloader, so it was retried from fastbootd, where it failed too
+    assert statuses[("flash-any", "boot")] == "failed"
+    assert statuses[("flash-any", "vbmeta")] == "done"
+    assert fb_state.read()["mode"] == "fastbootd"
     flashes_before = fb_state.read()["log"].count("flash dtbo_a")
 
     fb_state(fail_flash=None)
@@ -328,27 +329,44 @@ def test_no_backup_with_a_network_backup_for_own_network_files(adb, fastboot, ph
 
 
 def test_firmware_from_fastbootd_when_the_bootloader_refuses_it(adb, fastboot, phone, fb_state, tmp_path):
-    # OnePlus 13: the bootloader's fastboot refuses xbl / abl ...; every physical image goes in from fastbootd
-    import dataclasses
-
-    rom = make_rom(tmp_path)
-    s = open_session("FAKE0001", adb)
-    device = pn.device_from_session(s)
-    device = dataclasses.replace(device, profile=dataclasses.replace(device.profile, firmware_in_fastbootd=True))
-    report = pn.build_report(rom, device)
-    folder = backup_of(adb, tmp_path)
-    plan = fl.prepare(rom, report, device, fl.FlashOptions(**ALLOW), folder)
+    # real OnePlus 13: the bootloader refuses xbl (here dtbo), fastbootd refuses modem (here vbmeta).
+    # Each image goes in from the bootloader if it takes it, otherwise from fastbootd.
+    fb_state(refuse={"bootloader": ["dtbo"], "fastbootd": ["vbmeta"]})
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
     assert plan.ok, plan.problems
     kinds = [st.kind for st in plan.steps]
-    assert "flash" not in kinds
-    assert kinds.index("to-fastbootd") < kinds.index("flash-fw") < kinds.index("flash-logical")
-    assert all(st.mode == "fastbootd" for st in plan.steps if st.kind == "flash-fw")
-    fl.Runner(plan, rom, device.profile, adb, fastboot, tmp_path / "journal.json", tmp_path / "work",
-              wait_timeout=5).run()
+    assert "flash" not in kinds and "flash-fw" not in kinds
+    assert kinds.index("flash-any") < kinds.index("to-fastbootd") < kinds.index("flash-logical")
+    runner.run()
     for slot in ("_a", "_b"):
         assert (phone / "by-name" / f"dtbo{slot}").read_bytes().startswith(b"D" * 4096)
     log = fb_state.read()["log"]
-    assert log.index("reboot fastboot") < next(i for i, c in enumerate(log) if c.startswith("flash dtbo"))
+    first_dtbo = next(i for i, c in enumerate(log) if c == "flash dtbo_a")
+    first_vbmeta = next(i for i, c in enumerate(log) if c == "flash vbmeta_a")
+    assert first_vbmeta < log.index("reboot fastboot") < first_dtbo  # vbmeta: bootloader; dtbo: fastbootd
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    dtbo = next(s for s in journal["steps"] if s["partition"] == "dtbo")
+    assert dtbo["status"] == "done" and "from fastbootd" in dtbo["detail"]
+
+
+def test_refused_in_both_modes_stops_with_the_phones_reason(adb, fastboot, phone, fb_state, tmp_path):
+    fb_state(refuse={"bootloader": ["dtbo"], "fastbootd": ["dtbo"]})
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    with pytest.raises(fl.FlashError, match="Flashing is not allowed for dtbo_a"):
+        runner.run()
+
+
+def test_resume_after_a_deferred_image(adb, fastboot, phone, fb_state, tmp_path):
+    # stopped in fastbootd after the bootloader refused dtbo: the resume still writes it
+    fb_state(refuse={"bootloader": ["dtbo"]}, fail_flash="system")
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    with pytest.raises(fl.FlashError):
+        runner.run()
+    fb_state(fail_flash=None)
+    from opx.profile import load
+
+    fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5).run()
+    assert (phone / "by-name" / "dtbo_b").read_bytes().startswith(b"D" * 4096)
 
 
 def test_other_phones_still_write_firmware_from_the_bootloader(adb, fastboot, phone, fb_state, tmp_path):

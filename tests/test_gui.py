@@ -1426,3 +1426,59 @@ def test_gui_arb_risk_dialog_compares_a_typed_build(window):
     assert dlg.go.isEnabled() and "SAME" in dlg.validation_label.text()
     text = " ".join(lb.text() for lb in dlg.findChildren(ad.QLabel))
     assert "newest official ROM" in text
+
+
+def test_gui_resume_a_stopped_flash(adb_env, fb_state, monkeypatch, tmp_path):
+    # the GUI resumes a stopped flash from its journal, as opx flash --resume does
+    import sys
+
+    import romfactory as rf
+    from conftest import FAKE_FASTBOOT, tool_cmd
+    from test_flash import make_rom
+    from test_plan import put, sized
+
+    from opx import flash as fl
+    from opx import plan as pn
+    from opx.session import open_session
+    from opx.tools import Tool
+
+    monkeypatch.setenv("OPX_FASTBOOT", tool_cmd(sys.executable, FAKE_FASTBOOT))
+    for slot in ("_a", "_b"):
+        put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
+        put(adb_env, f"xbl_config{slot}", sized(rf.build_qcom_elf(arb=1)))
+        put(adb_env, f"dtbo{slot}", b"\0" * 65536)
+    rom = make_rom(tmp_path)
+    s = open_session("FAKE0001")
+    device = pn.device_from_session(s)
+    opts = fl.FlashOptions(overrides=list(fl.RISK_OVERRIDES), allow_fastbootd=True, no_backup=True)
+    plan = fl.prepare(rom, pn.build_report(rom, device), device, opts, None)
+    assert plan.ok, plan.problems
+    fb_state(fail_flash="system")
+    journal = tmp_path / "j" / "journal.json"
+    journal.parent.mkdir()
+    runner = fl.Runner(plan, rom, s.profile, Tool("adb"), Tool("fastboot"), journal, tmp_path / "w", wait_timeout=5)
+    try:
+        runner.run()
+    except fl.FlashError:
+        pass
+    fb_state(fail_flash=None)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)  # the "Flash stopped" box, if it fails
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    from opx.gui import app as gui_app
+
+    app = QApplication.instance() or QApplication([])
+    win = gui_app.MainWindow()
+    try:
+        win.resume_flash(journal)
+        settle(app, cycles=600)
+        steps = fl.load_journal(journal).steps
+        assert win.flash_label.text() == "Done: flash complete", [(st.label, st.status, st.detail) for st in steps
+                                                                  if st.status != "done"]
+        assert all(st.status == "done" for st in steps)
+    finally:
+        QThreadPool.globalInstance().waitForDone(10000)
+        win.close()
+        win.deleteLater()
+        settle(app, 5)

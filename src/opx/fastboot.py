@@ -79,7 +79,11 @@ class Fastboot:
         res = self.tool.run(*args, timeout=timeout)
         out = (res.stderr + "\n" + res.stdout).strip()
         if res.returncode != 0 or "FAILED" in out:
-            raise FastbootError(f"fastboot {' '.join(args)} failed: {out.splitlines()[-1] if out else res.returncode}")
+            # the phone's own reason ("FAILED (remote: '...')") is usually not the last line
+            lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+            why = [ln for ln in lines if "FAILED" in ln or "remote:" in ln or "error" in ln.lower()]
+            text = " / ".join(dict.fromkeys(why or lines[-1:])) or str(res.returncode)
+            raise FastbootError(f"fastboot {' '.join(args)} failed: {text}")
         return out
 
     def flash(self, partition: str, image: Path, timeout: float = 1800, flags: tuple[str, ...] = ()) -> str:

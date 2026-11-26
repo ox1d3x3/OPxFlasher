@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -218,13 +219,15 @@ class Step:
             extra = " with verity disabled" if self.flags else ""
             return f"Flash {Path(self.image).name} to {self.partition} ({where}){extra}"
         if self.source == "backup":
-            where = {"flash": "both slots", "flash-fw": "both slots, in fastbootd"}.get(self.kind, "logical, in fastbootd")
+            where = {"flash": "both slots", "flash-any": "both slots",
+                     "flash-fw": "both slots, in fastbootd"}.get(self.kind, "logical, in fastbootd")
             return f"Restore {self.partition} from your backup ({where})"
         return {
             "to-bootloader": "Reboot to bootloader",
             "preflight": "Check bootloader (unlocked, slot)",
             "flash": f"Flash {self.partition} (both slots)",
             "flash-fw": f"Flash {self.partition} (both slots, in fastbootd)",
+            "flash-any": f"Flash {self.partition} (both slots)",
             "to-fastbootd": "Reboot to fastbootd",
             "snapshot": "Cancel any pending OTA snapshot",
             "flash-logical": f"Flash {self.partition} (logical, in fastbootd)",
@@ -237,7 +240,9 @@ class Step:
 
     @property
     def mode(self) -> str | None:
-        """The mode the phone must be in before this step runs."""
+        """The mode the phone must be in before this step runs (flash-any: either)."""
+        if self.kind == "flash-any":
+            return None
         if self.kind in ("preflight", "flash", "flash-super", "flash-current", "flash-image", "to-fastbootd", "wipe", "reboot"):
             return "bootloader"
         if self.kind in ("snapshot", "flash-fw", "flash-logical", "back-to-bootloader", "reboot-from-fastbootd"):
@@ -384,7 +389,9 @@ def _restore_targets(options, profile, backup_folder, chosen, problems, skip=fro
 
 def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_logical, options, blocked, problems,
               fw_in_fastbootd: bool = False) -> list[Step]:
-    kind = "flash-fw" if fw_in_fastbootd else "flash"
+    # a phone whose bootloader refuses some firmware (OnePlus 13: xbl ...) and whose fastbootd refuses
+    # other firmware (modem): each image goes in from the bootloader if it takes it, else from fastbootd
+    kind = "flash-any" if fw_in_fastbootd else "flash"
     physical = [Step(kind, n) for n in rom_physical] + [Step(kind, n, source="backup") for n in restore_physical]
     physical.sort(key=lambda st: (AVB_ORDER_LAST.index(st.partition) + 1) if st.partition in AVB_ORDER_LAST else 0)
     steps = [Step("to-bootloader"), Step("preflight")]
@@ -395,16 +402,16 @@ def _assemble(rom_physical, rom_logical, super_image, restore_physical, restore_
     if options.wipe_data:
         steps.append(Step("wipe"))
     if fw_in_fastbootd and physical:
-        # this bootloader refuses firmware partitions: everything is written from fastbootd
-        # (a whole super.img still goes in from the bootloader first)
+        # the bootloader writes what it accepts; what it refuses is written from fastbootd right after
+        # the reboot there (a whole super.img goes in from the bootloader first)
         if super_image:
             steps.append(Step("flash-super", "super", detail="super.img replaces every logical partition, including my_region"))
         logical = [Step("flash-logical", n) for n in rom_logical] + [Step("flash-logical", n, source="backup") for n in restore_logical]
         # no separate consent: this phone can't be flashed any other way (firmware known to break
         # fastbootd is still refused)
         if "fastbootd" in blocked:
-            problems.append("This phone writes its firmware from fastbootd, which is known to be broken on this firmware.")
-        steps += [Step("to-fastbootd"), Step("snapshot"), *physical, *logical]
+            problems.append("This phone writes some firmware from fastbootd, which is known to be broken on this firmware.")
+        steps += [*physical, Step("to-fastbootd"), Step("snapshot"), *logical]
         steps.append(Step("reboot-from-fastbootd" if options.reboot_after else "back-to-bootloader"))
         return steps
     steps += physical
@@ -485,7 +492,7 @@ def load_journal(path: Path) -> FlashPlan:
 
 
 def _image_names(plan: FlashPlan) -> list[str]:
-    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-fw", "flash-logical", "flash-super") and s.source == "rom"]
+    return [s.partition for s in plan.steps if s.kind in ("flash", "flash-fw", "flash-any", "flash-logical", "flash-super") and s.source == "rom"]
 
 
 def verified_step_images(plan: FlashPlan) -> None:
@@ -608,6 +615,12 @@ class Runner:
             return serials[0]
         raise FastbootError("phone not found in fastboot")
 
+    def _ensure_any(self) -> Fastboot:
+        """flash-any: the phone in the bootloader or in fastbootd, whichever it is in."""
+        if self.fb is None:
+            self.fb = self._connect_now()
+        return self.fb
+
     def _ensure(self, mode: str) -> Fastboot:
         """Before each step: the phone must already be in the expected mode."""
         if self.fb is None:
@@ -680,12 +693,19 @@ class Runner:
             self._connect(userspace=True)
             return "in fastbootd"
 
-        fb = self._ensure(step.mode)
+        fb = self._ensure(step.mode) if step.mode else self._ensure_any()
         if step.kind == "preflight":
-            if fb.getvar("unlocked") != "yes":
-                raise FlashError("The bootloader is locked. Flashing is not possible.")
+            unlocked = ""
+            for _ in range(3):  # a bootloader that just came up can miss the first question
+                unlocked = fb.getvar("unlocked") or ""
+                if unlocked:
+                    break
+                time.sleep(1)
+            if unlocked != "yes":
+                raise FlashError("The bootloader is locked. Flashing is not possible." if unlocked == "no" else
+                                 "The bootloader didn't say whether it's unlocked. Nothing was written; try again.")
             return f"unlocked, current slot {fb.getvar('current-slot') or '?'}"
-        if step.kind in ("flash", "flash-fw"):
+        if step.kind in ("flash", "flash-fw", "flash-any"):
             if step.source == "backup":
                 return "restored " + self._flash_physical(fb, step.partition, lambda t: self._backup_image(step.partition, t))
             return "wrote " + self._flash_physical(fb, step.partition, lambda t: files[step.partition])
@@ -772,20 +792,49 @@ class Runner:
             try:
                 step.detail = self._run_step(step, files)
                 step.status = "done"
-            except (FastbootError, FlashError, OSError) as exc:
-                step.status = "failed"
-                step.detail = str(exc)
-                save_journal(plan, self.journal)
-                self.emit({"type": "step_done", "index": index, "label": step.label, "status": "failed", "detail": step.detail})
-                raise FlashError(
-                    f"Step {index} ({step.label}) failed: {exc}\n"
-                    "Do not reboot or unplug the phone. Fix the cause, then resume from the journal: "
-                    f"{self.journal}"
-                ) from exc
+                if step.kind == "to-fastbootd":
+                    self._run_deferred(files, total)
+            except FastbootError as exc:
+                if step.kind == "flash-any" and self.fb is not None and self.fb.mode() == "bootloader":
+                    # the bootloader refused it: written from fastbootd after the reboot there
+                    step.status, step.detail = "deferred", f"the bootloader refused it ({exc}); written from fastbootd"
+                    save_journal(plan, self.journal)
+                    self.emit({"type": "step_done", "index": index, "label": step.label, "status": "deferred",
+                               "detail": step.detail})
+                    continue
+                self._fail(step, index, exc)
+            except (FlashError, OSError) as exc:
+                self._fail(step, index, exc)
             save_journal(plan, self.journal)
             self.emit({"type": "step_done", "index": index, "label": step.label, "status": "done", "detail": step.detail})
         self.emit({"type": "finished", "journal": str(self.journal)})
         return plan
+
+    def _run_deferred(self, files, total: int) -> None:
+        """Right after the reboot to fastbootd: what the bootloader refused."""
+        for step in self.plan.steps:
+            if step.status != "deferred":
+                continue
+            index = self.plan.steps.index(step) + 1
+            self.emit({"type": "step_start", "index": index, "total": total, "label": step.label + " (from fastbootd)"})
+            try:
+                step.detail = self._run_step(step, files) + " (from fastbootd)"
+                step.status = "done"
+            except (FastbootError, FlashError, OSError) as exc:
+                self._fail(step, index, exc)
+            save_journal(self.plan, self.journal)
+            self.emit({"type": "step_done", "index": index, "label": step.label, "status": "done", "detail": step.detail})
+
+    def _fail(self, step: Step, index: int, exc: BaseException):
+        step.status = "failed"
+        step.detail = str(exc)
+        save_journal(self.plan, self.journal)
+        self.emit({"type": "step_done", "index": index, "label": step.label, "status": "failed", "detail": step.detail})
+        raise FlashError(
+            f"Step {index} ({step.label}) failed: {exc}\n"
+            "Do not reboot or unplug the phone. Fix the cause, then resume from the journal: "
+            f"{self.journal}"
+        ) from exc
 
 
 def resume_runner(journal: Path, profile: Profile, adb: Tool, fastboot: Tool, **kwargs) -> Runner:
@@ -793,5 +842,10 @@ def resume_runner(journal: Path, profile: Profile, adb: Tool, fastboot: Tool, **
     for step in plan.steps:
         if step.status == "failed":
             step.status = "pending"
+    if any(st.status == "deferred" for st in plan.steps):
+        # what the bootloader refused still needs fastbootd: go there again (a no-op if it's there)
+        for st in plan.steps:
+            if st.kind == "to-fastbootd":
+                st.status = "pending"
     rom = open_rom(plan.rom_path) if plan.rom_path else None
     return Runner(plan, rom, profile, adb, fastboot, journal, Path(journal).parent / "images", **kwargs)

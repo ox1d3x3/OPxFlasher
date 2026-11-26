@@ -6,6 +6,8 @@ folder as fake_adb.py plus a state file:
     serial, slot, unlocked, super_size
     fastbootd_broken  rebooting to fastbootd bricks the phone (ColorOS 17 CN)
     fail_flash        partition name whose flash fails
+    refuse            {"bootloader": [...], "fastbootd": [...]}: partitions a mode won't write
+                      (real OnePlus 13: the bootloader refuses xbl, fastbootd refuses modem)
     no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
     log               every command that changed something
 """
@@ -115,6 +117,10 @@ def main(argv: list[str]) -> int:
         data = image.read_bytes()
         if state.get("fail_flash") == part:
             err(f"Sending '{part}' OKAY\nWriting '{part}' FAILED (remote: 'Flash write failure')")
+            return 1
+        base = part[:-2] if part.endswith(("_a", "_b")) else part
+        if base in state.get("refuse", {}).get(state.get("mode", ""), []):
+            err(f"Sending '{part}' OKAY\nWriting '{part}' FAILED (remote: 'Flashing is not allowed for {part}')")
             return 1
         if part == "super":
             if len(data) > state["super_size"]:

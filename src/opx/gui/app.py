@@ -534,6 +534,11 @@ class MainWindow(QMainWindow):
         self.stop_flash_btn.clicked.connect(self._stop_flash)
         act_row.addWidget(self.flash_btn)
         act_row.addWidget(self.stop_flash_btn)
+        self.resume_flash_btn = QPushButton(tr("Resume a stopped flash..."))
+        self.resume_flash_btn.setToolTip(tr("Continue a flash that stopped, from its journal: finished steps "
+                                            "are skipped"))
+        self.resume_flash_btn.clicked.connect(lambda: self.resume_flash())
+        act_row.addWidget(self.resume_flash_btn)
         act_row.addStretch(1)
         act_row.addWidget(self.save_report_btn)
         rom_form.addLayout(act_row)
@@ -841,6 +846,7 @@ class MainWindow(QMainWindow):
         self.use_backup_btn.setEnabled(not self.busy)
         if hasattr(self, "flash_btn"):
             self.flash_btn.setEnabled(not self.busy and self._can_offer_flash())
+            self.resume_flash_btn.setEnabled(not self.busy)
         if hasattr(self, "root_tab"):
             self.root_tab.refresh_buttons()
         if hasattr(self, "image_tab"):
@@ -1812,6 +1818,49 @@ class MainWindow(QMainWindow):
         runner.emit = job.signals.event.emit
         self.run_job(job, self._flash_done, self._flash_failed, self._flash_event)
 
+    def resume_flash(self, journal: Path | None = None) -> None:
+        """Continue a stopped flash from its journal (GUI side of opx flash --resume)."""
+        from opx import profile as profiles
+
+        if self.busy:
+            return
+        if journal is None:
+            start = str(Path(getattr(self, "flash_journal", "") or "").parent
+                        if getattr(self, "flash_journal", "") else self.out_edit.text())
+            name, _ = QFileDialog.getOpenFileName(self, tr("Journal of the stopped flash"), start,
+                                                  "journal.json (journal.json);;JSON (*.json)")
+            if not name:
+                return
+            journal = Path(name)
+        try:
+            plan = fl.load_journal(journal)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            QMessageBox.warning(self, tr("Resume a stopped flash"), tr("That isn't a flash journal:") + f" {e}")
+            return
+        done = sum(st.status == "done" for st in plan.steps)
+        rest = [st for st in plan.steps if st.status != "done"]
+        if not rest:
+            QMessageBox.information(self, tr("Resume a stopped flash"), tr("Every step of that flash is done."))
+            return
+        answer = QMessageBox.question(
+            self, tr("Resume a stopped flash"),
+            f"{Path(plan.rom_path).name}\n" + tr("Done:") + f" {done} " + tr("steps. Next:") + f" {rest[0].label}\n\n"
+            + tr("Continue? The phone can be in the bootloader, fastbootd or Android."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        dev = plan.device
+        profile = (profiles.detect({"ro.product.model": dev["model"]}) if dev.get("model")
+                   else profiles.for_board(dev.get("board", "")))
+        self.flash_cancel = threading.Event()
+        try:
+            runner = fl.resume_runner(journal, profile, Tool("adb"), Tool("fastboot"), cancel=self.flash_cancel)
+        except Exception as e:  # noqa: BLE001 (shown)
+            QMessageBox.warning(self, tr("Resume a stopped flash"), str(e))
+            return
+        self.tabs.setCurrentWidget(self.rom_tab)
+        self._launch(runner, journal, self.flash_label, self.flash_bar, self.stop_flash_btn, "Flash")
+
     def _stop_flash(self) -> None:
         self.flash_cancel.set()
         for btn in (self.stop_flash_btn, self.stop_restore_btn, self.root_tab.stop_btn, self.image_tab.stop_btn):
@@ -1850,10 +1899,17 @@ class MainWindow(QMainWindow):
         stop.setEnabled(False)
         label.setText(f"{what} stopped")
         self.say(str(exc))
-        QMessageBox.warning(
-            self, f"{what} stopped",
-            f"{exc}\n\nResume later with:\nopx flash --resume \"{getattr(self, 'flash_journal', '')}\"",
-        )
+        journal = getattr(self, "flash_journal", "")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(f"{what} stopped")
+        box.setText(f"{exc}\n\n" + tr("Fix the cause, then resume: finished steps are skipped.")
+                    + f"\n(opx flash --resume \"{journal}\")")
+        resume = box.addButton(tr("Resume now"), QMessageBox.ButtonRole.AcceptRole) if journal else None
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if resume is not None and box.clickedButton() is resume:
+            self.resume_flash(Path(journal))
 
     # --- signal / region tab ------------------------------------------------
 
