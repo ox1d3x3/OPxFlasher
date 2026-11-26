@@ -465,3 +465,15 @@ def test_sizes_come_from_the_list_not_shell_maths(rom_zip, tmp_path):
             dst.writestr(info, data)
     code, out = Phone(tmp_path, parts).install(bad)
     assert code != 0 and "odm doesn't match right after writing it" in out
+
+
+def test_convert_ready_leaves_the_backup_alone(tmp_path):
+    # the network files are packed from the backup itself: they must still be there afterwards,
+    # so the same backup can make the next zip
+    ota, _parts = make_ota(tmp_path, product="CPH2653")
+    backup, own = backup_with_region(tmp_path)
+    before = {p.name: p.read_bytes() for p in backup.iterdir()}
+    cv.convert(open_rom(ota), tmp_path / "out", chunk=MB, ready_backup=backup)
+    assert {p.name: p.read_bytes() for p in backup.iterdir()} == before
+    again = cv.convert(open_rom(ota), tmp_path / "out2", chunk=MB, ready_backup=backup)["zip"]
+    assert again.exists()

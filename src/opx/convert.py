@@ -495,8 +495,8 @@ def convert(rom: RomInfo, out_dir: Path, make_zip: bool = True, make_folder: boo
                            "file": f"{item.name}.img", "parts": []}
                     if zf is not None and not item.keep_on_phone:
                         rec["parts"] = _add_parts(zf, path, item, chunk, tick)
-                        if not direct and not make_folder:
-                            path.unlink()
+                        if item.backup_file is None and not direct and not make_folder:
+                            path.unlink()  # a temporary copy; never the ROM's own file or the user's backup
                     records.append(rec)
 
                 manifest = {
