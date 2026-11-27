@@ -319,6 +319,9 @@ def test_flash_dialog_offers_the_recovery_route(adb_env, fb_state, monkeypatch, 
     # the phone only in fastboot: the zip is copied while Android runs
     device.source = "fastboot"
     assert "Start the phone in Android" in fdm.recovery_route_blocker(device, pn.build_report(rom, device))
+    d.close()
+    d.deleteLater()  # no parentless window left for Qt to tear down at interpreter exit
+    QApplication.processEvents()
 
 
 def test_phone_hardware_is_set_once_and_used_by_the_flash_window(window, tmp_path):

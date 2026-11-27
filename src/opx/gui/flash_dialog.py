@@ -107,7 +107,7 @@ class FlashDialog(QDialog):
             rec_btn = QPushButton(tr("Install") + f" {rec_name}...")
             rec_btn.setToolTip(tr("Opens the official download page and loads the file you downloaded (zip or "
                                   "recovery.img); written to recovery on both slots"))
-            rec_btn.clicked.connect(lambda: self.done(INSTALL_RECOVERY))
+            rec_btn.clicked.connect(self._install_recovery)
             rec_row.addWidget(rec_tip, 1)
             rec_row.addWidget(rec_btn)
             w_layout.addLayout(rec_row)
@@ -474,6 +474,9 @@ class FlashDialog(QDialog):
             + ([fl.OVERRIDE_UNKNOWN_FIRMWARE]
                if self.not_updated_box is not None and self.not_updated_box.isChecked() else []),
         )
+
+    def _install_recovery(self) -> None:
+        self.done(INSTALL_RECOVERY)
 
     def recovery_steps(self) -> list[str]:
         name = (getattr(self.device.profile, "custom_recoveries", None) or [{}])[0].get("name", "AERA")
