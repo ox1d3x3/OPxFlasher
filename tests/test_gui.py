@@ -311,6 +311,9 @@ def test_flash_dialog_offers_the_recovery_route(adb_env, fb_state, monkeypatch, 
     d.wipe_box.setChecked(True)
     d.route_rec.setChecked(True)
     assert d.route == fdm.ROUTE_RECOVERY
+    assert not d.route_pc.isChecked()  # one choice, though each radio sits in its own card
+    assert d.route_box.card_rec.property("selected") and not d.route_box.card_pc.property("selected")
+    assert d.route_box.pulse.loopCount() == 3  # the box glows a few times when the window opens
     assert not d.wipe_box.isChecked() and not d.wipe_box.isVisibleTo(d)  # the recovery zip never wipes
     text = d.preview.toPlainText()
     assert "Copy it to the phone's internal storage" in text and "Restart into AERA" in text

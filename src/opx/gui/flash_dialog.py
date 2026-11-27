@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from opx import flash as fl
 from opx import hardware as hwm
 from opx import plan as pn
+from opx.gui.route_box import RouteBox
 from opx.i18n import tr
 from opx.rom.ota import RomInfo
 
@@ -74,44 +75,10 @@ class FlashDialog(QDialog):
         rec_pages = getattr(device.profile, "custom_recoveries", None) or []
         if rec_pages:
             rec_name = rec_pages[0].get("name", "AERA")
-            w_box = QGroupBox(tr("How to flash"))
-            w_layout = QVBoxLayout(w_box)
-            self.route_pc = QRadioButton(tr("A. From the PC (fastboot / fastbootd)"))
-            pc_note = QLabel(tr("The PC writes every partition over USB. Works with the stock recovery; changing "
-                                "region and wiping data are possible."))
-            self.route_rec = QRadioButton(tr("B. Inside the custom recovery") + f" ({rec_name})")
-            rec_note = QLabel(tr("OPxFlasher makes a recovery zip that keeps") + f" {rec_name}, "
-                              + tr("copies it to the phone (about 10 GB free needed) and checks it there. The phone "
-                                   "restarts into the recovery and you press Install: the phone writes everything "
-                                   "itself, the cable only carried the copy. Same variant only; your data stays."))
-            for note in (pc_note, rec_note):
-                note.setWordWrap(True)
-                note.setStyleSheet("color:#9aa3b5; margin-left:22px")
-            self.route_pc.setChecked(True)
-            w_layout.addWidget(self.route_pc)
-            w_layout.addWidget(pc_note)
-            w_layout.addWidget(self.route_rec)
-            w_layout.addWidget(rec_note)
-            blocker = recovery_route_blocker(device, report)
-            if blocker:
-                self.route_rec.setEnabled(False)
-                why = QLabel(tr("Not possible now:") + " " + blocker)
-                why.setWordWrap(True)
-                why.setStyleSheet("color:#f0c24b; margin-left:22px")
-                w_layout.addWidget(why)
-            rec_row = QHBoxLayout()
-            rec_tip = QLabel(tr("Recommended for both: install") + f" {rec_name} " + tr("first (from its official "
-                             "page). It gave the cleanest flashes on the OnePlus 13. Skip it to keep the stock "
-                             "recovery (route A)."))
-            rec_tip.setWordWrap(True)
-            rec_btn = QPushButton(tr("Install") + f" {rec_name}...")
-            rec_btn.setToolTip(tr("Opens the official download page and loads the file you downloaded (zip or "
-                                  "recovery.img); written to recovery on both slots"))
-            rec_btn.clicked.connect(self._install_recovery)
-            rec_row.addWidget(rec_tip, 1)
-            rec_row.addWidget(rec_btn)
-            w_layout.addLayout(rec_row)
-            layout.addWidget(w_box)
+            self.route_box = RouteBox(rec_name, recovery_route_blocker(device, report))
+            self.route_pc, self.route_rec = self.route_box.route_pc, self.route_box.route_rec
+            self.route_box.install_recovery.connect(self._install_recovery)
+            layout.addWidget(self.route_box)
 
         # backup (recommended, not required)
         b_box = QGroupBox(tr("Your backup of this phone (recommended)"))
