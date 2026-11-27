@@ -524,6 +524,29 @@ catalog). Each shows exactly which apps it will remove and asks first:
 - **Built-in lists** menu, or share lists: **Save my list...** writes what you removed (one package per line); **Remove from list...** applies someone else's list, skipping anything locked or not on your phone.
 - Command line: `opx apps list [--removed] [--search X]`, `opx apps remove <pkg>... | --from list.txt` (the built-in lists are in OPxFlasher's `debloat` folder),
   `opx apps restore <pkg>... | --all`, `opx apps export list.txt`.
+- **Restore last run** puts back everything the last debloat run removed (every run is recorded).
+
+### Debloat with an AI
+
+1. **Export for AI...** saves every app on the phone (package, where it lives: system / product /
+   my_* = part of the ROM, data = installed by you; its state; whether it's protected) as JSON. No
+   serial number, accounts or personal data. A prompt is saved next to it and copied to the
+   clipboard.
+2. Paste the prompt into any AI chat and attach the JSON. It answers with a list: each app with a
+   level (*safe*, *recommended*, *aggressive*, *keep*) and why. Save the answer as a `.json` file
+   (pasting with the ```` ``` ```` fences is fine).
+3. **Import recommendations...** matches it against the phone: safe and recommended apps are ticked,
+   aggressive ones are shown unticked, and protected apps are never removed whatever the list says.
+   Tick or untick, press **Remove**: one run, reversible with **Restore last run**. A plain text
+   list (one package per line) works too.
+
+### Claude Desktop
+
+**Use with Claude Desktop...** adds OPxFlasher to Claude Desktop as an MCP server (or copies the
+config to paste yourself; `opx mcp --install` / `--print-config`). Restart Claude Desktop, connect the
+phone with USB debugging on, and ask Claude to look at your apps. It can list phones, scan the apps,
+explain them, preview a debloat, apply it (Claude Desktop asks you first) and restore. It can't
+flash, wipe or reboot anything; protected apps stay protected, and every removal needs a preview.
 
 ## Diagnostics
 

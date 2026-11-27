@@ -26,6 +26,15 @@ from opx import apps as ap
 from opx.i18n import tr
 
 
+def _scan_all(adb, keep):
+    return ap.scan_apps(adb, keep, include_user=True)
+
+
+def _apply(adb, serial, keep, packages: list[str], source: str):
+    done, problems = ap.apply(adb, serial, packages, keep, source=source)
+    return problems
+
+
 def _change(adb, serial, keep, remove: list[str], restore: list[str]) -> list[str]:
     problems = []
     for p in remove:
@@ -105,11 +114,31 @@ class AppsTab(QWidget):
         self.export_btn = QPushButton(tr("Save my list..."))
         self.export_btn.setToolTip(tr("Save what you removed as a list to share or reuse"))
         self.export_btn.clicked.connect(self.export_list)
-        for b in (self.remove_btn, self.restore_btn, self.restore_all_btn, self.builtin_btn, self.import_btn,
-                  self.export_btn):
+        self.undo_run_btn = QPushButton(tr("Restore last run"))
+        self.undo_run_btn.setToolTip(tr("Put back everything the last debloat run removed"))
+        self.undo_run_btn.clicked.connect(self.restore_last_run)
+        for b in (self.remove_btn, self.restore_btn, self.undo_run_btn, self.restore_all_btn, self.builtin_btn,
+                  self.import_btn, self.export_btn):
             row.addWidget(b)
         row.addStretch(1)
         layout.addLayout(row)
+
+        # AI-assisted: export the phone's apps, let an AI (or anyone) recommend, import and apply
+        ai = QHBoxLayout()
+        self.ai_export_btn = QPushButton(tr("Export for AI..."))
+        self.ai_export_btn.setToolTip(tr("Save this phone's apps (no serial, no personal data) with a prompt to "
+                                         "paste into any AI; it answers with a list you can import"))
+        self.ai_export_btn.clicked.connect(self.export_for_ai)
+        self.ai_import_btn = QPushButton(tr("Import recommendations..."))
+        self.ai_import_btn.setToolTip(tr("Load an AI's answer (or any list): matching apps are ticked by level"))
+        self.ai_import_btn.clicked.connect(lambda: self.import_recommendations())
+        self.claude_btn = QPushButton(tr("Use with Claude Desktop..."))
+        self.claude_btn.setToolTip(tr("Let Claude Desktop scan and debloat the phone through OPxFlasher (MCP)"))
+        self.claude_btn.clicked.connect(self.claude_desktop)
+        for b in (self.ai_export_btn, self.ai_import_btn, self.claude_btn):
+            ai.addWidget(b)
+        ai.addStretch(1)
+        layout.addLayout(ai)
         self.status = QLabel("")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -137,6 +166,9 @@ class AppsTab(QWidget):
         self.export_btn.setEnabled(live and bool(mine))
         self.import_btn.setEnabled(loaded)
         self.builtin_btn.setEnabled(loaded)
+        self.undo_run_btn.setEnabled(loaded and bool(ap.runs(self.win.session.serial)) if self.win.session else False)
+        self.ai_export_btn.setEnabled(live)
+        self.ai_import_btn.setEnabled(loaded)
 
     def _selected(self) -> list[ap.App]:
         out = []
@@ -179,7 +211,7 @@ class AppsTab(QWidget):
             return
         self.load_btn.setEnabled(False)
         self.status.setText(tr("Reading the app list..."))
-        self.win.run_job(Job(ap.list_system_apps, s.adb, s.profile.keep_apps), self._loaded, self._failed)
+        self.win.run_job(Job(ap.scan_apps, s.adb, s.profile.keep_apps, False), self._loaded, self._failed)
 
     def _loaded(self, apps) -> None:
         self.apps = apps
@@ -269,3 +301,107 @@ class AppsTab(QWidget):
             return
         ap.write_list(Path(path), ap.removed_by_us(s.serial), f"Removed on {s.props.get('ro.product.model', '')}")
         self.win.say(f"Debloat list saved: {path}")
+
+    # --- AI-assisted ------------------------------------------------------------------
+
+    def restore_last_run(self) -> None:
+        r = ap.runs(self.win.session.serial)
+        mine = set(ap.removed_by_us(self.win.session.serial))
+        packages = [p for p in (r[-1]["packages"] if r else []) if p in mine]
+        if packages:
+            self._run([], packages)
+
+    def export_for_ai(self) -> None:
+        from opx.gui.app import Job
+
+        s = self.win.session
+        if s is None:
+            return
+        model = (s.props.get("ro.product.model") or "phone").replace(" ", "_")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Export apps for AI"), f"{model}-apps.json", "JSON (*.json)")
+        if not path:
+            return
+        self.status.setText(tr("Reading every app..."))
+
+        def done(apps):
+            import json
+
+            from PySide6.QtWidgets import QApplication
+
+            Path(path).write_text(json.dumps(ap.inventory(apps, s.props, s.access.usable), indent=1), "utf-8")
+            prompt = ap.ai_prompt(s.props)
+            Path(path).with_suffix(".prompt.txt").write_text(prompt, "utf-8")
+            QApplication.clipboard().setText(prompt)
+            self.status.setText(f"Saved {len(apps)} apps to {path}.")
+            self.win.say(f"Apps exported for AI: {path} (prompt copied to the clipboard)")
+            QMessageBox.information(
+                self, tr("Export for AI"),
+                f"Saved {Path(path).name} and {Path(path).with_suffix('.prompt.txt').name}.\n\n"
+                "The prompt is on the clipboard: paste it into any AI chat, attach the JSON file, and save its answer "
+                "as a .json file. Then press Import recommendations.")
+
+        self.win.run_job(Job(_scan_all, s.adb, s.profile.keep_apps), done, self._failed)
+
+    def import_recommendations(self, path: Path | str | None = None) -> None:
+        from opx.gui.recommend_dialog import RecommendDialog
+
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, tr("Choose recommendations"), "",
+                                                  "Recommendations (*.json *.txt);;All files (*)")
+            if not path:
+                return
+        try:
+            recs = ap.read_recommendations(Path(path))
+        except (OSError, UnicodeDecodeError, ap.AppError) as e:
+            QMessageBox.warning(self, tr("Apps"), f"Can't use that file: {e}")
+            return
+        if not recs:
+            QMessageBox.information(self, tr("Apps"), tr("No apps in that file."))
+            return
+        planned = ap.plan_recommendations(recs, self.apps)
+        dlg = RecommendDialog(self, planned, Path(path).name)
+        if dlg.exec() != RecommendDialog.Accepted:
+            return
+        self._apply_run(dlg.ticked(), f"recommendations: {Path(path).name}")
+
+    def _apply_run(self, packages: list[str], source: str) -> None:
+        from opx.gui.app import Job
+
+        if not packages:
+            return
+        s = self.win.session
+        self.win._set_busy(True)
+        self.status.setText(tr("Working..."))
+        self.win.run_job(Job(_apply, s.adb, s.serial, s.profile.keep_apps, packages, source),
+                         lambda problems: self._changed(problems, packages, []), self._change_failed)
+
+    def claude_desktop(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from opx import mcp_server
+
+        snippet = mcp_server.config_snippet()
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("Use with Claude Desktop"))
+        box.setText(tr("Claude Desktop can scan this phone's apps, explain them and debloat it through OPxFlasher "
+                       "(debloat only: it can't flash, wipe or reboot). Protected apps stay protected, every "
+                       "removal needs a preview, and Claude Desktop asks you before applying it."))
+        box.setInformativeText(tr("Add OPxFlasher to Claude Desktop, then restart Claude Desktop. Config:") + "\n\n"
+                               + snippet)
+        add = box.addButton(tr("Add to Claude Desktop"), QMessageBox.ButtonRole.AcceptRole)
+        copy = box.addButton(tr("Copy config"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is copy:
+            QApplication.clipboard().setText(snippet)
+            self.win.say("Claude Desktop config copied to the clipboard")
+        elif box.clickedButton() is add:
+            try:
+                path, backup = mcp_server.add_to_claude_desktop()
+            except (OSError, ValueError) as e:
+                QMessageBox.warning(self, tr("Claude Desktop"), str(e))
+                return
+            self.win.say(f"Added OPxFlasher to {path}" + (f" (old file kept as {backup.name})" if backup else ""))
+            QMessageBox.information(self, tr("Claude Desktop"),
+                                    f"Added to {path}.\n\nRestart Claude Desktop, connect the phone with USB "
+                                    "debugging on, and ask Claude to look at your apps.")

@@ -66,7 +66,8 @@ firmware fits **your** phone, and it recommends a verified backup to return to.
 | **Full ROM restore** | Put a Full backup back from the PC, or make a recovery zip for **AERA** or **OrangeFox / TWRP**. |
 | **Region & signal** | Convert regions and restore the phone's own signal files from its backup. |
 | **Root assistant** | Magisk, KernelSU or APatch: matching stock image, patch on the phone, checked flash, unroot. |
-| **Everyday tools** | Reboot buttons, single-image flashing, official ROM downloads (download only, or download and convert), debloat (reversible), logs with problem hints, partition explorer. |
+| **Debloat, with AI if you like** | Remove apps for your user (reversible, no root). Export the phone's apps for any AI, import its recommendations (safe / recommended / aggressive) and apply them in one run, or let **Claude Desktop** do it through OPxFlasher's MCP server. Protected apps are never removed. |
+| **Everyday tools** | Reboot buttons, single-image flashing, official ROM downloads (download only, or download and convert), logs with problem hints, partition explorer. |
 | **Rescue** | *Phone won't start?* works out the phone's state (fastboot, recovery, boot loop, 9008 ...) and walks you through what to try. |
 
 <p align="center">

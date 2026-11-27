@@ -73,6 +73,8 @@ class App:
     removed: bool      # removed for this user
     disabled: bool
     keep: str = ""     # why it can't be removed ("" = can be)
+    location: str = ""  # where the APK lives: system, product, vendor, odm, my_*, data (user app)
+    user_app: bool = False  # installed by the user (Play Store etc.), not part of the ROM
 
 
 def check_package(name: str) -> str:
@@ -112,6 +114,47 @@ def _packages(adb: Tool, flags: str) -> set[str]:
     return out
 
 
+def _paths(adb: Tool, flags: str) -> dict[str, str]:
+    """package -> APK path, from `pm list packages -f` ("package:/system/app/X/X.apk=com.x")."""
+    res = adb.run("shell", f"pm list packages -f {flags}".strip(), timeout=60)
+    if not res.ok:
+        raise AppError(f"Couldn't list apps: {(res.stderr or res.stdout).strip()}")
+    out = {}
+    for line in res.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("package:") and "=" in line:
+            path, name = line[len("package:"):].rsplit("=", 1)
+            if name == "android" or PKG_RE.match(name):
+                out[name] = path
+    return out
+
+
+def location_of(path: str) -> str:
+    parts = [p for p in path.split("/") if p]
+    if not parts:
+        return ""
+    if parts[0] == "data":
+        return "data"
+    if parts[0] == "system" and len(parts) > 1 and parts[1] in ("product", "system_ext", "vendor"):
+        return parts[1]
+    return parts[0]
+
+
+def scan_apps(adb: Tool, extra_keep: list[str] | None = None, include_user: bool = True) -> list[App]:
+    """Every app on the phone with where it lives and whether it may be removed. Works without root:
+    `pm` runs as the shell user; removing is per user (`pm uninstall -k --user 0`) and reversible."""
+    system = _paths(adb, "-s -u")
+    installed = _packages(adb, "-s")
+    disabled = _packages(adb, "-s -d")
+    apps = [App(p, p not in installed, p in disabled, keep_reason(p, extra_keep), location_of(path))
+            for p, path in sorted(system.items())]
+    if include_user:
+        user = _paths(adb, "-3")
+        apps += [App(p, False, False, "", location_of(path) or "data", True)
+                 for p, path in sorted(user.items()) if p not in system]
+    return apps
+
+
 def list_system_apps(adb: Tool, extra_keep: list[str] | None = None) -> list[App]:
     installed = _packages(adb, "-s")
     everything = _packages(adb, "-s -u")
@@ -146,14 +189,17 @@ def _save_undo(serial: str, packages: list[str]) -> None:
     f = _undo_file(serial)
     f.parent.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    old = {}
+    old, data = {}, {}
     try:
-        old = {e["package"]: e for e in json.loads(f.read_text("utf-8")).get("removed", [])}
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
+        data = json.loads(f.read_text("utf-8"))
+        old = {e["package"]: e for e in data.get("removed", [])}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        data = {}
     entries = [old.get(p) or {"package": p, "when": now} for p in packages]
+    data = dict(data) if isinstance(data, dict) else {}
+    data.update(serial=serial, removed=entries)  # keeps the recorded runs
     tmp = f.with_name(f.name + ".tmp")
-    tmp.write_text(json.dumps({"serial": serial, "removed": entries}, indent=2), "utf-8")
+    tmp.write_text(json.dumps(data, indent=2), "utf-8")
     tmp.replace(f)
 
 
@@ -209,3 +255,166 @@ def write_list(path: Path, packages: list[str], title: str = "") -> Path:
     Path(path).write_text(head + "# OPxFlasher debloat list: one package per line\n"
                           + "".join(p + "\n" for p in packages), "utf-8")
     return Path(path)
+
+
+# --- AI-assisted lists: export the phone's apps, import recommendations ------------------------
+
+LEVELS = ("safe", "recommended", "aggressive", "keep")
+DEFAULT_LEVELS = ("safe", "recommended")  # ticked after import; aggressive is the owner's choice
+
+AI_PROMPT = """You are helping me debloat my Android phone ({model}, {build}, Android {android}).
+The attached JSON (format "opxflasher-apps") lists every app on it: package, where it lives
+(system / product / vendor / my_* = part of the ROM, data = installed by me), its state, and
+"protected": true for apps OPxFlasher will never remove (don't suggest those).
+
+Apps are removed only for my user (`pm uninstall -k --user 0`): reversible, nothing on the system
+partition changes. Still, removing the wrong app can break calls, the camera, notifications,
+updates or banking apps.
+
+Reply with JSON only, in exactly this format (one entry per app you have an opinion on):
+
+{{"format": "opxflasher-recommendations", "version": 1, "phone": "{model}",
+  "packages": [
+    {{"package": "com.example.app", "level": "safe", "reason": "what it is, why it can go"}}
+  ]}}
+
+level is one of:
+- "safe": bloat or ads nobody needs; removing it breaks nothing
+- "recommended": rarely used; removing it is fine for most people
+- "aggressive": works, but some people use it (say what stops working)
+- "keep": needed, or removing it breaks something (say what)
+Only use package names from the list. When unsure, use "keep"."""
+
+
+def inventory(apps: list[App], props: dict[str, str], rooted: bool) -> dict:
+    """What `Export for AI` saves: the phone and its apps. No serial number, accounts or user data."""
+    return {
+        "format": "opxflasher-apps", "version": 1,
+        "phone": {"model": props.get("ro.product.model", ""), "build": props.get("ro.build.display.id", ""),
+                  "android": props.get("ro.build.version.release", ""), "rooted": rooted},
+        "apps": [{"package": a.package, "location": a.location or ("data" if a.user_app else ""),
+                  "user_app": a.user_app,
+                  "state": "removed" if a.removed else "disabled" if a.disabled else "installed",
+                  "protected": bool(a.keep), **({"why_protected": a.keep} if a.keep else {})}
+                 for a in apps],
+    }
+
+
+def ai_prompt(props: dict[str, str]) -> str:
+    return AI_PROMPT.format(model=props.get("ro.product.model", "phone") or "phone",
+                            build=props.get("ro.build.display.id", "") or "?",
+                            android=props.get("ro.build.version.release", "") or "?")
+
+
+@dataclass
+class Recommendation:
+    package: str
+    level: str = "recommended"
+    reason: str = ""
+
+
+def read_recommendations(path: Path) -> list[Recommendation]:
+    """An AI's (or anyone's) answer: the JSON format from AI_PROMPT, a plain list of entries, or a
+    text list (one package per line, like a debloat list). Package names are checked; nothing runs."""
+    text = Path(path).read_text("utf-8-sig")
+    stripped = text.strip()
+    if stripped.startswith("```"):  # pasted straight from a chat
+        stripped = stripped.strip("`")
+        stripped = stripped[stripped.find("\n") + 1:] if "\n" in stripped else stripped
+    if stripped.startswith(("{", "[")):
+        try:
+            data = json.loads(stripped)
+        except ValueError as e:
+            raise AppError(f"Not valid JSON: {e}") from e
+        entries = data.get("packages", []) if isinstance(data, dict) else data
+        if not isinstance(entries, list):
+            raise AppError("No \"packages\" list in that file.")
+        out: dict[str, Recommendation] = {}
+        for e in entries:
+            if isinstance(e, str):
+                e = {"package": e}
+            if not isinstance(e, dict) or "package" not in e:
+                continue
+            name = check_package(str(e["package"]).strip())
+            level = str(e.get("level", "recommended")).strip().lower()
+            if level not in LEVELS:
+                level = "keep"  # an answer we can't read is never a reason to remove something
+            out[name] = Recommendation(name, level, str(e.get("reason", ""))[:500])
+        return list(out.values())
+    return [Recommendation(p) for p in read_list(Path(path))]
+
+
+@dataclass
+class Planned:
+    package: str
+    level: str
+    reason: str
+    status: str  # "remove", "protected", "not installed", "already removed", "keep"
+    note: str = ""
+
+    @property
+    def removable(self) -> bool:
+        return self.status == "remove"
+
+
+def plan_recommendations(recs: list[Recommendation], apps: list[App]) -> list[Planned]:
+    """Match recommendations against the phone. Protected apps are refused whatever the list says."""
+    known = {a.package: a for a in apps}
+    out = []
+    for r in recs:
+        a = known.get(r.package)
+        if a is None:
+            out.append(Planned(r.package, r.level, r.reason, "not installed", "not on this phone"))
+        elif a.keep:
+            out.append(Planned(r.package, r.level, r.reason, "protected", a.keep))
+        elif a.removed:
+            out.append(Planned(r.package, r.level, r.reason, "already removed"))
+        elif r.level == "keep":
+            out.append(Planned(r.package, r.level, r.reason, "keep"))
+        else:
+            out.append(Planned(r.package, r.level, r.reason, "remove"))
+    order = {lv: i for i, lv in enumerate(LEVELS)}
+    return sorted(out, key=lambda p: (not p.removable, order.get(p.level, 9), p.package))
+
+
+# --- restore points: every debloat run is recorded, so it can be undone as a whole --------------
+
+
+def record_run(serial: str, packages: list[str], source: str = "") -> None:
+    if not packages:
+        return
+    f = _undo_file(serial)
+    try:
+        data = json.loads(f.read_text("utf-8"))
+    except (OSError, ValueError):
+        data = {"serial": serial, "removed": []}
+    runs = data.get("runs") if isinstance(data.get("runs"), list) else []
+    runs.append({"when": datetime.now(timezone.utc).isoformat(timespec="seconds"), "source": source,
+                 "packages": packages})
+    data["runs"] = runs[-50:]
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_name(f.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), "utf-8")
+    tmp.replace(f)
+
+
+def runs(serial: str) -> list[dict]:
+    try:
+        data = json.loads(_undo_file(serial).read_text("utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in data.get("runs", []) if isinstance(r, dict) and isinstance(r.get("packages"), list)]
+
+
+def apply(adb: Tool, serial: str, packages: list[str], extra_keep: list[str] | None = None,
+          source: str = "") -> tuple[list[str], list[str]]:
+    """Remove these apps for user 0 and record the run. Returns (removed, problems)."""
+    done, problems = [], []
+    for p in packages:
+        try:
+            remove(adb, serial, p, extra_keep)
+            done.append(p)
+        except AppError as e:
+            problems.append(str(e))
+    record_run(serial, done, source)
+    return done, problems

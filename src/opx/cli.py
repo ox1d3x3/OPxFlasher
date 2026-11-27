@@ -1045,6 +1045,24 @@ def cmd_edl_info(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    from opx import mcp_server
+
+    if args.print_config:
+        print(mcp_server.config_snippet())
+        return 0
+    if args.install:
+        try:
+            path, backup = mcp_server.add_to_claude_desktop()
+        except (OSError, ValueError) as e:
+            print(f"Couldn't update Claude Desktop's config: {e}")
+            return 1
+        print(f"Added OPxFlasher to {path}" + (f" (old file kept as {backup.name})" if backup else ""))
+        print("Restart Claude Desktop to load it.")
+        return 0
+    return mcp_server.serve()
+
+
 def cmd_about(args) -> int:
     from opx import about
 
@@ -1339,6 +1357,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     ab = sub.add_parser("about", help="version, developer and links")
     ab.set_defaults(fn=cmd_about)
+
+    mc = sub.add_parser("mcp", help="run as an MCP server (stdio) so Claude Desktop can debloat the phone")
+    mc.add_argument("--print-config", action="store_true", help="print the Claude Desktop config entry and exit")
+    mc.add_argument("--install", action="store_true", help="add the entry to Claude Desktop's config (keeps a .bak)")
+    mc.set_defaults(fn=cmd_mcp)
 
     us = sub.add_parser("usb-check", help="phone not showing up? check USB drivers / permissions")
     us.set_defaults(fn=cmd_usb_check)

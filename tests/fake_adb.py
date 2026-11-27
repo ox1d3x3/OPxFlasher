@@ -64,7 +64,15 @@ def run_unprivileged(cmd: str, out) -> int | None:
                 continue
             if "-d" in flags and not st["disabled"]:
                 continue
-            out.write(f"package:{name}\n".encode())
+            user = st.get("user", False)
+            if ("-3" in flags and not user) or ("-s" in flags and user):
+                continue
+            if "-f" in flags:
+                path = st.get("path") or (f"/data/app/{name}-1/base.apk" if user
+                                          else f"/system/app/{name.rsplit('.', 1)[-1]}/{name}.apk")
+                out.write(f"package:{path}={name}\n".encode())
+            else:
+                out.write(f"package:{name}\n".encode())
         return 0
     m = re.fullmatch(r"pm uninstall -k --user 0 (\S+)", cmd)
     if m:

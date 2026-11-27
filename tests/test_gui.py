@@ -681,6 +681,77 @@ def test_gui_apps_tab(window, monkeypatch, tmp_path):
     assert state["com.heytap.browser"]["removed"] and not state["com.android.systemui"]["removed"]
 
 
+def test_gui_ai_debloat(window, monkeypatch, tmp_path):
+    import json
+    import os
+    from pathlib import Path
+
+    from opx import apps as ap
+    from opx import mcp_server
+    from opx.gui import apps_tab, recommend_dialog
+
+    app, win = window
+    monkeypatch.setattr(ap, "undo_dir", lambda: tmp_path / "debloat")
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    tab = win.apps_tab
+    tab.load()
+    settle(app)
+
+    # export: the phone's apps + a prompt, no serial
+    out = tmp_path / "apps.json"
+    monkeypatch.setattr(apps_tab.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), ""))
+    monkeypatch.setattr(apps_tab.QMessageBox, "information", lambda *a, **k: None)
+    tab.export_for_ai()
+    settle(app)
+    inv = json.loads(out.read_text())
+    assert inv["format"] == "opxflasher-apps" and "FAKE0001" not in out.read_text()
+    assert out.with_suffix(".prompt.txt").exists()
+
+    # import an AI's answer: safe + recommended ticked, aggressive not, protected never
+    reply = tmp_path / "reply.json"
+    reply.write_text(json.dumps({"packages": [
+        {"package": "com.heytap.browser", "level": "safe", "reason": "second browser"},
+        {"package": "com.oplus.games", "level": "aggressive", "reason": "game mode"},
+        {"package": "com.android.systemui", "level": "safe", "reason": "wrong"}]}))
+    seen = {}
+
+    def run_dialog(dlg):
+        seen["ticked"] = dlg.ticked()
+        seen["go"] = dlg.go.isEnabled()
+        dlg.level_boxes["aggressive"].setChecked(True)
+        seen["with_aggressive"] = dlg.ticked()
+        return recommend_dialog.RecommendDialog.Accepted
+
+    monkeypatch.setattr(recommend_dialog.RecommendDialog, "exec", run_dialog)
+    tab.import_recommendations(reply)
+    settle(app)
+    assert seen["ticked"] == ["com.heytap.browser"] and seen["go"]
+    assert set(seen["with_aggressive"]) == {"com.heytap.browser", "com.oplus.games"}
+    state = json.loads((phone / "packages.json").read_text())
+    assert state["com.heytap.browser"]["removed"] and state["com.oplus.games"]["removed"]
+    assert not state["com.android.systemui"]["removed"]
+    assert tab.undo_run_btn.isEnabled()
+    tab.restore_last_run()
+    settle(app)
+    state = json.loads((phone / "packages.json").read_text())
+    assert not state["com.heytap.browser"]["removed"] and not state["com.oplus.games"]["removed"]
+
+    # Claude Desktop: copy the config
+    monkeypatch.setattr(mcp_server, "claude_config_path", lambda: tmp_path / "Claude" / "c.json")
+
+    class Box(apps_tab.QMessageBox):
+        def exec(self):
+            self._copy = [b for b in self.buttons() if b.text() == "Copy config"][0]
+            return 0
+
+        def clickedButton(self):
+            return self._copy
+
+    monkeypatch.setattr(apps_tab, "QMessageBox", Box)
+    tab.claude_desktop()
+    assert '"opxflasher"' in app.clipboard().text()
+
+
 def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
     import zipfile
 

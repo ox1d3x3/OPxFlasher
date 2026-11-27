@@ -88,6 +88,9 @@ opx apps remove <package>... | --from debloat.txt [-y]
 opx apps restore <package>... | --all
 opx apps export debloat.txt                  # what OPxFlasher removed on this phone
 
+opx mcp                                      # MCP server over stdio (Claude Desktop): debloat only
+opx mcp --print-config | --install           # the Claude Desktop config entry / add it (keeps a .bak)
+
 opx logs [--out <folder>]                    # logcat, kernel log, last crash; serials hidden
 opx logs --read <logs.zip>                   # known-problem hints from saved logs
 ```
