@@ -86,9 +86,48 @@ def run_unprivileged(cmd: str, out) -> int | None:
         if not st or st["removed"]:
             out.write(b"Failure [not installed for 0]\n")
             return 1
+        if m.group(1) in os.environ.get("FAKE_UNINSTALL_REFUSED", "").split(","):
+            # what ColorOS answers for some of its system apps
+            out.write(b"Failure [DELETE_FAILED_INTERNAL_ERROR]\n")
+            return 1
         st["removed"] = True
         PACKAGES.write_text(json.dumps(pk))
         out.write(b"Success\n")
+        return 0
+    m = re.fullmatch(r"(pm disable-user|pm enable|cmd package suspend|cmd package unsuspend) --user 0 (\S+)", cmd)
+    if m:
+        verb, name = m.groups()
+        pk = packages()
+        st = pk.get(name)
+        if not st:
+            sys.stderr.write(f"Unknown package: {name}\n")
+            return 1
+        refused = name in os.environ.get("FAKE_DISABLE_REFUSED", "").split(",")
+        if verb == "pm disable-user":
+            if refused:
+                sys.stderr.write(f"java.lang.SecurityException: Cannot disable a protected package: {name}\n")
+                return 1
+            st["disabled"] = True
+            out.write(f"Package {name} new state: disabled-user\n".encode())
+        elif verb == "pm enable":
+            st["disabled"] = False
+            out.write(f"Package {name} new state: enabled\n".encode())
+        elif verb == "cmd package suspend":
+            if name in os.environ.get("FAKE_SUSPEND_REFUSED", "").split(","):
+                out.write(f"Package {name} new suspended state: false\n".encode())
+                return 0
+            st["suspended"] = True
+            out.write(f"Package {name} new suspended state: true\n".encode())
+        else:
+            st["suspended"] = False
+            out.write(f"Package {name} new suspended state: false\n".encode())
+        PACKAGES.write_text(json.dumps(pk))
+        return 0
+    m = re.fullmatch(r"pm list packages -e --user 0 (\S+)", cmd)
+    if m:
+        st = packages().get(m.group(1))
+        if st and not st["removed"] and not st["disabled"]:
+            out.write(f"package:{m.group(1)}\n".encode())
         return 0
     m = re.fullmatch(r"cmd package install-existing --user 0 (\S+)", cmd)
     if m:
@@ -258,6 +297,78 @@ def aera(args: list[str]) -> int | None:
     return 0
 
 
+OP_PROTECTED = ("android", "com.android.systemui", "com.android.settings", "com.android.phone")
+
+
+def op_debloat_engine(args: list[str]) -> int:
+    """OP Debloater's engine in machine mode (-m), as bin/debloater answers: removal chain uninstall ->
+    disable -> suspend, its protected list, a summary line."""
+    cmd, rest = args[0], args[1:]
+    pk = packages()
+    names: list[str] = []
+    label = ""
+    i = 0
+    while i < len(rest):
+        if rest[i] == "-f":
+            src = rest[i + 1]
+            assert src.startswith("/data/media/0/debloater/"), src  # root has no /sdcard FUSE view
+            f = ROOT / "sdcard" / src[len("/data/media/0/"):]
+            if not f.exists():
+                print(f"E\tCannot read {src}")
+                return 1
+            names += json.loads(f.read_text())["packages"]
+            i += 2
+        elif rest[i] == "--label":
+            label = rest[i + 1]
+            i += 2
+        else:
+            names.append(rest[i])
+            i += 1
+    log(f"op-debloat {cmd} {' '.join(names)}")
+    if cmd == "undo":
+        state = ROOT / "op-debloat-state.json"
+        names = json.loads(state.read_text()) if state.exists() else []
+        if not names:
+            print("E\tNothing to undo.")
+            return 1
+        cmd = "restore"
+    print(f"T\t{len(names)}\t{label or cmd}")
+    ok = skip = fail = 0
+    removed = []
+    for name in sorted(set(names)):
+        st = pk.get(name)
+        if cmd == "remove":
+            if name in OP_PROTECTED:
+                print(f"R\t{name}\tskip\t-\tprotected")
+                skip += 1
+            elif not st:
+                print(f"R\t{name}\tskip\t-\tnot installed")
+                skip += 1
+            elif name in os.environ.get("FAKE_UNINSTALL_REFUSED", "").split(","):
+                st["disabled"] = True
+                print(f"R\t{name}\tok\tdisabled\tuninstall refused, fell back")
+                ok += 1
+                removed.append(name)
+            else:
+                st["removed"] = True
+                print(f"R\t{name}\tok\tuninstalled\t")
+                ok += 1
+                removed.append(name)
+        else:
+            if not st:
+                print(f"R\t{name}\tskip\t-\tnot on device")
+                skip += 1
+            else:
+                st["removed"] = st["disabled"] = False
+                print(f"R\t{name}\tok\tinstalled\t")
+                ok += 1
+    PACKAGES.write_text(json.dumps(pk))
+    if cmd == "remove":
+        (ROOT / "op-debloat-state.json").write_text(json.dumps(removed))
+    print(f"S\t{ok}\t{skip}\t{fail}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     args = list(argv)
     if args[:1] == ["-s"]:
@@ -322,22 +433,21 @@ def main(argv: list[str]) -> int:
                 sys.stderr.write("/system/bin/sh: su: inaccessible or not found\n")
                 return 127
             inner = m.group(1)
-            # OP Debloater (FAKE_OP_DEBLOAT=1: the module is installed)
-            if inner.startswith("command -v debloater"):
-                if os.environ.get("FAKE_OP_DEBLOAT"):
-                    print("opx-yes")
+            # OP Debloater: FAKE_OP_DEBLOAT=1 installed, =disabled installed but disabled in the root manager
+            mod = os.environ.get("FAKE_OP_DEBLOAT", "")
+            engine = "/data/adb/modules/debloater_systemless_x1/bin/debloater"
+            if inner.startswith("id -u;"):
+                print("0")
+                if mod:
+                    print("opx-engine")
+                if mod == "disabled":
+                    print("opx-off")
                 return 0
-            d = re.fullmatch(r"debloater remove -f (\S+) --label (\S+)", inner)
-            if d and os.environ.get("FAKE_OP_DEBLOAT"):
-                lst = json.loads((ROOT / "sdcard" / d.group(1)[len("/sdcard/"):]).read_text())["packages"]
-                pk = packages()
-                for name in lst:
-                    if name in pk:
-                        pk[name]["removed"] = True
-                PACKAGES.write_text(json.dumps(pk))
-                log(f"op-debloat remove {' '.join(lst)}")
-                print(f"DONE {len(lst)}")
-                return 0
+            if inner.startswith(f"sh {engine} -m "):
+                if not mod:
+                    sys.stderr.write(f"sh: {engine}: No such file or directory\n")
+                    return 127
+                return op_debloat_engine(inner[len(f"sh {engine} -m "):].split())
             return run(inner, True)
         return run(cmd, root)
     sys.stderr.write(f"fake adb: unsupported args {args}\n")

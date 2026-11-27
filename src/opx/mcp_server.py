@@ -71,7 +71,7 @@ TOOLS = [
     {"name": "send_to_op_debloater",
      "description": "Rooted phones with the OP Debloater module (github.com/ox1d3x3/op-debloat): copy a preview's "
                     "apps to the phone as an OP Debloater list (import folder + custom profile). With run=true the "
-                    "module removes them now (systemless, re-applies after OTAs, undo with 'debloater undo'). Only "
+                    "module removes them now (systemless, re-applies after OTAs, undo from its WebUI). Only "
                     "run after the user agreed to the preview.",
      "inputSchema": _schema({"preview_id": {"type": "string"},
                              "run": {"type": "boolean", "description": "remove now with the module"},
@@ -198,12 +198,15 @@ class Server:
             raise ToolError("Unknown or expired preview_id: run debloat_preview again.")
         _, serial, todo = entry
         s = self.session(serial)
-        if run and not ap.op_debloater_installed(s.adb):
-            raise ToolError("OP Debloater isn't installed (or the phone isn't rooted): send without run, or use "
-                            "debloat_apply.")
+        if run:
+            status = ap.op_debloater_status(s.adb)
+            if status != "ready":
+                raise ToolError(ap.OP_STATUS_TEXT[status] + " Send without run, or use debloat_apply.")
         out = ap.send_to_op_debloat(s.adb, todo, label, s.props, Path(tempfile.mkdtemp(prefix="opx-mcp-")), run)
         if run:
             self.previews.pop(preview_id, None)
+            out.pop("results", None)  # removed / skipped / failed say it per app
+            out["undo"] = "OP Debloater's WebUI > Undo, or: " + ap.OP_DEBLOAT_UNDO
         return out
 
     def t_list_removed(self, serial: str | None = None) -> object:

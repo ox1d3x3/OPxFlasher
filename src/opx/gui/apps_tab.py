@@ -384,32 +384,39 @@ class AppsTab(QWidget):
         s = self.win.session
         if s is None or not packages:
             return
-        installed = ap.op_debloater_installed(s.adb)
+        status = ap.op_debloater_status(s.adb)
+        installed = status == "ready"
         run = False
         if installed:
             run = QMessageBox.question(
                 self, tr("OP Debloater"),
                 f"OP Debloater is installed. Send {len(packages)} app(s) to it and remove them now?\n\n"
-                "Yes: the module removes them (undo from its WebUI or 'debloater undo').\n"
+                "Yes: the module removes them (undo from its WebUI > Undo).\n"
                 "No: only copy the list to the phone, to import in the module later.") == QMessageBox.Yes
         work = Path(tempfile.mkdtemp(prefix="opx-opdebloat-"))
 
         def done(out):
             where = f"{out['json']} and profile {out['profile']}"
             if out["ran"]:
-                self.win.say(f"OP Debloater removed {out['count']} app(s); list at {where}")
-                QMessageBox.information(self, tr("OP Debloater"), f"OP Debloater removed {out['count']} app(s).\n\n"
-                                        "Undo it from the module's WebUI (Undo) or with: su -c debloater undo")
+                removed, skipped, failed = out["removed"], out["skipped"], out["failed"]
+                text = f"OP Debloater removed {len(removed)} of {out['count']} app(s)."
+                if skipped:
+                    text += f"\n\nSkipped ({len(skipped)}):\n" + "\n".join(skipped[:25])
+                if failed:
+                    text += f"\n\nFailed ({len(failed)}):\n" + "\n".join(failed[:25])
+                text += "\n\nUndo it from the module's WebUI (Undo) or with:\n" + ap.OP_DEBLOAT_UNDO
+                self.win.say(f"OP Debloater: {len(removed)} removed, {len(skipped)} skipped, {len(failed)} failed; "
+                             f"list at {where}\n{out.get('output', '')}")
+                (QMessageBox.warning if failed or not removed else QMessageBox.information)(
+                    self, tr("OP Debloater"), text)
                 self.load()
             else:
                 self.win.say(f"List copied for OP Debloater: {where}")
                 QMessageBox.information(
                     self, tr("OP Debloater"),
                     f"Copied to the phone: {out['json']}\nIt's also the custom profile {out['profile']}.\n\n"
-                    + ("Open OP Debloater's WebUI > Import (or Profiles) to apply it, or run:\n"
-                       f"su -c debloater remove -f {out['json']}" if installed else
-                       "OP Debloater (a root module) isn't installed or there's no root: install it from "
-                       "github.com/ox1d3x3/op-debloat, then import this list in its WebUI."))
+                    + ("Open OP Debloater's WebUI > Import (or Profiles) to apply it." if installed else
+                       ap.OP_STATUS_TEXT[status] + " Then import this list in OP Debloater's WebUI."))
 
         self.win.run_job(Job(ap.send_to_op_debloat, s.adb, packages, label, s.props, work, run), done, self._failed)
 

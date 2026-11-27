@@ -206,25 +206,49 @@ def _save_undo(serial: str, packages: list[str]) -> None:
 # --- remove / restore -------------------------------------------------------------
 
 
-def remove(adb: Tool, serial: str, package: str, extra_keep: list[str] | None = None) -> None:
+def _pm(adb: Tool, cmd: str) -> str:
+    res = adb.run("shell", cmd, timeout=60)
+    return (res.stdout + res.stderr).strip()
+
+
+def remove(adb: Tool, serial: str, package: str, extra_keep: list[str] | None = None) -> str:
+    """Remove an app for user 0, the way OP Debloater does: uninstall (keeping its data), and when ColorOS
+    refuses that for a system app, disable it, and when that's refused too, suspend it. Returns the method
+    ("uninstalled", "disabled" or "suspended"). All three are undone by restore()."""
     check_package(package)
     why = keep_reason(package, extra_keep)
     if why:
         raise AppError(f"{package} can't be removed: {why.lower()}.")
-    res = adb.run("shell", f"pm uninstall -k --user 0 {package}", timeout=60)
-    if "Success" not in res.stdout:
-        raise AppError(f"{package}: {(res.stdout + res.stderr).strip() or 'remove failed'}")
+    out = _pm(adb, f"pm uninstall -k --user 0 {package}")
+    if "Success" in out:
+        method = "uninstalled"
+    elif "not installed for 0" in out or "Unknown package" in out:
+        raise AppError(f"{package}: not installed")
+    else:
+        refused = out.splitlines()[0] if out else "uninstall refused"
+        if "new state: disabled" in _pm(adb, f"pm disable-user --user 0 {package}"):
+            method = "disabled"
+        elif "suspended state: true" in _pm(adb, f"cmd package suspend --user 0 {package}"):
+            method = "suspended"
+        else:
+            raise AppError(f"{package}: {refused} (disable and suspend refused too)")
     done = removed_by_us(serial)
     if package not in done:
         _save_undo(serial, done + [package])
+    return method
 
 
 def restore(adb: Tool, serial: str, package: str) -> None:
+    """Put an app back for user 0, whichever way it was removed (uninstalled, disabled or suspended)."""
     check_package(package)
-    res = adb.run("shell", f"cmd package install-existing --user 0 {package}", timeout=60)
-    text = (res.stdout + res.stderr).strip()
-    if not res.ok or "installed for user" not in text:
-        raise AppError(f"{package}: {text or 'restore failed'}")
+    out = _pm(adb, f"cmd package install-existing --user 0 {package}")
+    if "doesn't exist" in out or "Unknown package" in out:
+        raise AppError(f"{package}: {out}")
+    _pm(adb, f"pm enable --user 0 {package}")
+    _pm(adb, f"cmd package unsuspend --user 0 {package}")
+    listed = _pm(adb, f"pm list packages -e --user 0 {package}")
+    if f"package:{package}" not in listed.split():
+        raise AppError(f"{package}: {out or 'restore failed'}")
     _save_undo(serial, [p for p in removed_by_us(serial) if p != package])
 
 
@@ -426,7 +450,20 @@ def apply(adb: Tool, serial: str, packages: list[str], extra_keep: list[str] | N
 # file {"format": "op-debloat", "schema": 1, ..., "packages": [...]} or a .list (one package per line).
 
 OP_DEBLOAT_MODULE = "debloater_systemless_x1"
-OP_DEBLOAT_DIR = "/sdcard/debloater"
+OP_DEBLOAT_DIR = "/sdcard/debloater"  # where adb (shell) copies lists
+OP_DEBLOAT_ROOT_DIR = "/data/media/0/debloater"  # the same folder as root sees it (no FUSE /sdcard under su)
+OP_DEBLOAT_MODDIR = f"/data/adb/modules/{OP_DEBLOAT_MODULE}"
+# the engine itself: /system/bin/debloater only exists when the root manager mounts the module's system
+# folder (Magisk, or KernelSU with a mount metamodule); this path is always there
+OP_DEBLOAT_ENGINE = f"{OP_DEBLOAT_MODDIR}/bin/debloater"
+OP_DEBLOAT_UNDO = f"su -c 'sh {OP_DEBLOAT_ENGINE} undo'"
+
+OP_STATUS_TEXT = {
+    "ready": "OP Debloater is installed and enabled.",
+    "no-root": "No root for adb: allow 'Shell' (com.android.shell) in your root manager.",
+    "missing": "OP Debloater isn't installed (github.com/ox1d3x3/op-debloat).",
+    "disabled": "OP Debloater is installed but disabled (or set to be removed) in the root manager.",
+}
 
 
 def _safe_name(text: str) -> str:
@@ -459,17 +496,62 @@ def write_op_debloat(path: Path, packages: list[str], label: str, props: dict[st
     return path, lst
 
 
+def op_debloater_status(adb: Tool) -> str:
+    """"ready", "no-root", "missing" or "disabled" (one su call)."""
+    res = adb.run("shell", f"su -c 'id -u; [ -f {OP_DEBLOAT_ENGINE} ] && echo opx-engine; "
+                           f"[ -f {OP_DEBLOAT_MODDIR}/disable ] && echo opx-off; "
+                           f"[ -f {OP_DEBLOAT_MODDIR}/remove ] && echo opx-off; true'", timeout=20)
+    lines = res.stdout.split()
+    if not lines or lines[0] != "0":
+        return "no-root"
+    if "opx-engine" not in lines:
+        return "missing"
+    return "disabled" if "opx-off" in lines else "ready"
+
+
 def op_debloater_installed(adb: Tool) -> bool:
-    """Is the module there (and root to run it)? Unrooted phones just answer no."""
-    res = adb.run("shell", "su -c 'command -v debloater >/dev/null && echo opx-yes'", timeout=20)
-    return "opx-yes" in res.stdout
+    """Is the module there, enabled, with root to run it? Unrooted phones just answer no."""
+    return op_debloater_status(adb) == "ready"
+
+
+def parse_op_machine(text: str) -> dict:
+    """The engine's machine output (debloater -m): T total label / R pkg result method msg / S ok skip fail /
+    E error."""
+    out: dict = {"results": [], "summary": None, "error": ""}
+    for line in text.splitlines():
+        f = line.rstrip("\r").split("\t")
+        if f[0] == "R" and len(f) >= 4:
+            out["results"].append({"package": f[1], "result": f[2], "method": f[3],
+                                   "message": f[4] if len(f) > 4 else ""})
+        elif f[0] == "S" and len(f) >= 4:
+            try:
+                out["summary"] = {"ok": int(f[1]), "skip": int(f[2]), "fail": int(f[3])}
+            except ValueError:
+                pass
+        elif f[0] == "E":
+            out["error"] = "\t".join(f[1:])
+    return out
+
+
+def op_debloat_run(adb: Tool, args: str, timeout: int = 900) -> dict:
+    """Run the engine as root with machine output; raise when it stopped or said nothing we can read."""
+    res = adb.run("shell", f"su -c 'sh {OP_DEBLOAT_ENGINE} -m {args}'", timeout=timeout)
+    text = (res.stdout + res.stderr).strip()
+    parsed = parse_op_machine(res.stdout)
+    if parsed["error"]:
+        raise AppError(f"OP Debloater: {parsed['error']}")
+    if parsed["summary"] is None:
+        raise AppError(f"OP Debloater didn't finish: {text[-400:] or res.returncode}")
+    parsed["output"] = text[-4000:]
+    return parsed
 
 
 def send_to_op_debloat(adb: Tool, packages: list[str], label: str, props: dict[str, str], workdir: Path,
                        run: bool = False) -> dict:
     """Copy the list to the phone where OP Debloater finds it (debloater/import, and as a custom profile so
-    it shows in the WebUI). No root needed for that. With run=True (root + module), also apply it now with
-    `debloater remove -f`; the module then owns the removal (undo, re-apply after OTA, boot-loop guard)."""
+    it shows in the WebUI). No root needed for that. With run=True (root + module), also apply it now with the
+    module's engine (`debloater -m remove -f`); the module then owns the removal (its undo, re-apply after OTA,
+    boot-loop guard). The result says, per app, what the module did."""
     name = op_debloat_name(label, props)
     js, lst = write_op_debloat(Path(workdir) / f"{name}.json", packages, label, props)
     profile_id = _safe_name(label)
@@ -481,9 +563,21 @@ def send_to_op_debloat(adb: Tool, packages: list[str], label: str, props: dict[s
             raise AppError(f"Couldn't copy {local.name} to the phone: {(res.stderr or res.stdout).strip()}")
     out = {"json": targets[js], "profile": f"custom:{profile_id}", "count": len(packages), "ran": False}
     if run:
-        res = adb.run("shell", f"su -c 'debloater remove -f {targets[js]} --label {profile_id}'", timeout=600)
-        text = (res.stdout + res.stderr).strip()
-        if not res.ok:
-            raise AppError(f"OP Debloater couldn't apply it: {text[-400:] or res.returncode}")
-        out.update(ran=True, output=text[-2000:])
+        status = op_debloater_status(adb)
+        if status != "ready":
+            raise AppError(OP_STATUS_TEXT[status] + " The list was copied; nothing was removed.")
+        done = op_debloat_run(adb, f"remove -f {OP_DEBLOAT_ROOT_DIR}/import/{js.name} --label {profile_id}")
+        by = {"ok": [], "skip": [], "fail": []}
+        for r in done["results"]:
+            by.setdefault(r["result"], []).append(r)
+        out.update(ran=True, results=done["results"], summary=done["summary"], output=done["output"],
+                   removed=[r["package"] for r in by["ok"]],
+                   skipped=[f"{r['package']}: {r['message']}" for r in by["skip"]],
+                   failed=[f"{r['package']}: {r['message']}" for r in by["fail"]])
     return out
+
+
+def op_debloat_restore(adb: Tool, packages: list[str] | None = None) -> dict:
+    """Put apps back through the module (None: undo its last removal)."""
+    args = "undo" if not packages else "restore " + " ".join(check_package(p) for p in packages)
+    return op_debloat_run(adb, args)

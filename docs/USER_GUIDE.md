@@ -553,7 +553,9 @@ and their authorisation, which only authorised service centres have. Windows nee
 
 The **Apps** tab (or `opx apps`) removes system apps you don't use, **for your user only**:
 nothing on the system partition changes, **Restore** puts an app back at any time, and a
-factory reset brings everything back. No root needed. Apps Android can't run without
+factory reset brings everything back. No root needed. When ColorOS refuses to uninstall one of
+its system apps, OPxFlasher disables it instead, and suspends it if that's refused too (the same
+chain as OP Debloater); Restore undoes all three. Apps Android can't run without
 (System UI, Settings, the phone app, the package installer, ...) are locked, and a device
 profile can lock more (`keep_apps`: exact names, `prefix*` or `*contains*`). On OPPO / OnePlus /
 realme phones that includes the ColorOS core services (athena, battery, security, cosa, smart
@@ -601,8 +603,11 @@ after OTAs and has a boot-loop guard. OPxFlasher speaks its list format:
 - In **Import recommendations**, **Send to OP Debloater...** copies the ticked apps to the phone
   (`/sdcard/debloater/import/op-debloat_<model>_<label>_<time>.json`, and as a custom profile in
   `/sdcard/debloater/profiles/`). No root needed for that. With the module installed and root, it
-  offers to apply them right away (`debloater remove -f ...`); undo from the module's WebUI or
-  `su -c debloater undo`.
+  offers to apply them right away with the module's own engine
+  (`/data/adb/modules/debloater_systemless_x1/bin/debloater`, so it works on KernelSU / SukiSU
+  without a mount metamodule too). Afterwards it shows, per app, what the module did (removed,
+  disabled when ColorOS refused the uninstall, skipped because the module protects it, or failed).
+  Undo from the module's WebUI or `su -c 'sh /data/adb/modules/debloater_systemless_x1/bin/debloater undo'`.
 - **Save my list...** can save in the module's format (choose `OP Debloater (*.json)`): a JSON +
   `.list` pair the module imports.
 - OPxFlasher imports the module's exports too (**Import recommendations**).

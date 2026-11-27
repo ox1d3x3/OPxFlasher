@@ -179,17 +179,68 @@ def test_op_debloat_files_are_what_the_module_reads(tmp_path):
 def test_send_to_op_debloat_copies_and_can_run(adb, phone, undo, with_user_app, fake_device, tmp_path,
                                                 monkeypatch):
     s = open_session("FAKE0001", adb)
-    assert not ap.op_debloater_installed(s.adb)
+    assert ap.op_debloater_status(s.adb) == "missing" and not ap.op_debloater_installed(s.adb)
     out = ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "OPxFlasher picks", s.props, tmp_path)
     sent = json.loads((fake_device / "sdcard" / out["json"][len("/sdcard/"):]).read_text())
     assert sent["packages"] == ["com.heytap.browser"] and not out["ran"]
     assert (fake_device / "sdcard" / "debloater" / "profiles" / "OPxFlasher_picks.list").exists()
     assert out["profile"] == "custom:OPxFlasher_picks"
+    with pytest.raises(ap.AppError, match="isn't installed"):  # never "removed" when nothing ran
+        ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "x", s.props, tmp_path, run=True)
     monkeypatch.setenv("FAKE_OP_DEBLOAT", "1")
     assert ap.op_debloater_installed(s.adb)
-    out = ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "OPxFlasher picks", s.props, tmp_path, run=True)
-    assert out["ran"]
-    assert json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]
+    monkeypatch.setenv("FAKE_UNINSTALL_REFUSED", "com.oplus.games")
+    out = ap.send_to_op_debloat(s.adb, ["com.heytap.browser", "com.oplus.games", "com.android.systemui",
+                                        "com.nope.missing"], "OPxFlasher picks", s.props, tmp_path, run=True)
+    assert out["ran"] and out["summary"] == {"ok": 2, "skip": 2, "fail": 0}
+    assert out["removed"] == ["com.heytap.browser", "com.oplus.games"]
+    assert any(x.startswith("com.android.systemui: protected") for x in out["skipped"])
+    pk = json.loads((fake_device / "packages.json").read_text())
+    assert pk["com.heytap.browser"]["removed"] and pk["com.oplus.games"]["disabled"]  # the module's fallback
+    # the engine itself, not /system/bin/debloater (only mounted on Magisk / KSU with a mount metamodule)
+    log = (tmp_path / "commands.log").read_text()
+    assert "sh /data/adb/modules/debloater_systemless_x1/bin/debloater -m remove -f /data/media/0/debloater/" \
+        "import/" in log
+    back = ap.op_debloat_restore(s.adb)  # the module's undo
+    assert back["summary"]["ok"] == 2
+    assert not json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]
+
+
+def test_op_debloater_disabled_or_no_root(adb, phone, undo, with_user_app, tmp_path, monkeypatch):
+    s = open_session("FAKE0001", adb)
+    monkeypatch.setenv("FAKE_OP_DEBLOAT", "disabled")
+    assert ap.op_debloater_status(s.adb) == "disabled"
+    with pytest.raises(ap.AppError, match="disabled"):
+        ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "x", s.props, tmp_path, run=True)
+
+
+def test_op_machine_output():
+    out = ap.parse_op_machine("T\t2\tx\nR\ta.b\tok\tuninstalled\t\nR\tc.d\tfail\t-\tboom\nS\t1\t0\t1\n")
+    assert out["summary"] == {"ok": 1, "skip": 0, "fail": 1} and out["results"][1]["message"] == "boom"
+    assert ap.parse_op_machine("E\tRun as root (su).\n")["error"] == "Run as root (su)."
+
+
+def test_remove_falls_back_like_the_module(adb, phone, undo, with_user_app, fake_device, monkeypatch):
+    # ColorOS refuses `pm uninstall` for some system apps: disable, then suspend, instead of failing
+    monkeypatch.setenv("FAKE_UNINSTALL_REFUSED", "com.oplus.games,com.coloros.weather2")
+    monkeypatch.setenv("FAKE_DISABLE_REFUSED", "com.coloros.weather2")
+    s = open_session("FAKE0001", adb)
+    assert ap.remove(s.adb, s.serial, "com.heytap.browser") == "uninstalled"
+    assert ap.remove(s.adb, s.serial, "com.oplus.games") == "disabled"
+    assert ap.remove(s.adb, s.serial, "com.coloros.weather2") == "suspended"
+    pk = json.loads((fake_device / "packages.json").read_text())
+    assert pk["com.oplus.games"]["disabled"] and pk["com.coloros.weather2"]["suspended"]
+    monkeypatch.setenv("FAKE_UNINSTALL_REFUSED", "com.oplus.games,com.coloros.weather2,com.whatsapp")
+    monkeypatch.setenv("FAKE_DISABLE_REFUSED", "com.whatsapp")
+    monkeypatch.setenv("FAKE_SUSPEND_REFUSED", "com.whatsapp")
+    with pytest.raises(ap.AppError, match="DELETE_FAILED_INTERNAL_ERROR"):  # the phone's own words
+        ap.remove(s.adb, s.serial, "com.whatsapp")
+    for p in ("com.heytap.browser", "com.oplus.games", "com.coloros.weather2"):
+        ap.restore(s.adb, s.serial, p)
+    pk = json.loads((fake_device / "packages.json").read_text())
+    assert not any(pk[p]["removed"] or pk[p]["disabled"] or pk[p].get("suspended")
+                   for p in ("com.heytap.browser", "com.oplus.games", "com.coloros.weather2"))
+    assert ap.removed_by_us(s.serial) == []
 
 
 def test_mcp_send_to_op_debloater(adb, phone, undo, with_user_app, fake_device, monkeypatch):
@@ -199,4 +250,5 @@ def test_mcp_send_to_op_debloater(adb, phone, undo, with_user_app, fake_device, 
     assert r["isError"] and "isn't installed" in err
     monkeypatch.setenv("FAKE_OP_DEBLOAT", "1")
     r, out = call(srv, "send_to_op_debloater", preview_id=prev["preview_id"], run=True)
-    assert out["ran"] and json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]
+    assert out["ran"] and out["removed"] == ["com.heytap.browser"] and "undo" in out
+    assert json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]
