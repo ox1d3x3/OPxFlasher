@@ -216,6 +216,11 @@ GENERIC = {"ro.system.build.fingerprint": "qti/sun/sun:16/BP2A.250605.015/1:user
     # my_manifest / odm say which phone it is
     ({**GENERIC, "ro.build.fingerprint": "OnePlus/PJZ110/dodge:16/X/U.0:user/release-keys"}, True, None),
     ({**GENERIC, "ro.product.model": "PJZ110"}, True, None),
+    # ColorOS / OxygenOS 17: OPPO's shared images say "ossi", not the model (real GLO 17 phone, 27 Nov 2026)
+    ({**GENERIC, "ro.product.model": "PJZ110",
+      "ro.product.build.fingerprint": "OnePlus/ossi/ossi:17/CP2A.260605.016/V.1:user/release-keys"}, True, None),
+    ({**GENERIC, "ro.system_ext.build.fingerprint": "oplus/ossi/ossi:17/X/V.1:user/release-keys"},
+     False, "Can't confirm the phone runs PJZ110"),
     # only the chip platform: can't tell the variant
     (GENERIC, False, "Can't confirm the phone runs PJZ110"),
     # another variant anywhere -> no

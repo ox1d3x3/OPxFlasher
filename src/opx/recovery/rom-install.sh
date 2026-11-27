@@ -198,7 +198,10 @@ else
 fi
 [ -s "$TMP/installed.prop" ] || abort "Can't read the installed Android's build, so a downgrade can't be ruled out. Flash from the PC with OPxFlasher instead."
 
-generic() { case "$(echo "$1" | cut -d/ -f1 | tr 'A-Z' 'a-z')" in qti|qcom|android|generic|mediatek|mtk|unisoc|sprd|aosp|"") return 0 ;; esac; return 1; }
+generic() { case "$(echo "$1" | cut -d/ -f1 | tr 'A-Z' 'a-z')" in qti|qcom|android|generic|mediatek|mtk|unisoc|sprd|aosp|"") return 0 ;; esac
+  # OPPO's shared images (ColorOS / OxygenOS 17: system, system_ext, product ...) carry the generic product
+  # "ossi" (also qssi / mssi), not the phone's model: they say nothing about the variant
+  case "$(echo "$1" | cut -d/ -f2 | tr 'A-Z' 'a-z')" in ossi|qssi|mssi|ssi|generic|"") return 0 ;; esac; return 1; }
 
 same_product=""; other=""; same_build=""
 for fp in $(sed -n 's/^ro\.\([a-z_]*\.\)\{0,1\}build\.fingerprint=//p' "$TMP/installed.prop"); do
