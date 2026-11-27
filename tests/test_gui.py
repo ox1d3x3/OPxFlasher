@@ -752,6 +752,40 @@ def test_gui_ai_debloat(window, monkeypatch, tmp_path):
     assert '"opxflasher"' in app.clipboard().text()
 
 
+def test_gui_send_to_op_debloater(window, monkeypatch, tmp_path):
+    import json
+    import os
+    from pathlib import Path
+
+    from opx import apps as ap
+    from opx.gui import apps_tab, recommend_dialog
+
+    app, win = window
+    monkeypatch.setattr(ap, "undo_dir", lambda: tmp_path / "debloat")
+    monkeypatch.setenv("FAKE_OP_DEBLOAT", "1")
+    phone = Path(os.environ["FAKE_DEVICE_DIR"])
+    tab = win.apps_tab
+    tab.load()
+    settle(app)
+    reply = tmp_path / "picks.json"
+    reply.write_text(json.dumps({"packages": [{"package": "com.heytap.browser", "level": "safe"}]}))
+    monkeypatch.setattr(recommend_dialog.RecommendDialog, "exec", lambda self: recommend_dialog.OP_DEBLOATER)
+    monkeypatch.setattr(apps_tab.QMessageBox, "question", lambda *a, **k: apps_tab.QMessageBox.Yes)
+    monkeypatch.setattr(apps_tab.QMessageBox, "information", lambda *a, **k: None)
+    tab.import_recommendations(reply)
+    settle(app)
+    sent = list((phone / "sdcard" / "debloater" / "import").glob("op-debloat_*.json"))
+    assert len(sent) == 1 and json.loads(sent[0].read_text())["packages"] == ["com.heytap.browser"]
+    assert json.loads((phone / "packages.json").read_text())["com.heytap.browser"]["removed"]
+
+    # Save my list... in the module's format
+    out = tmp_path / "mine.json"
+    monkeypatch.setattr(apps_tab.QFileDialog, "getSaveFileName", lambda *a, **k: (str(out), "OP Debloater (*.json)"))
+    ap.apply(win.session.adb, win.session.serial, ["com.oplus.games"], [])
+    tab.export_list()
+    assert json.loads(out.read_text())["format"] == "op-debloat" and out.with_suffix(".list").exists()
+
+
 def test_gui_diagnostics_tab(window, monkeypatch, tmp_path):
     import zipfile
 

@@ -159,3 +159,44 @@ def test_claude_desktop_config_is_merged_with_a_backup(tmp_path, monkeypatch):
     cfg.write_text("{broken")
     with pytest.raises(ValueError):
         mcp.add_to_claude_desktop()
+
+
+# --- OP Debloater ---------------------------------------------------------------------------
+
+
+def test_op_debloat_files_are_what_the_module_reads(tmp_path):
+    js, lst = ap.write_op_debloat(tmp_path / "x", ["com.b.two", "com.a.one", "com.a.one"], "My list",
+                                  {"ro.product.model": "CPH2653"})
+    data = json.loads(js.read_text())
+    assert data["format"] == "op-debloat" and data["schema"] == 1
+    assert data["packages"] == ["com.a.one", "com.b.two"] and data["count"] == 2  # strings, sorted, unique
+    assert lst.read_text().splitlines() == ["# NAME: My list", "com.a.one", "com.b.two"]
+    # and OPxFlasher reads the module's files back
+    assert [r.package for r in ap.read_recommendations(js)] == ["com.a.one", "com.b.two"]
+    assert ap.read_list(lst) == ["com.a.one", "com.b.two"]
+
+
+def test_send_to_op_debloat_copies_and_can_run(adb, phone, undo, with_user_app, fake_device, tmp_path,
+                                                monkeypatch):
+    s = open_session("FAKE0001", adb)
+    assert not ap.op_debloater_installed(s.adb)
+    out = ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "OPxFlasher picks", s.props, tmp_path)
+    sent = json.loads((fake_device / "sdcard" / out["json"][len("/sdcard/"):]).read_text())
+    assert sent["packages"] == ["com.heytap.browser"] and not out["ran"]
+    assert (fake_device / "sdcard" / "debloater" / "profiles" / "OPxFlasher_picks.list").exists()
+    assert out["profile"] == "custom:OPxFlasher_picks"
+    monkeypatch.setenv("FAKE_OP_DEBLOAT", "1")
+    assert ap.op_debloater_installed(s.adb)
+    out = ap.send_to_op_debloat(s.adb, ["com.heytap.browser"], "OPxFlasher picks", s.props, tmp_path, run=True)
+    assert out["ran"]
+    assert json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]
+
+
+def test_mcp_send_to_op_debloater(adb, phone, undo, with_user_app, fake_device, monkeypatch):
+    srv = mcp.Server(adb)
+    r, prev = call(srv, "debloat_preview", packages=["com.heytap.browser"])
+    r, err = call(srv, "send_to_op_debloater", preview_id=prev["preview_id"], run=True)
+    assert r["isError"] and "isn't installed" in err
+    monkeypatch.setenv("FAKE_OP_DEBLOAT", "1")
+    r, out = call(srv, "send_to_op_debloater", preview_id=prev["preview_id"], run=True)
+    assert out["ran"] and json.loads((fake_device / "packages.json").read_text())["com.heytap.browser"]["removed"]

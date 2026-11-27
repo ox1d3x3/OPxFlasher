@@ -540,6 +540,21 @@ catalog). Each shows exactly which apps it will remove and asks first:
    Tick or untick, press **Remove**: one run, reversible with **Restore last run**. A plain text
    list (one package per line) works too.
 
+### OP Debloater (rooted phones)
+
+[OP Debloater](https://github.com/ox1d3x3/op-debloat) is a root module (SukiSU / KernelSU / Magisk /
+APatch) that removes apps systemlessly with its own undo, keeps APK backups of user apps, re-applies
+after OTAs and has a boot-loop guard. OPxFlasher speaks its list format:
+
+- In **Import recommendations**, **Send to OP Debloater...** copies the ticked apps to the phone
+  (`/sdcard/debloater/import/op-debloat_<model>_<label>_<time>.json`, and as a custom profile in
+  `/sdcard/debloater/profiles/`). No root needed for that. With the module installed and root, it
+  offers to apply them right away (`debloater remove -f ...`); undo from the module's WebUI or
+  `su -c debloater undo`.
+- **Save my list...** can save in the module's format (choose `OP Debloater (*.json)`): a JSON +
+  `.list` pair the module imports.
+- OPxFlasher imports the module's exports too (**Import recommendations**).
+
 ### Claude Desktop
 
 **Use with Claude Desktop...** adds OPxFlasher to Claude Desktop as an MCP server (or copies the

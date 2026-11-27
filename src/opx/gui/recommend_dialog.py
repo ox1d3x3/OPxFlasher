@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 from opx import apps as ap
 from opx.i18n import tr
 
+OP_DEBLOATER = 2  # dialog result: send the ticked apps to the OP Debloater module
+
 STATUS_TEXT = {"remove": "will be removed", "protected": "protected: never removed",
                "not installed": "not on this phone", "already removed": "already removed", "keep": "keep"}
 
@@ -87,7 +89,12 @@ class RecommendDialog(QDialog):
         self.go = QPushButton()
         self.go.setObjectName("danger")
         self.go.clicked.connect(self._confirm)
+        self.op_btn = QPushButton(tr("Send to OP Debloater..."))
+        self.op_btn.setToolTip(tr("Rooted phones: hand the ticked apps to the OP Debloater module (systemless, "
+                                  "re-applies after OTAs, boot-loop guard) instead of removing them here"))
+        self.op_btn.clicked.connect(lambda: self.done(OP_DEBLOATER))
         row.addWidget(cancel)
+        row.addWidget(self.op_btn)
         row.addWidget(self.go)
         layout.addLayout(row)
         self._count()
@@ -113,6 +120,7 @@ class RecommendDialog(QDialog):
                              (f"; {refused} protected app(s) in the list are never removed." if refused else "."))
         self.go.setText(tr("Remove") + f" ({n})")
         self.go.setEnabled(n > 0)
+        self.op_btn.setEnabled(n > 0)
 
     def _confirm(self) -> None:
         n = len(self.ticked())

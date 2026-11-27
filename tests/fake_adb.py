@@ -195,6 +195,12 @@ def main(argv: list[str]) -> int:
     if boot_mode() != "android":
         sys.stderr.write("adb: no devices/emulators found\n")
         return 1
+    if args[:1] == ["push"] and args[2].startswith("/sdcard/debloater/"):
+        f = ROOT / "sdcard" / args[2][len("/sdcard/"):]
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(Path(args[1]).read_bytes())
+        log(f"push {args[2]}")
+        return 0
     if args[:1] == ["push"]:
         src, dst = Path(args[1]), args[2]
         assert dst.startswith("/sdcard/Download/"), dst
@@ -222,12 +228,31 @@ def main(argv: list[str]) -> int:
         cmd = " ".join(args[1:])
         log(cmd)
         root = ACCESS == "root-shell"
+        if cmd.startswith("mkdir -p /sdcard/debloater/"):
+            return 0
         m = re.fullmatch(r"su -c '(.*)'", cmd)
         if m:
             if ACCESS != "su":
                 sys.stderr.write("/system/bin/sh: su: inaccessible or not found\n")
                 return 127
-            return run(m.group(1), True)
+            inner = m.group(1)
+            # OP Debloater (FAKE_OP_DEBLOAT=1: the module is installed)
+            if inner.startswith("command -v debloater"):
+                if os.environ.get("FAKE_OP_DEBLOAT"):
+                    print("opx-yes")
+                return 0
+            d = re.fullmatch(r"debloater remove -f (\S+) --label (\S+)", inner)
+            if d and os.environ.get("FAKE_OP_DEBLOAT"):
+                lst = json.loads((ROOT / "sdcard" / d.group(1)[len("/sdcard/"):]).read_text())["packages"]
+                pk = packages()
+                for name in lst:
+                    if name in pk:
+                        pk[name]["removed"] = True
+                PACKAGES.write_text(json.dumps(pk))
+                log(f"op-debloat remove {' '.join(lst)}")
+                print(f"DONE {len(lst)}")
+                return 0
+            return run(inner, True)
         return run(cmd, root)
     sys.stderr.write(f"fake adb: unsupported args {args}\n")
     return 99

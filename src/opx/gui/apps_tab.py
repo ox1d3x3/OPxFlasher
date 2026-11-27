@@ -296,10 +296,17 @@ class AppsTab(QWidget):
 
     def export_list(self) -> None:
         s = self.win.session
-        path, _ = QFileDialog.getSaveFileName(self, tr("Save debloat list"), "debloat.txt", "Text files (*.txt)")
+        path, chosen = QFileDialog.getSaveFileName(
+            self, tr("Save debloat list"), "debloat.txt",
+            "Text files (*.txt);;OP Debloater (*.json)")
         if not path:
             return
-        ap.write_list(Path(path), ap.removed_by_us(s.serial), f"Removed on {s.props.get('ro.product.model', '')}")
+        label = f"Removed on {s.props.get('ro.product.model', '')}"
+        if path.lower().endswith(".json") or "OP Debloater" in chosen:
+            js, lst = ap.write_op_debloat(Path(path), ap.removed_by_us(s.serial), label, s.props)
+            self.win.say(f"OP Debloater list saved: {js} (+ {lst.name})")
+            return
+        ap.write_list(Path(path), ap.removed_by_us(s.serial), label)
         self.win.say(f"Debloat list saved: {path}")
 
     # --- AI-assisted ------------------------------------------------------------------
@@ -358,11 +365,53 @@ class AppsTab(QWidget):
         if not recs:
             QMessageBox.information(self, tr("Apps"), tr("No apps in that file."))
             return
+        from opx.gui.recommend_dialog import OP_DEBLOATER
+
         planned = ap.plan_recommendations(recs, self.apps)
         dlg = RecommendDialog(self, planned, Path(path).name)
-        if dlg.exec() != RecommendDialog.Accepted:
+        result = dlg.exec()
+        if result == OP_DEBLOATER:
+            self.send_to_op_debloater(dlg.ticked(), Path(path).stem)
+        elif result == RecommendDialog.Accepted:
+            self._apply_run(dlg.ticked(), f"recommendations: {Path(path).name}")
+
+    def send_to_op_debloater(self, packages: list[str], label: str) -> None:
+        """Rooted phones: the OP Debloater module removes them (systemless, its own undo, re-apply after OTA)."""
+        import tempfile
+
+        from opx.gui.app import Job
+
+        s = self.win.session
+        if s is None or not packages:
             return
-        self._apply_run(dlg.ticked(), f"recommendations: {Path(path).name}")
+        installed = ap.op_debloater_installed(s.adb)
+        run = False
+        if installed:
+            run = QMessageBox.question(
+                self, tr("OP Debloater"),
+                f"OP Debloater is installed. Send {len(packages)} app(s) to it and remove them now?\n\n"
+                "Yes: the module removes them (undo from its WebUI or 'debloater undo').\n"
+                "No: only copy the list to the phone, to import in the module later.") == QMessageBox.Yes
+        work = Path(tempfile.mkdtemp(prefix="opx-opdebloat-"))
+
+        def done(out):
+            where = f"{out['json']} and profile {out['profile']}"
+            if out["ran"]:
+                self.win.say(f"OP Debloater removed {out['count']} app(s); list at {where}")
+                QMessageBox.information(self, tr("OP Debloater"), f"OP Debloater removed {out['count']} app(s).\n\n"
+                                        "Undo it from the module's WebUI (Undo) or with: su -c debloater undo")
+                self.load()
+            else:
+                self.win.say(f"List copied for OP Debloater: {where}")
+                QMessageBox.information(
+                    self, tr("OP Debloater"),
+                    f"Copied to the phone: {out['json']}\nIt's also the custom profile {out['profile']}.\n\n"
+                    + ("Open OP Debloater's WebUI > Import (or Profiles) to apply it, or run:\n"
+                       f"su -c debloater remove -f {out['json']}" if installed else
+                       "OP Debloater (a root module) isn't installed or there's no root: install it from "
+                       "github.com/ox1d3x3/op-debloat, then import this list in its WebUI."))
+
+        self.win.run_job(Job(ap.send_to_op_debloat, s.adb, packages, label, s.props, work, run), done, self._failed)
 
     def _apply_run(self, packages: list[str], source: str) -> None:
         from opx.gui.app import Job

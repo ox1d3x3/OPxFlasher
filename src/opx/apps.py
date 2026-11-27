@@ -418,3 +418,72 @@ def apply(adb: Tool, serial: str, packages: list[str], extra_keep: list[str] | N
             problems.append(str(e))
     record_run(serial, done, source)
     return done, problems
+
+
+# --- OP Debloater (Ox1d3x3's root module, github.com/ox1d3x3/op-debloat) -------------------------
+# Rooted phones can hand a list to the module instead: it removes systemlessly with its own state, keeps
+# APK backups of user apps, re-applies after OTAs and has a boot-loop guard. Its import format is a JSON
+# file {"format": "op-debloat", "schema": 1, ..., "packages": [...]} or a .list (one package per line).
+
+OP_DEBLOAT_MODULE = "debloater_systemless_x1"
+OP_DEBLOAT_DIR = "/sdcard/debloater"
+
+
+def _safe_name(text: str) -> str:
+    out = "".join(c if c.isalnum() or c in "_-" else "_" for c in text)[:40]
+    return out or "list"
+
+
+def op_debloat_json(packages: list[str], label: str, props: dict[str, str]) -> dict:
+    from opx import __version__
+
+    pkgs = sorted({check_package(p) for p in packages})
+    return {"format": "op-debloat", "schema": 1, "app_version": f"OPxFlasher {__version__}",
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"), "label": label,
+            "device": props.get("ro.product.model", ""), "rom": props.get("ro.build.display.id", ""),
+            "android": props.get("ro.build.version.release", ""), "count": len(pkgs), "packages": pkgs}
+
+
+def op_debloat_name(label: str, props: dict[str, str]) -> str:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"op-debloat_{_safe_name(props.get('ro.product.model', '') or 'phone')}_{_safe_name(label)}_{stamp}"
+
+
+def write_op_debloat(path: Path, packages: list[str], label: str, props: dict[str, str]) -> tuple[Path, Path]:
+    """The module's own export format: <name>.json plus <name>.list (its profiles / v0.x lists)."""
+    data = op_debloat_json(packages, label, props)
+    path = Path(path).with_suffix(".json")
+    path.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+    lst = path.with_suffix(".list")
+    lst.write_text(f"# NAME: {label}\n" + "".join(p + "\n" for p in data["packages"]), "utf-8")
+    return path, lst
+
+
+def op_debloater_installed(adb: Tool) -> bool:
+    """Is the module there (and root to run it)? Unrooted phones just answer no."""
+    res = adb.run("shell", "su -c 'command -v debloater >/dev/null && echo opx-yes'", timeout=20)
+    return "opx-yes" in res.stdout
+
+
+def send_to_op_debloat(adb: Tool, packages: list[str], label: str, props: dict[str, str], workdir: Path,
+                       run: bool = False) -> dict:
+    """Copy the list to the phone where OP Debloater finds it (debloater/import, and as a custom profile so
+    it shows in the WebUI). No root needed for that. With run=True (root + module), also apply it now with
+    `debloater remove -f`; the module then owns the removal (undo, re-apply after OTA, boot-loop guard)."""
+    name = op_debloat_name(label, props)
+    js, lst = write_op_debloat(Path(workdir) / f"{name}.json", packages, label, props)
+    profile_id = _safe_name(label)
+    targets = {js: f"{OP_DEBLOAT_DIR}/import/{js.name}", lst: f"{OP_DEBLOAT_DIR}/profiles/{profile_id}.list"}
+    adb.run("shell", f"mkdir -p {OP_DEBLOAT_DIR}/import {OP_DEBLOAT_DIR}/profiles", timeout=20)
+    for local, remote in targets.items():
+        res = adb.run("push", str(local), remote, timeout=60)
+        if not res.ok:
+            raise AppError(f"Couldn't copy {local.name} to the phone: {(res.stderr or res.stdout).strip()}")
+    out = {"json": targets[js], "profile": f"custom:{profile_id}", "count": len(packages), "ran": False}
+    if run:
+        res = adb.run("shell", f"su -c 'debloater remove -f {targets[js]} --label {profile_id}'", timeout=600)
+        text = (res.stdout + res.stderr).strip()
+        if not res.ok:
+            raise AppError(f"OP Debloater couldn't apply it: {text[-400:] or res.returncode}")
+        out.update(ran=True, output=text[-2000:])
+    return out
