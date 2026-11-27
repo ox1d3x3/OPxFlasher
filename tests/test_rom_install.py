@@ -436,8 +436,10 @@ def test_mismatch_after_writing_is_explained_in_the_log(rom_zip, tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake_sync = bin_dir / "sync"
-    fake_sync.write_text(f"#!/bin/sh\n[ -s {phone.mapper}/odm_a ] && printf 'X' | dd of={phone.mapper}/odm_a "
-                         "conv=notrunc 2>/dev/null\nexit 0\n")
+    # always a change: odm is random, so writing "X" over a first byte that already is "X" changed nothing
+    odm = phone.mapper / "odm_a"
+    fake_sync.write_text(f"#!/bin/sh\n[ -s {odm} ] || exit 0\nc=X; [ \"$(head -c 1 {odm})\" = X ] && c=Y\n"
+                         f"printf $c | dd of={odm} conv=notrunc 2>/dev/null\nexit 0\n")
     fake_sync.chmod(0o755)
     code, out = phone.install(z, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
     assert code != 0 and "odm doesn't match right after writing it" in out
