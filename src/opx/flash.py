@@ -374,7 +374,10 @@ def prepare(
         )
 
     steps = assemble(physical)
-    if kept_recovery and any(s.mode == "fastbootd" for s in steps):
+    # China-hardware mode runs fastbootd from the phone's own recovery while its old boot images are still in
+    # place, and writes the boot images only afterwards: a kept custom recovery (AERA) works there (real phone,
+    # 27 Nov 2026), so it's honoured
+    if kept_recovery and not cn and any(s.mode == "fastbootd" for s in steps):
         # fastbootd starts from the recovery partition. A custom recovery made for another build may not start
         # with the new boot / vendor_boot (AERA for 16 under a 17 ROM: fastbootd never came up, the flash stopped
         # half way). So the ROM's own recovery is written first, as Super Flasher does.

@@ -790,3 +790,19 @@ def test_windows_semaphore_timeout_is_no_answer():
 
     assert is_transport_error("getvar:is-userspace FAILED (AdbWriteEndpointSync failed: The semaphore timeout "
                               "period has expired. (121))")
+
+
+def test_china_hardware_honours_keep_my_custom_recovery(adb, fastboot, phone, fb_state, tmp_path):
+    # GLO 17 on rc.72 with AERA in recovery: China-hardware mode ran fastbootd from AERA without a hitch, then
+    # replaced it with the stock recovery because the box was unticked. Ticked, AERA stays.
+    for name, data in (("abl", b"\x16" * 4096), ("engineering_cdt", b"\x16" * 4096), ("recovery", b"\xae" * 65536)):
+        for slot in ("_a", "_b"):
+            put(phone, f"{name}{slot}", data)
+    rom = _rom17(tmp_path, CN_PARTS)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(hardware="cn", keep_recovery=True, **ALLOW),
+                         rom=rom)
+    assert plan.ok, plan.problems
+    assert "recovery" not in [s.partition for s in plan.steps]
+    assert fl.KEEP_RECOVERY_NEEDS_STOCK not in plan.warnings
+    runner.run()
+    assert (phone / "by-name" / "recovery_a").read_bytes() == b"\xae" * 65536

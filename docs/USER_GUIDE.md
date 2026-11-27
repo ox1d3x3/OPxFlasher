@@ -200,8 +200,9 @@ How it flashes:
 - **Keep my custom recovery** only works when nothing is written from fastbootd. fastbootd starts
   from the recovery partition, and a custom recovery made for another build may not start with the
   new boot images (AERA for 16 under a 17 ROM never brought fastbootd up). For a full ROM on the
-  OnePlus 13 the ROM's own recovery is therefore always written; put your custom recovery back
-  afterwards with **Flash image**.
+  OnePlus 13 the ROM's own recovery is therefore written; put your custom recovery back
+  afterwards with **Flash image**. Exception: China-hardware mode runs fastbootd from the phone's
+  own recovery before any boot image changes, so there the box is honoured (AERA worked).
 - The bootloader images (boot, dtbo, init_boot, modem, recovery, vbmeta*, vendor_boot on the
   OnePlus 13) go to `_a` then `_b` with no questions in between, the way Super Flasher writes them.
 - Optional: factory reset (`--wipe`), don't reboot at the end (`--no-reboot`: the phone stays in the bootloader,
