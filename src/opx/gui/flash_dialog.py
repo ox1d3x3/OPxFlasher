@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from opx import flash as fl
+from opx import hardware as hwm
 from opx import plan as pn
 from opx.i18n import tr
 from opx.rom.ota import RomInfo
@@ -118,11 +119,25 @@ class FlashDialog(QDialog):
             h_layout.addWidget(note)
             self.hw_cn = QRadioButton(tr("China hardware (PJZ110, also when converted to Global)"))
             self.hw_global = QRadioButton(tr("Global hardware (CPH2653 / CPH2655 / CPH2649 from the factory)"))
-            model = (device.facts.get("model") or "").upper()
-            if model.startswith("PJZ"):
-                self.hw_cn.setChecked(True)
+            self.hw_serial = device.facts.get("serial", "")
+            chosen = hwm.get(self.hw_serial)
+            if chosen:
+                # the owner set it in the phone panel: use it, don't ask again
+                (self.hw_cn if hwm.flash_mode(chosen) == "cn" else self.hw_global).setChecked(True)
+                for rb in (self.hw_cn, self.hw_global):
+                    rb.setEnabled(False)
+                where = QLabel(tr("This phone's hardware:") + f" <b>{hwm.label(chosen)}</b> "
+                               + tr("(set in the phone panel; change it there if it's wrong)"))
+            else:
+                if hwm.model_hint(device.facts.get("model", "")) == "cn":
+                    self.hw_cn.setChecked(True)
+                where = QLabel(tr("Tip: set it once in the phone panel (Hardware) and it's remembered."))
+                for rb in (self.hw_cn, self.hw_global):
+                    rb.toggled.connect(self._remember_hardware)
+            where.setWordWrap(True)
             h_layout.addWidget(self.hw_cn)
             h_layout.addWidget(self.hw_global)
+            h_layout.addWidget(where)
             layout.addWidget(h_box)
 
         # region conversion
@@ -364,6 +379,14 @@ class FlashDialog(QDialog):
         folder = QFileDialog.getExistingDirectory(self, "Choose your backup of this phone", self.backup_edit.text())
         if folder:
             self.backup_edit.setText(folder)
+
+    def _remember_hardware(self, checked: bool) -> None:
+        if not checked or not getattr(self, "hw_serial", ""):
+            return
+        if self.hw_cn.isChecked():
+            hwm.put(self.hw_serial, "cn")
+        elif self.hw_global.isChecked() and not hwm.get(self.hw_serial):
+            hwm.put(self.hw_serial, "glo")
 
     def options(self) -> fl.FlashOptions:
         arb_ok = self.arb_accepted

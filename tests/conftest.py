@@ -11,6 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from opx.tools import Tool  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _own_settings(tmp_path_factory, monkeypatch):
+    """Every test gets its own settings.json (per-phone hardware, saved validations ...), never the real one."""
+    from opx import settings
+
+    f = tmp_path_factory.mktemp("settings") / "settings.json"
+    monkeypatch.setattr(settings, "path", lambda: f)
+
 FAKE = Path(__file__).with_name("fake_adb.py")
 
 

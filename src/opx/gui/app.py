@@ -45,6 +45,7 @@ from opx import __version__, support
 from opx import backup as bk
 from opx import device as dev
 from opx import flash as fl
+from opx import hardware as hwm
 from opx import plan as pn
 from opx import reboot as rb
 from opx.gui.apps_tab import AppsTab
@@ -325,6 +326,16 @@ class MainWindow(QMainWindow):
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.info_labels[key] = lbl
             form.addRow(text + ":", lbl)
+        # the phone's hardware, said once by the owner (a converted phone reports its new model)
+        self.hw_combo = QComboBox()
+        self.hw_combo.addItem(tr("Not set (choose)"), "")
+        for code in hwm.CHOICES:
+            self.hw_combo.addItem(tr(hwm.label(code)), code)
+        self.hw_combo.setToolTip(tr("Which hardware this phone really is. A phone converted from China to Global "
+                                    "is still China hardware. Flashing uses it (Android 17 on China hardware is "
+                                    "flashed its own way); saved per phone."))
+        self.hw_combo.activated.connect(self._hardware_chosen)
+        form.addRow(tr("Hardware") + ":", self.hw_combo)
         dev_layout.addLayout(form)
         self.banner = QLabel()
         self.banner.setObjectName("banner")
@@ -661,6 +672,13 @@ class MainWindow(QMainWindow):
         for target, text in (("system", tr("Android")), ("bootloader", tr("Bootloader")),
                              ("fastbootd", tr("Fastbootd")), ("recovery", tr("Recovery"))):
             self.reboot_acts[target] = act(reboot_menu, text, lambda t=target: self.reboot_to(t))
+        hw_menu = phone.addMenu(tr("Phone hardware"))
+        self.hw_acts = {}
+        for code in hwm.CHOICES:
+            a = hw_menu.addAction(tr(hwm.label(code)))
+            a.setCheckable(True)
+            a.triggered.connect(lambda _c=False, c=code: self._hardware_chosen(code=c))
+            self.hw_acts[code] = a
         phone.addSeparator()
         act(phone, tr("Unlock bootloader..."), self.unlock_bootloader,
             tip=tr("Unlock with the phone maker's own command; erases the phone"))
@@ -831,6 +849,8 @@ class MainWindow(QMainWindow):
         self._update_buttons()
 
     def _update_buttons(self) -> None:
+        if hasattr(self, "hw_combo"):
+            self.hw_combo.setEnabled(self.selected_device() is not None and not self.busy)
         ready = self.session is not None and self.session.access.usable
         self.refresh_btn.setEnabled(not self.busy)
         if hasattr(self, "refresh_act"):
@@ -868,6 +888,29 @@ class MainWindow(QMainWindow):
             self.restore_btn.setEnabled(not self.busy and ready)
         for b in self.mode_group.buttons():
             b.setEnabled(not self.busy)
+
+    def current_hardware(self) -> str:
+        """The hardware code the owner chose for the selected phone ("" = not set)."""
+        d = self.selected_device()
+        return hwm.get(d.serial) if d is not None else ""
+
+    def _sync_hardware(self) -> None:
+        d = self.selected_device()
+        code = hwm.get(d.serial) if d is not None else ""
+        self.hw_combo.setCurrentIndex(max(0, self.hw_combo.findData(code)))
+        self.hw_combo.setEnabled(d is not None and not self.busy)
+        for c, a in getattr(self, "hw_acts", {}).items():
+            a.setChecked(c == code)
+            a.setEnabled(d is not None)
+
+    def _hardware_chosen(self, _index: int = -1, code: str | None = None) -> None:
+        d = self.selected_device()
+        if d is None:
+            return
+        code = self.hw_combo.currentData() if code is None else code
+        hwm.put(d.serial, code or "")
+        self.say(f"Hardware of {d.serial}: {hwm.label(code or '')}")
+        self._sync_hardware()
 
     def selected_device(self) -> dev.Device | None:
         i = self.device_combo.currentIndex()
@@ -1130,6 +1173,7 @@ class MainWindow(QMainWindow):
 
     def _device_selected(self, index: int) -> None:
         self._update_status()
+        self._sync_hardware()
         self.session = None
         self._invalidate_plan()
         self._clear_info()

@@ -291,6 +291,36 @@ def test_flash_dialog_asks_for_the_hardware_with_android_17(adb_env, fb_state, m
     assert d.options().hardware == "global" and "abl" in [st.partition for st in d.plan.steps]
 
 
+def test_phone_hardware_is_set_once_and_used_by_the_flash_window(window, tmp_path):
+    import romfactory as rf
+
+    from opx import hardware as hwm
+    from opx import plan as pn
+    from opx.gui.flash_dialog import FlashDialog
+    from opx.rom.ota import open_rom
+    from opx.session import open_session
+
+    app, win = window
+    serial = win.selected_device().serial
+    assert win.hw_combo.currentData() == "" and win.hw_combo.isEnabled()
+    win.hw_combo.setCurrentIndex(win.hw_combo.findData("cn"))
+    win._hardware_chosen()
+    assert hwm.get(serial) == "cn" and win.hw_acts["cn"].isChecked()
+
+    s = open_session(serial)
+    parts = {"boot": b"B" * 8192, "abl": rf.build_qcom_elf(arb=1), "system": b"S" * 8192}
+    rom = open_rom(rf.build_ota_zip(tmp_path / "r17.zip", rf.build_payload(parts, groups={"main": ["system"]}),
+                                    rf.ota_metadata(product="CPH2653", android="17")))
+    device = pn.device_from_session(s)
+    device.facts["model"] = "CPH2653"  # converted: the model no longer says China
+    d = FlashDialog(None, rom, device, pn.build_report(rom, device))
+    assert d.hw_cn.isChecked() and not d.hw_cn.isEnabled() and not d.hw_global.isEnabled()
+    assert d.options().hardware == "cn"
+
+    win._hardware_chosen(code="glo")  # changed from the Phone menu
+    assert hwm.get(serial) == "glo" and win.hw_combo.currentData() == "glo"
+
+
 def test_gui_root_flow(adb_env, fb_state, monkeypatch, tmp_path):
     from test_root import STOCK, magisk_patch, rom_with_init_boot
     from test_root_cli import make_rootable

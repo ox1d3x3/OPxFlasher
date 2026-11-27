@@ -99,6 +99,14 @@ class ConvertDialog(QDialog):
         for w in (self.hw_label, self.hw_cn, self.hw_global):
             layout.addWidget(w)
             w.hide()
+        try:  # the hardware set for the phone that's connected, if any
+            from opx import hardware as hwm
+
+            mode = hwm.flash_mode(parent.current_hardware()) if hasattr(parent, "current_hardware") else ""
+        except Exception:  # noqa: BLE001  a convenience only
+            mode = ""
+        if mode:
+            (self.hw_cn if mode == "cn" else self.hw_global).setChecked(True)
 
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel(tr("Save in:")))
