@@ -654,7 +654,8 @@ class Runner:
 
     def _connect(self, userspace: bool | None) -> Fastboot:
         serial = wait_for_fastboot(self.fastboot_tool, self.serial, userspace, self.wait_timeout, self.cancel,
-                                   on_slow=lambda text: self.emit({"type": "log", "message": text}))
+                                   on_slow=lambda text: self.emit({"type": "replug", "message": text}),
+                                   slow_after=10)
         self.serial = self.serial or serial
         self.fb = Fastboot(self.fastboot_tool.bind(serial), self.profile)
         return self.fb
@@ -922,32 +923,58 @@ class Runner:
                 save_journal(plan, self.journal)
                 raise Cancelled(f"Stopped before step {index} ({step.label}). Resume with the journal: {self.journal}")
             self.emit({"type": "step_start", "index": index, "total": total, "label": step.label})
-            try:
-                step.detail = self._run_step(step, files)
-                step.status = "done"
-                if step.kind == "to-fastbootd":
-                    self._run_deferred(files, total)
-            except LostPhone as exc:
-                self._fail(step, index, exc, lost=True)
-            except FastbootError as exc:
+            retried = deferred = False
+            while True:
                 try:
-                    in_bootloader = self.fb is not None and self.fb.mode() == "bootloader"
-                except LostPhone as lost:
-                    self._fail(step, index, lost, lost=True)
-                if step.kind == "flash-any" and in_bootloader:
-                    # the bootloader refused it: written from fastbootd after the reboot there
-                    step.status, step.detail = "deferred", f"the bootloader refused it ({exc}); written from fastbootd"
-                    save_journal(plan, self.journal)
-                    self.emit({"type": "step_done", "index": index, "label": step.label, "status": "deferred",
-                               "detail": step.detail})
-                    continue
-                self._fail(step, index, exc)
-            except (FlashError, OSError) as exc:
-                self._fail(step, index, exc)
+                    step.detail = self._run_step(step, files)
+                    step.status = "done"
+                    if step.kind == "to-fastbootd":
+                        self._run_deferred(files, total)
+                    break
+                except LostPhone as exc:
+                    # Windows often loses fastbootd (and sometimes the bootloader) until the cable is plugged in
+                    # again: ask for that and carry on with this step, once, instead of stopping the flash
+                    if not retried and self._replug(step, exc):
+                        retried = True
+                        continue
+                    self._fail(step, index, exc, lost=True)
+                except FastbootError as exc:
+                    try:
+                        in_bootloader = self.fb is not None and self.fb.mode() == "bootloader"
+                    except LostPhone as lost:
+                        self._fail(step, index, lost, lost=True)
+                    if step.kind == "flash-any" and in_bootloader:
+                        # the bootloader refused it: written from fastbootd after the reboot there
+                        step.status = "deferred"
+                        step.detail = f"the bootloader refused it ({exc}); written from fastbootd"
+                        deferred = True
+                        break
+                    self._fail(step, index, exc)
+                except (FlashError, OSError) as exc:
+                    self._fail(step, index, exc)
+            if deferred:
+                save_journal(plan, self.journal)
+                self.emit({"type": "step_done", "index": index, "label": step.label, "status": "deferred",
+                           "detail": step.detail})
+                continue
             save_journal(plan, self.journal)
             self.emit({"type": "step_done", "index": index, "label": step.label, "status": "done", "detail": step.detail})
         self.emit({"type": "finished", "journal": str(self.journal)})
         return plan
+
+    def _replug(self, step: Step, exc: BaseException) -> bool:
+        """The phone stopped answering mid-step: ask for the cable to be plugged in again and wait for it.
+        True when it's back (in either fastboot mode; _ensure switches it if needed)."""
+        self.fb = None
+        self.emit({"type": "log", "message": f"Lost the phone during \"{step.label}\" ({exc})."})
+        self.emit({"type": "replug", "message": REPLUG_NOW})
+        try:
+            self._connect(userspace=None)
+        except FastbootError:
+            return False
+        self.fb = None  # _ensure reconnects and checks the mode
+        self.emit({"type": "replug_done", "message": "Found the phone again: doing this step again."})
+        return True
 
     def _run_deferred(self, files, total: int) -> None:
         """Right after the reboot to fastbootd: what the bootloader refused."""
@@ -1028,6 +1055,11 @@ FASTBOOTD_DIDNT_START = (
     "TWRP) made for another build may not start with the boot images just written. Put the phone in the "
     "bootloader, write this ROM's recovery.img to recovery_a and recovery_b (Flash image, or fastboot flash "
     "recovery_a / recovery_b), then press Resume."
+)
+
+REPLUG_NOW = (
+    "The phone stopped answering. Unplug the USB cable and plug it back in (leave the phone where it is: "
+    "bootloader or fastbootd). OPxFlasher waits for it and carries on with this step."
 )
 
 USB_LOST = (

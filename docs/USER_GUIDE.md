@@ -192,10 +192,11 @@ How it flashes:
   (PJZ110, also converted to Global) keeps its Android 16 `abl` and `engineering_cdt` and
   never uses 17's fastboot (`--hardware cn` in the CLI). Recovery zips of such ROMs ask the same in
   Convert (`-cnhw.zip`); see *Convert to Global*.
-- On Windows the switch to fastbootd is sometimes missed until the cable is plugged in again. If the
-  phone's screen shows fastbootd and OPxFlasher keeps waiting, it says so after about 20 seconds:
-  unplug the cable and plug it back in. **Resume** also waits for the phone, and switches it between
-  the bootloader and fastbootd if it came back in the other mode.
+- On Windows the switch to fastbootd (and sometimes the link while in it) is often lost until the
+  cable is plugged in again. When OPxFlasher can't see or reach the phone for about 10 seconds, it
+  shows a yellow banner: **unplug the USB cable and plug it back in**, leaving the phone where it is.
+  It then waits for the phone and does the step again, once, without stopping the flash. **Resume**
+  also waits for the phone, and switches it between the bootloader and fastbootd if needed.
 - **Keep my custom recovery** only works when nothing is written from fastbootd. fastbootd starts
   from the recovery partition, and a custom recovery made for another build may not start with the
   new boot images (AERA for 16 under a 17 ROM never brought fastbootd up). For a full ROM on the

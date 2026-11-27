@@ -1882,8 +1882,18 @@ class MainWindow(QMainWindow):
             self.say(f"[{e['index']}/{e['total']}] {e['label']}")
         elif t == "step_done":
             self.say(f"    {e['status']}: {e['detail']}")
+            if self.banner.isVisible() and "plug it back in" in self.banner.text():
+                self._show_banner("", "info")  # the phone answered again
         elif t == "log":
             self.say(e["message"])
+        elif t == "replug":
+            # Windows misses the switch to fastbootd (or loses it): the one thing the user has to do
+            self.say(e["message"])
+            self._show_banner(tr("Unplug the USB cable and plug it back in.") + " " + e["message"], "warning")
+            QApplication.alert(self)
+        elif t == "replug_done":
+            self.say(e["message"])
+            self._show_banner("", "info")
         elif t == "finished":
             bar.setValue(100)
 

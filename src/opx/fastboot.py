@@ -38,6 +38,9 @@ TRANSPORT_ERRORS = (
     "status read failed", "write to device failed", "read from device failed", "too many links",
     "no such device", "data transfer failure", "protocol fault", "usb_write failed", "usb_read failed",
     "device not found", "couldn't parse", "no link",
+    # Windows (WinUSB) when the link went stale: "AdbWriteEndpointSync failed: The semaphore timeout period has
+    # expired. (121)" - read as an answer, it once made a fastbootd phone look like the bootloader
+    "adbwriteendpointsync", "adbreadendpointsync", "semaphore timeout",
 )
 
 

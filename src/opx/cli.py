@@ -475,8 +475,10 @@ def _print_flash_event(e: dict) -> None:
         print(f"[{e['index']}/{e['total']}] {e['label']} ...", flush=True)
     elif t == "step_done":
         print(f"    {e['status'].upper()}: {e['detail']}")
-    elif t == "log":
+    elif t in ("log", "replug_done"):
         print(f"    {e['message']}")
+    elif t == "replug":
+        print(f"\n  >>> {e['message']}\n", flush=True)
     elif t == "finished":
         print(f"\nFlash complete. Journal: {e['journal']}")
 

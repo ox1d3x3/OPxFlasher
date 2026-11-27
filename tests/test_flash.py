@@ -768,3 +768,25 @@ def test_old_17_journals_cant_be_resumed_on_a_oneplus_13(adb, fastboot, phone, f
     with pytest.raises(fl.FlashError, match="Don't resume it"):
         fl.resume_runner(tmp_path / "journal.json", load("oneplus-13"), adb, fastboot, wait_timeout=5)
     assert fb_state.read()["log"] == []
+
+
+def test_lost_link_asks_for_a_replug_and_carries_on(adb, fastboot, phone, fb_state, tmp_path):
+    # real OnePlus 13 on Windows: fastbootd stopped answering mid-flash ("AdbWriteEndpointSync failed: The
+    # semaphore timeout period has expired"); unplugging and plugging the cable back in brought it back
+    events = []
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    runner.emit = events.append
+    fb_state(drop_once="xbl_config_a")
+    runner.run()
+    journal = json.loads((tmp_path / "journal.json").read_text())
+    assert all(s["status"] == "done" for s in journal["steps"])
+    kinds = [e["type"] for e in events]
+    assert "replug" in kinds and "replug_done" in kinds
+    assert (phone / "by-name" / "xbl_config_a").read_bytes()[:4] == b"\x7fELF"
+
+
+def test_windows_semaphore_timeout_is_no_answer():
+    from opx.fastboot import is_transport_error
+
+    assert is_transport_error("getvar:is-userspace FAILED (AdbWriteEndpointSync failed: The semaphore timeout "
+                              "period has expired. (121))")

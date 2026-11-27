@@ -9,6 +9,7 @@ folder as fake_adb.py plus a state file:
     refuse            {"bootloader": [...], "fastbootd": [...]}: partitions a mode won't write
                       (real OnePlus 13: the bootloader refuses xbl, fastbootd refuses modem)
     silent            listed in `fastboot devices` but answers nothing (a stuck bootloader / dead USB link)
+    drop_once         partition whose first flash loses the USB link; the phone stays where it is (a replug)
     drop_on_flash     partition name whose flash loses the USB link and the phone restarts to Android
     no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
     log               every command that changed something
@@ -120,6 +121,12 @@ def main(argv: list[str]) -> int:
     if args[:1] == ["flash"]:
         part, image = args[1], Path(args[2])
         data = image.read_bytes()
+        if state.get("drop_once") == part:
+            state["drop_once"] = None
+            save(state)
+            err(f"Sending '{part}' (4 KB)   FAILED (AdbWriteEndpointSync failed: The semaphore timeout period has "
+                "expired. (121))\nfastboot: error: Command failed")
+            return 1
         if state.get("drop_on_flash") == part:
             state["mode"] = "android"
             save(state)
