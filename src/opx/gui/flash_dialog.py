@@ -104,7 +104,8 @@ class FlashDialog(QDialog):
         prof = device.profile
         android = fl._major(getattr(rom, "android", ""))
         if fl.needs_hardware_choice(prof, android):
-            h_box = QGroupBox(tr("Phone hardware (needed for this ROM)"))
+            h_box = QGroupBox(tr("Phone hardware: asked because this ROM is Android") + " "
+                              + (str(android) if android is not None else tr("17 or newer (version unknown)")))
             h_layout = QVBoxLayout(h_box)
             note = QLabel(tr("On China hardware (PJZ110, also when converted to Global) this ROM's own fastboot "
                              "breaks: its fastbootd restarts by itself and its abl breaks bootloader fastboot. "

@@ -806,3 +806,13 @@ def test_china_hardware_honours_keep_my_custom_recovery(adb, fastboot, phone, fb
     assert fl.KEEP_RECOVERY_NEEDS_STOCK not in plan.warnings
     runner.run()
     assert (phone / "by-name" / "recovery_a").read_bytes() == b"\xae" * 65536
+
+
+def test_android_16_roms_never_ask_for_the_hardware(adb, fastboot, phone, fb_state, tmp_path):
+    # 15 -> 16 (or 16 -> 16) on a OnePlus 13: the China-hardware question is for 17+ only
+    plan, _ = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))  # make_rom: Android 16
+    assert not any("which hardware" in p for p in plan.problems)
+    from opx.convert import hardware_needed
+
+    (tmp_path / "r").mkdir()
+    assert not hardware_needed(make_rom(tmp_path / "r"))  # nor do recovery zips of 16 ROMs

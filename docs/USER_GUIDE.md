@@ -188,7 +188,8 @@ How it flashes:
   on the PC itself (a rear port, USB 2.0 if there is one, no hub or front-panel port) and a good data
   cable, then press **Resume**. The log names the fastboot used; if it's an old copy, put a current
   `platform-tools` folder next to OPxFlasher (it's used first).
-- **Android 17 on a OnePlus 13:** the flash dialog asks for the phone's hardware. China hardware
+- **Android 17 on a OnePlus 13:** the flash dialog asks for the phone's hardware (only for Android 17
+  and newer ROMs, or when the ROM's version can't be read; 15 → 16 and 16 → 16 flashes never ask). China hardware
   (PJZ110, also converted to Global) keeps its Android 16 `abl` and `engineering_cdt` and
   never uses 17's fastboot (`--hardware cn` in the CLI). Recovery zips of such ROMs ask the same in
   Convert (`-cnhw.zip`); see *Convert to Global*.
