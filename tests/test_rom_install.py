@@ -111,6 +111,7 @@ def test_installs_the_rom(rom_zip, tmp_path):
     lines = out.splitlines()
     assert lines.index("  vbmeta") > lines.index("  system")  # AVB last
     assert not (tmp_path / "rtmp" / "opx-rom").exists()  # its work folder is cleaned up
+    assert (tmp_path / "rtmp" / "opx-install.result").read_text() == "ok\n"  # what OPxFlasher reads over adb
 
 
 def test_reinstalling_the_same_build_is_fine(rom_zip, tmp_path):
@@ -137,6 +138,7 @@ def test_refuses_and_writes_nothing(rom_zip, tmp_path, change, message):
     assert code == 1 and message in out and "Nothing was written." in out, out
     assert phone.snapshot() == before
     assert not phone.log.exists()
+    assert (tmp_path / "rtmp" / "opx-install.result").read_text().startswith("fail nothing-written: ")
 
 
 def test_unreadable_installed_build_is_refused(rom_zip, tmp_path):
@@ -450,6 +452,7 @@ def test_mismatch_after_writing_is_explained_in_the_log(rom_zip, tmp_path):
     assert code != 0 and "odm doesn't match right after writing it" in out
     log = (tmp_path / "rtmp" / "opx-install.log").read_text()
     assert "piece 0 DIFFERS" in log
+    assert (tmp_path / "rtmp" / "opx-install.result").read_text().startswith("fail half-written: odm")
 
 
 def test_sizes_come_from_the_list_not_shell_maths(rom_zip, tmp_path):
@@ -507,6 +510,7 @@ def test_convert_ready_from_internal_storage_asks_for_a_manual_format(tmp_path):
     assert res.returncode == 0, out
     assert "ONE MORE STEP before rebooting: Wipe > Format data > type yes." in out
     assert not twrp_log.exists()  # didn't even try
+    assert (tmp_path / "rtmp" / "opx-install.result").read_text() == "ok format-data\n"
 
 
 @pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="the recovery's output pipe is found via /proc (Linux/Android)")

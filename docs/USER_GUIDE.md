@@ -214,6 +214,36 @@ How it flashes:
   or goes back to it from fastbootd),
   flash the ROM's region files (`--include oplusstanvbk,my_region`, usually off).
 
+### Two ways to flash: from the PC (A) or inside AERA (B)
+
+On phones with a known custom recovery (the OnePlus 13: AERA), the flash window starts with
+**How to flash**:
+
+- **A. From the PC (fastboot / fastbootd)**: everything above. Works with the stock recovery;
+  changing region and wiping data are possible.
+- **B. Inside the custom recovery (AERA)**: OPxFlasher makes a recovery zip that keeps AERA (or uses
+  one you made with *Keep my custom recovery*), copies it to the phone's internal storage
+  (`/sdcard/OPxFlasher`, about 10 GB free needed) while Android runs, and checks its SHA-256 on
+  the phone. Then the phone restarts into AERA and a yellow banner tells you what to tap:
+  **Install > Internal storage > OPxFlasher > the zip > swipe**. The phone reads and writes
+  everything itself; the USB cable only carried the copy, so a flaky port or Windows driver can't
+  stop it half way. OPxFlasher reads the installer's result over USB, saves its log, deletes the
+  zip from the phone and restarts it to Android.
+
+Route B is for the **same variant** only (an update, or the same build again): a region change
+needs data formatted, which a zip read from internal storage can't do, so that stays route A. It
+needs the phone in Android at the start and AERA installed; if the phone comes back in the stock
+recovery, OPxFlasher says so. The installer checks everything again on the phone before writing
+(variant, not older than installed, every file's SHA-256). If it stops before writing, nothing
+changed; if it fails part way, don't reboot: install the zip again in AERA (it's still on the
+phone). A drop during the copy just copies again; a zip already on the phone with the right
+SHA-256 isn't copied twice.
+
+**Install AERA first** (button in the same box, or *Flash image > Install a custom recovery*). It's
+recommended for both routes; skip it to keep the stock recovery and use route A.
+
+Command line: `opx install-in-recovery ROM.zip [--hardware cn|global] [--no-reboot] [--keep-zip]`.
+
 ## Restore the whole ROM from a backup
 
 A **Full firmware** backup is an offline copy of your phone's whole Android OS (never your
@@ -366,6 +396,23 @@ Everything above is still refused (identity partitions, `super`, the bootloader 
 types, firmware with a broken bootloader); only the backup isn't required. The phone can
 already be in fastboot: OPxFlasher knows it by its serial number. A full ROM flash works the same
 way (see ROM check).
+
+### Install AERA (custom recovery)
+
+On the OnePlus 13, AERA gave the cleanest flashes: its fastbootd never dropped the USB link, and
+it installs OPxFlasher recovery zips. **Flash image > Install a custom recovery (AERA)...**:
+
+1. Open AERA's official download page from the link in the window
+   ([OnePlus 13 / dodge](https://aera-recovery.com/devices/dodge)) and download the zip there.
+   OPxFlasher never downloads or ships AERA itself.
+2. Choose the zip you downloaded (or the recovery `.img` inside it). OPxFlasher finds the
+   recovery image in the zip by what it is, not by its name, and stops if it can't tell which one.
+3. Paste the SHA-256 from the page (*Verify SHA-256 checksum*): a file that doesn't match can't
+   be used.
+4. **Use this recovery** fills in the tab: `recovery`, both slots. Check and Flash as usual; the
+   bootloader writes it, no fastbootd needed.
+
+Command line: `opx flash-image recovery AERA.zip --slot both --expect-sha256 <hash> --backup <folder>`.
 
 ## Official ROMs
 

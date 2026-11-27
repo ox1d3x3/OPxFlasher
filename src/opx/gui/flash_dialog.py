@@ -28,6 +28,22 @@ from opx import plan as pn
 from opx.i18n import tr
 from opx.rom.ota import RomInfo
 
+INSTALL_RECOVERY = 3  # dialog result: install the custom recovery (AERA) first
+
+ROUTE_PC = "pc"
+ROUTE_RECOVERY = "recovery"
+
+
+def recovery_route_blocker(device: pn.DeviceState, report: pn.Report) -> str:
+    """Why flashing inside the custom recovery isn't possible here ("" when it is)."""
+    if not getattr(device.profile, "custom_recoveries", None):
+        return tr("OPxFlasher knows no custom recovery for this phone.")
+    if fl.region_change(report):
+        return tr("This flash changes region: data must be formatted, which needs the PC route.")
+    if device.source not in ("live", "props"):
+        return tr("Start the phone in Android (USB debugging on): the zip is copied while Android runs.")
+    return ""
+
 
 class FlashDialog(QDialog):
     def __init__(self, parent, rom: RomInfo, device: pn.DeviceState, report: pn.Report, backup_hint: str = ""):
@@ -50,6 +66,52 @@ class FlashDialog(QDialog):
         head = QLabel(f"<b>Flash {rom.path.name}</b><br>to {device.label}")
         head.setWordWrap(True)
         layout.addWidget(head)
+
+        # how: from the PC (every write over USB) or inside the custom recovery (USB only carries a copy)
+        self.route = ROUTE_PC
+        self.route_pc: QRadioButton | None = None
+        self.route_rec: QRadioButton | None = None
+        rec_pages = getattr(device.profile, "custom_recoveries", None) or []
+        if rec_pages:
+            rec_name = rec_pages[0].get("name", "AERA")
+            w_box = QGroupBox(tr("How to flash"))
+            w_layout = QVBoxLayout(w_box)
+            self.route_pc = QRadioButton(tr("A. From the PC (fastboot / fastbootd)"))
+            pc_note = QLabel(tr("The PC writes every partition over USB. Works with the stock recovery; changing "
+                                "region and wiping data are possible."))
+            self.route_rec = QRadioButton(tr("B. Inside the custom recovery") + f" ({rec_name})")
+            rec_note = QLabel(tr("OPxFlasher makes a recovery zip that keeps") + f" {rec_name}, "
+                              + tr("copies it to the phone (about 10 GB free needed) and checks it there. The phone "
+                                   "restarts into the recovery and you press Install: the phone writes everything "
+                                   "itself, the cable only carried the copy. Same variant only; your data stays."))
+            for note in (pc_note, rec_note):
+                note.setWordWrap(True)
+                note.setStyleSheet("color:#9aa3b5; margin-left:22px")
+            self.route_pc.setChecked(True)
+            w_layout.addWidget(self.route_pc)
+            w_layout.addWidget(pc_note)
+            w_layout.addWidget(self.route_rec)
+            w_layout.addWidget(rec_note)
+            blocker = recovery_route_blocker(device, report)
+            if blocker:
+                self.route_rec.setEnabled(False)
+                why = QLabel(tr("Not possible now:") + " " + blocker)
+                why.setWordWrap(True)
+                why.setStyleSheet("color:#f0c24b; margin-left:22px")
+                w_layout.addWidget(why)
+            rec_row = QHBoxLayout()
+            rec_tip = QLabel(tr("Recommended for both: install") + f" {rec_name} " + tr("first (from its official "
+                             "page). It gave the cleanest flashes on the OnePlus 13. Skip it to keep the stock "
+                             "recovery (route A)."))
+            rec_tip.setWordWrap(True)
+            rec_btn = QPushButton(tr("Install") + f" {rec_name}...")
+            rec_btn.setToolTip(tr("Opens the official download page and loads the file you downloaded (zip or "
+                                  "recovery.img); written to recovery on both slots"))
+            rec_btn.clicked.connect(lambda: self.done(INSTALL_RECOVERY))
+            rec_row.addWidget(rec_tip, 1)
+            rec_row.addWidget(rec_btn)
+            w_layout.addLayout(rec_row)
+            layout.addWidget(w_box)
 
         # backup (recommended, not required)
         b_box = QGroupBox(tr("Your backup of this phone (recommended)"))
@@ -98,6 +160,7 @@ class FlashDialog(QDialog):
         for w in (self.wipe_box, self.reboot_box, self.fastbootd_box, self.keep_recovery_box):
             o_layout.addWidget(w)
         layout.addWidget(o_box)
+        self.pc_only = [self.wipe_box, self.fastbootd_box, self.keep_recovery_box, *self.optional_boxes.values()]
 
         # China hardware: from Android 17 the ROM's own fastboot breaks on it (OnePlus 13 PJZ110)
         self.hw_cn: QRadioButton | None = None
@@ -279,7 +342,7 @@ class FlashDialog(QDialog):
         outer.addLayout(btns)
 
         extra = [b for b in (self.keep_region_box, self.variant_box, self.not_updated_box, self.hw_cn,
-                             self.hw_global) if b is not None]
+                             self.hw_global, self.route_rec) if b is not None]
         for cb in [*self.optional_boxes.values(), self.wipe_box, self.reboot_box, self.fastbootd_box,
                    self.keep_recovery_box, self.no_backup, *extra]:
             cb.toggled.connect(self.refresh)
@@ -412,17 +475,46 @@ class FlashDialog(QDialog):
                if self.not_updated_box is not None and self.not_updated_box.isChecked() else []),
         )
 
+    def recovery_steps(self) -> list[str]:
+        name = (getattr(self.device.profile, "custom_recoveries", None) or [{}])[0].get("name", "AERA")
+        steps = [tr("Make a recovery zip that keeps") + f" {name} " + tr("(or reuse one made before)"),
+                 tr("Copy it to the phone's internal storage (OPxFlasher folder) while Android runs"),
+                 tr("Check its SHA-256 on the phone"),
+                 tr("Restart into") + f" {name}",
+                 tr("You: Install > Internal storage > OPxFlasher > the zip > swipe. OPxFlasher reads the result"),
+                 tr("Delete the zip from the phone") + (" " + tr("and reboot to Android")
+                                                        if self.reboot_box.isChecked() else "")]
+        return steps
+
     def refresh(self) -> None:
         backup = self.backup_edit.text().strip()
+        self.route = ROUTE_RECOVERY if self.route_rec is not None and self.route_rec.isChecked() else ROUTE_PC
+        for w in self.pc_only:
+            w.setVisible(self.route == ROUTE_PC)
+        if self.keep_region_box is not None:  # the recovery zip never writes backup files
+            self.keep_region_box.setEnabled(self.route == ROUTE_PC)
+        if self.route == ROUTE_RECOVERY:
+            # nothing hidden may still change what's written: no wipe, none of the ROM's region files
+            for w in (self.wipe_box, *self.optional_boxes.values(),
+                      *([self.keep_region_box] if self.keep_region_box is not None else [])):
+                if w.isChecked():
+                    w.blockSignals(True)
+                    w.setChecked(False)
+                    w.blockSignals(False)
         self.plan = fl.prepare(self.rom, self.report, self.device, self.options(), Path(backup) if backup else None)
-        lines = [f"{i:>2}. {s.label}" for i, s in enumerate(self.plan.steps, 1)]
+        steps = self.recovery_steps() if self.route == ROUTE_RECOVERY else [s.label for s in self.plan.steps]
+        lines = [f"{i:>2}. {s}" for i, s in enumerate(steps, 1)]
         if self.plan.problems:
             lines += ["", "BLOCKED - fix these first:"] + [f"  - {p}" for p in self.plan.problems]
         else:
             lines += ["", "All safety gates passed."]
-            if self.wipe_box.isChecked():
+            if self.wipe_box.isChecked() and self.route == ROUTE_PC:
                 lines.append("All data on the phone will be erased.")
-        lines += [f"Note: {w}" for w in self.plan.warnings]
+        if self.route == ROUTE_RECOVERY:
+            lines.append(tr("The installer on the phone checks everything again before writing (same variant, "
+                            "not older, every file's SHA-256). Your data and your custom recovery stay."))
+        else:
+            lines += [f"Note: {w}" for w in self.plan.warnings]
         self.preview.setPlainText("\n".join(lines))
         if self.keep_region_box is not None:
             self._sync_warn_only()

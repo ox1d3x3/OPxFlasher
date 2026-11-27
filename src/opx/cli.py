@@ -479,8 +479,41 @@ def _print_flash_event(e: dict) -> None:
         print(f"    {e['message']}")
     elif t == "replug":
         print(f"\n  >>> {e['message']}\n", flush=True)
-    elif t == "finished":
+    elif t == "transfer":
+        pct = int(e["done"] * 100 / e["total"]) if e["total"] else 0
+        print(f"\r    {e['what']}: {pct:3d}%", end="\n" if e["done"] >= e["total"] else "", flush=True)
+    elif t == "on_phone" and e["message"]:
+        print(f"\n  >>> {e['message']}\n", flush=True)
+    elif t == "finished" and "journal" in e:
         print(f"\nFlash complete. Journal: {e['journal']}")
+
+
+def cmd_install_in_recovery(args) -> int:
+    """Route B: copy a recovery zip to the phone, restart into the custom recovery, install it there."""
+    from opx import inrecovery as ir
+    from opx.rom import detect
+
+    d = detect.detect(args.rom)
+    print("\n".join(d.lines()) + "\n")
+    if d.rom is None:
+        print("That isn't a ROM OPxFlasher can read.")
+        return 1
+    serial = _pick_adb_serial(args.serial)
+    print("The zip is copied to the phone's internal storage (~10 GB) and checked there; then the phone restarts "
+          "into your custom recovery (AERA) and you press Install there. Same variant only: a region change "
+          "needs the PC route (opx flash).")
+    if not _confirm("INSTALL", "The ROM is written by the recovery on the phone."):
+        return 1
+    out = Path(args.out) if args.out else Path(args.rom).resolve().parent
+    work = Path(args.work)
+    opts = ir.Options(hardware=args.hardware or "", reboot_after=not args.no_reboot, delete_after=not args.keep_zip)
+    try:
+        done = ir.Runner(d.rom, Tool("adb"), serial, out, work, opts, on_event=_print_flash_event).run()
+    except ir.InRecoveryError as e:
+        print(f"\n{e}")
+        return 2
+    print("\nInstalled. " + " ".join(done.notes))
+    return 0
 
 
 def cmd_flash(args) -> int:
@@ -1168,7 +1201,27 @@ def cmd_flash_image(args) -> int:
         print("Connect the phone in Android (USB debugging), or pass --backup so OPxFlasher knows the phone "
               "(or --no-backup with the phone in fastboot).")
         return 2
-    plan, warnings = sg.prepare_image_flash(device, backup, args.partition, Path(args.image), args.slot,
+    image = Path(args.image)
+    if args.partition == "recovery" or args.expect_sha256:
+        from opx import customrec as cr
+
+        try:
+            lo = cr.load(image, Path(args.work)) if args.partition == "recovery" else None
+        except cr.CustomRecError as e:
+            print(e)
+            return 2
+        sha = lo.source_sha256 if lo else cr.sha256_of(image)
+        print(f"SHA-256 of {image.name}: {sha}")
+        if lo and lo.from_zip:
+            print(f"Recovery image in the zip: {lo.member}")
+            image = lo.image
+        if args.expect_sha256:
+            want = cr.normalise_sha(args.expect_sha256)
+            if want not in (sha, lo.image_sha256 if lo else sha):
+                print("Does NOT match the SHA-256 you gave. Download the file again. Nothing was written.")
+                return 2
+            print("Matches the SHA-256 you gave.")
+    plan, warnings = sg.prepare_image_flash(device, backup, args.partition, image, args.slot,
                                             args.disable_verity, not args.no_reboot, skip_backup=args.no_backup)
     print(f"Flash one image on {device.label}:")
     for i, st in enumerate(plan.steps, 1):
@@ -1184,7 +1237,7 @@ def cmd_flash_image(args) -> int:
         print("\nDry run: nothing was written.")
         return 0
     if not _confirm("NO BACKUP" if args.no_backup else "FLASH",
-                    f"\nThis writes {Path(args.image).name} to {args.partition} ({args.slot} slot)."):
+                    f"\nThis writes {image.name} to {args.partition} ({args.slot} slot)."):
         print("Cancelled. Nothing was written.")
         return 1
     work = Path(args.work)
@@ -1381,7 +1434,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     fi = sub.add_parser("flash-image", help="flash one image (boot, init_boot, recovery, vbmeta, dtbo, ...)")
     fi.add_argument("partition", help="partition name without slot suffix, e.g. boot, recovery, vbmeta")
-    fi.add_argument("image", help="the .img file")
+    fi.add_argument("image", help="the .img file (for recovery also the custom recovery's zip, e.g. AERA's)")
+    fi.add_argument("--expect-sha256", metavar="HASH",
+                    help="the SHA-256 from the download page: stop if the file doesn't match")
     fi.add_argument("--backup", help="a Critical or Full backup of this phone (required unless --no-backup)")
     fi.add_argument("--no-backup", action="store_true",
                     help="flash without a backup (you type NO BACKUP); identity, boot-chain and wrong images still refused")
@@ -1392,6 +1447,20 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--work", default="opx-work", help="folder for the journal")
     fi.add_argument("-s", "--serial")
     fi.set_defaults(fn=cmd_flash_image)
+
+    ir_ = sub.add_parser("install-in-recovery",
+                         help="flash through the custom recovery (AERA): copy a recovery zip to the phone and "
+                              "install it there (same variant only)")
+    ir_.add_argument("rom", help="OTA zip / payload / image folder (a recovery zip is made, keeping AERA), or an "
+                                 "OPxFlasher recovery zip made with --keep-recovery")
+    ir_.add_argument("--hardware", choices=["cn", "global"],
+                     help="the phone's hardware, needed for Android 17 on a OnePlus 13")
+    ir_.add_argument("--out", help="folder for the recovery zip (default: next to the ROM)")
+    ir_.add_argument("--work", default="opx-work", help="folder for the install logs")
+    ir_.add_argument("--no-reboot", action="store_true", help="stay in the recovery afterwards")
+    ir_.add_argument("--keep-zip", action="store_true", help="leave the zip on the phone afterwards")
+    ir_.add_argument("-s", "--serial")
+    ir_.set_defaults(fn=cmd_install_in_recovery)
 
     f = sub.add_parser("flash", help="flash a ROM after every safety check passes (writes to the phone)")
     f.add_argument("rom", nargs="?", help="OTA zip, payload.bin or image folder")

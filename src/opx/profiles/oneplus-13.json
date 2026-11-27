@@ -43,5 +43,8 @@
   "bootloader_images": ["boot", "dtbo", "init_boot", "modem", "recovery", "vbmeta", "vbmeta_system",
                         "vbmeta_vendor", "vendor_boot"],
   "cn_hardware_keep": ["abl", "engineering_cdt"],
-  "cn_hardware_from_android": 17
+  "cn_hardware_from_android": 17,
+  "custom_recoveries": [
+    {"name": "AERA", "url": "https://aera-recovery.com/devices/dodge"}
+  ]
 }

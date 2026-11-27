@@ -12,6 +12,11 @@ Environment knobs:
   FAKE_CORRUPT = <partition>              flip a byte in dd output
   FAKE_STATE = device | recovery | unauthorized
   FAKE_LOG = <file>                        append every command run
+  FAKE_AERA = 1                            the recovery is a custom one with adb (state "recovery")
+  FAKE_AERA_RESULT = <line>                what the zip's installer leaves in /tmp (as if installed on the phone)
+  FAKE_PUSH_DROP = 1                       the first copy to /sdcard/OPxFlasher stops half way
+  FAKE_PUSH_CORRUPT = 1                    copies to /sdcard/OPxFlasher arrive with one byte changed
+  FAKE_FREE_KB = <n>                       free space df reports for /sdcard
 """
 
 import hashlib
@@ -181,20 +186,101 @@ def boot_mode() -> str:
     return json.loads(state.read_text())["mode"] if state.exists() else "android"
 
 
+def phone_file(path: str) -> Path:
+    """/sdcard/... and /tmp/... on the fake phone."""
+    path = path.strip("'\"")
+    for prefix in ("/sdcard/", "/tmp/"):
+        if path.startswith(prefix):
+            return ROOT / prefix.strip("/") / path[len(prefix):]
+    raise AssertionError(path)
+
+
+def aera(args: list[str]) -> int | None:
+    """Route B: the copy to internal storage and what the custom recovery answers (None: not one of these)."""
+    if args[:1] == ["push"] and args[2].startswith("/sdcard/OPxFlasher/"):
+        src, dst = Path(args[1]), phone_file(args[2])
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        data = src.read_bytes()
+        log(f"push {args[2]}")
+        dropped = ROOT / "push-dropped"
+        if os.environ.get("FAKE_PUSH_DROP") and not dropped.exists():
+            dropped.write_text("1")
+            dst.write_bytes(data[: len(data) // 2])
+            sys.stderr.write("adb: error: failed to copy: no devices/emulators found\n")
+            return 1
+        if os.environ.get("FAKE_PUSH_CORRUPT"):
+            data = data[:-1] + bytes([data[-1] ^ 1])
+        dst.write_bytes(data)
+        return 0
+    if args[:1] == ["pull"] and args[1].startswith("/tmp/"):
+        f = phone_file(args[1])
+        if not f.exists():
+            sys.stderr.write(f"adb: error: remote object '{args[1]}' does not exist\n")
+            return 1
+        Path(args[2]).write_bytes(f.read_bytes())
+        return 0
+    if args[:1] != ["shell"]:
+        return None
+    cmd = " ".join(args[1:])
+    m = re.fullmatch(r"(stat -c %s|sha256sum|ls|rm -f|mkdir -p|cat) ('?/(?:sdcard|tmp)/\S*)", cmd)
+    if cmd == "df -k /sdcard":
+        free = int(os.environ.get("FAKE_FREE_KB", str(64 * 1024 * 1024)))
+        print("Filesystem 1K-blocks Used Available Use% Mounted on")
+        print(f"/dev/fuse 100000000 1 {free} 1% /storage/emulated")
+        return 0
+    if not m:
+        return None
+    log(cmd)
+    op, f = m.group(1), phone_file(m.group(2))
+    if op == "mkdir -p":
+        f.mkdir(parents=True, exist_ok=True)
+        return 0
+    if op == "rm -f":
+        if f.exists():
+            f.unlink()
+        return 0
+    if op == "cat" and f.name == "opx-install.result" and not f.exists() and os.environ.get("FAKE_AERA_RESULT"):
+        # the owner installed the zip on the phone: the installer left its line, and its log
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(os.environ["FAKE_AERA_RESULT"] + "\n")
+        (f.parent / "opx-install.log").write_text("OPxFlasher full ROM installer\n")
+    if not f.exists():
+        sys.stderr.write(f"{op.split()[0]}: {m.group(2)}: No such file or directory\n")
+        return 1
+    if op == "stat -c %s":
+        print(f.stat().st_size)
+    elif op == "sha256sum":
+        print(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {m.group(2)}")
+    elif op == "ls":
+        print(m.group(2).strip("'"))
+    else:
+        sys.stdout.write(f.read_text())
+    return 0
+
+
 def main(argv: list[str]) -> int:
     args = list(argv)
     if args[:1] == ["-s"]:
         args = args[2:]
+    in_aera = boot_mode() == "recovery" and os.environ.get("FAKE_AERA")
     if args[:1] == ["devices"]:
         state = os.environ.get("FAKE_STATE", "device")
         print("List of devices attached")
         if boot_mode() == "android":
             extra = " product:PJZ110 model:PJZ110 device:testdevice transport_id:1" if args[1:2] == ["-l"] else ""
             print(f"FAKE0001       {state}{extra}")
+        elif in_aera:
+            print("FAKE0001       recovery")
         return 0
-    if boot_mode() != "android":
+    if boot_mode() != "android" and not in_aera:
         sys.stderr.write("adb: no devices/emulators found\n")
         return 1
+    handled = aera(args)
+    if handled is not None:
+        return handled
+    if in_aera and args[:1] != ["reboot"]:
+        sys.stderr.write(f"fake adb (recovery): unsupported args {args}\n")
+        return 99
     if args[:1] == ["push"] and args[2].startswith("/sdcard/debloater/"):
         f = ROOT / "sdcard" / args[2][len("/sdcard/"):]
         f.parent.mkdir(parents=True, exist_ok=True)

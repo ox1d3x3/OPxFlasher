@@ -49,6 +49,9 @@ Ask owners of the other variants (CN / IN / EU / NA / Global) for their `ro.prod
   from that Android version the flash dialog asks whether the phone is China hardware; if it is, those
   images stay as the phone has them, fastbootd runs first from the phone's own recovery, and the
   bootloader images (recovery included) are written last from the old bootloader.
+- `custom_recoveries` (optional): official download pages of custom recoveries built for this phone,
+  e.g. `[{"name": "AERA", "url": "https://aera-recovery.com/devices/dodge"}]` (https only). OPxFlasher
+  only links to them: the owner downloads the file and loads it in Flash image.
 - Leave `qcom_arb_validated` out. It's only set after anti-rollback numbers are checked
   against real firmware.
 

@@ -1723,14 +1723,24 @@ class MainWindow(QMainWindow):
         if not self._can_offer_flash():
             return
         hint = str(self.last_folder) if self.last_folder else self.cmp_backup_edit.text().strip()
+        from opx.gui import flash_dialog as fdm
+
         dialog = FlashDialog(self, self.check_rom_obj, self.check_device, self.report, hint)
-        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.plan or not dialog.plan.ok:
+        answer = dialog.exec()
+        if answer == fdm.INSTALL_RECOVERY:
+            self.tabs.setCurrentWidget(self.image_tab)
+            self.image_tab.custom_recovery()
+            return
+        if answer != QDialog.DialogCode.Accepted or not dialog.plan or not dialog.plan.ok:
             self.say("Flash cancelled. Nothing was written.")
             return
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         work = Path(self.out_edit.text()).expanduser() / f"flash-{stamp}"
         work.mkdir(parents=True, exist_ok=True)
         self.flash_cancel = threading.Event()
+        if dialog.route == fdm.ROUTE_RECOVERY:
+            self.install_in_recovery(dialog, work)
+            return
         runner = fl.Runner(
             dialog.plan, self.check_rom_obj, self.check_device.profile, Tool("adb"), Tool("fastboot"),
             work / "journal.json", work / "images", cancel=self.flash_cancel,
@@ -1851,9 +1861,33 @@ class MainWindow(QMainWindow):
         self.say(f"Recovery zip not made: {exc}")
         QMessageBox.warning(self, "Recovery zip", str(exc))
 
-    def _launch(self, runner, journal, label, bar, stop_btn, what: str) -> None:
+    def install_in_recovery(self, dialog, work: Path) -> None:
+        """Route B: copy a recovery zip to the phone, restart into AERA, the owner installs it there."""
+        from opx import inrecovery as ir
+
+        serial = self.check_device.facts.get("serial", "")
+        opts = ir.Options(hardware=dialog.options().hardware, reboot_after=dialog.reboot_box.isChecked())
+        out = Path(self.check_rom_obj.path).parent  # the recovery zip goes next to the ROM (reused next time)
+        runner = ir.Runner(self.check_rom_obj, Tool("adb"), serial, out, work, opts, cancel=self.flash_cancel)
+        self._launch(runner, None, self.flash_label, self.flash_bar, self.stop_flash_btn, "Install in recovery",
+                     done=self._recovery_install_done)
+
+    def _recovery_install_done(self, outcome) -> None:
+        label, bar, stop, what = self._active
+        self._set_busy(False)
+        stop.setEnabled(False)
+        label.setText(tr("Done: installed in the recovery"))
+        self.finish_bar(bar)
+        self._show_banner("", "info")
+        text = tr("The ROM is installed.") + " " + " ".join(outcome.notes)
+        if outcome.log:
+            text += "\n\n" + tr("Install log:") + f" {outcome.log}"
+        self.say(text)
+        QMessageBox.information(self, what, text)
+
+    def _launch(self, runner, journal, label, bar, stop_btn, what: str, done=None) -> None:
         """Run a flash/restore Runner off the UI thread, showing progress in the given widgets."""
-        self.flash_journal = journal
+        self.flash_journal = journal or ""
         self._active = (label, bar, stop_btn, what)
         self._set_busy(True)
         stop_btn.setEnabled(True)
@@ -1861,10 +1895,10 @@ class MainWindow(QMainWindow):
         bar.show()
         label.show()
         label.setText("Preparing...")
-        self.say(f"{what} started. Journal: {journal}")
+        self.say(f"{what} started." + (f" Journal: {journal}" if journal else ""))
         job = Job(runner.run)
         runner.emit = job.signals.event.emit
-        self.run_job(job, self._flash_done, self._flash_failed, self._flash_event)
+        self.run_job(job, done or self._flash_done, self._flash_failed, self._flash_event)
 
     def resume_flash(self, journal: Path | None = None) -> None:
         """Continue a stopped flash from its journal (GUI side of opx flash --resume)."""
@@ -1938,6 +1972,18 @@ class MainWindow(QMainWindow):
         elif t == "replug_done":
             self.say(e["message"])
             self._show_banner("", "info")
+        elif t == "transfer":
+            pct = int(100 * e["done"] / e["total"]) if e["total"] else 0
+            label.setText(f"{e['what']}: {pct}%  ({e['done'] / 1e9:.1f} / {e['total'] / 1e9:.1f} GB)")
+            bar.setValue(pct)
+        elif t == "on_phone":
+            # the next thing happens on the phone's screen (route B: unlock, press Install)
+            if e["message"]:
+                self.say(e["message"])
+                self._show_banner(e["message"], "warning")
+                QApplication.alert(self)
+            else:
+                self._show_banner("", "info")
         elif t == "finished":
             bar.setValue(100)
 
@@ -1961,8 +2007,13 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(f"{what} stopped")
-        box.setText(f"{exc}\n\n" + tr("Fix the cause, then resume: finished steps are skipped.")
-                    + f"\n(opx flash --resume \"{journal}\")")
+        if journal:
+            box.setText(f"{exc}\n\n" + tr("Fix the cause, then resume: finished steps are skipped.")
+                        + f"\n(opx flash --resume \"{journal}\")")
+        else:
+            self._show_banner("", "info")
+            box.setText(f"{exc}\n\n" + tr("Fix the cause, then start it again: a zip already made, or already on "
+                                           "the phone, isn't made or copied again."))
         resume = box.addButton(tr("Resume now"), QMessageBox.ButtonRole.AcceptRole) if journal else None
         box.addButton(QMessageBox.StandardButton.Close)
         box.exec()

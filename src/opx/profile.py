@@ -87,6 +87,9 @@ class Profile:
     # (the last 16 ones) and fastbootd runs from the old recovery, before the new boot images go in
     cn_hardware_keep: list[str] = field(default_factory=list)
     cn_hardware_from_android: int = 0
+    # custom recoveries for this phone, as {"name": ..., "url": official download page}. OPxFlasher only links
+    # to the page: the owner downloads it there and loads the file (see opx.customrec)
+    custom_recoveries: list[dict[str, str]] = field(default_factory=list)
 
     def rules_for(self, mode: str) -> list[PartitionRule]:
         if mode == "network":
@@ -144,7 +147,7 @@ BLOCKABLE = ("fastbootd", "bootloader")
 KNOWN_KEYS = {"id", "name", "inherits", "match", "notes", "backup", "never_flash", "known_issues",
               "conditional", "avb_images", "variants", "codenames", "recovery_boards", "qcom_arb_images", "keep_apps", "rollback_fuse",
               "qcom_arb_validated", "firmware_in_fastbootd", "bootloader_images",
-              "cn_hardware_keep", "cn_hardware_from_android"}
+              "cn_hardware_keep", "cn_hardware_from_android", "custom_recoveries"}
 
 
 class ProfileError(ValueError):
@@ -300,6 +303,8 @@ def _build(raw: dict) -> Profile:
         bootloader_images=list(raw.get("bootloader_images", [])),
         cn_hardware_keep=list(raw.get("cn_hardware_keep", [])),
         cn_hardware_from_android=int(raw.get("cn_hardware_from_android", 0) or 0),
+        custom_recoveries=[{"name": str(r["name"]), "url": str(r["url"])} for r in raw.get("custom_recoveries", [])
+                           if isinstance(r, dict) and r.get("name") and str(r.get("url", "")).startswith("https://")],
     )
 
 

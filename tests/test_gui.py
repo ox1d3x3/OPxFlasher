@@ -291,6 +291,36 @@ def test_flash_dialog_asks_for_the_hardware_with_android_17(adb_env, fb_state, m
     assert d.options().hardware == "global" and "abl" in [st.partition for st in d.plan.steps]
 
 
+def test_flash_dialog_offers_the_recovery_route(adb_env, fb_state, monkeypatch, tmp_path):
+    import romfactory as rf
+
+    from opx import plan as pn
+    from opx.gui import flash_dialog as fdm
+    from opx.rom.ota import open_rom
+    from opx.session import open_session
+
+    _gui_phone(adb_env, monkeypatch)
+    _app = QApplication.instance() or QApplication([])
+    s = open_session("FAKE0001")
+    parts = {"boot": b"B" * 8192, "recovery": b"C" * 8192, "system": b"S" * 8192}
+    rom = open_rom(rf.build_ota_zip(tmp_path / "r.zip", rf.build_payload(parts, groups={"main": ["system"]}),
+                                    rf.ota_metadata(product="PJZ110", android="16")))
+    device = pn.device_from_session(s)
+    d = fdm.FlashDialog(None, rom, device, pn.build_report(rom, device))
+    assert d.route_pc.isChecked() and d.route_rec.isEnabled() and d.route == fdm.ROUTE_PC
+    d.wipe_box.setChecked(True)
+    d.route_rec.setChecked(True)
+    assert d.route == fdm.ROUTE_RECOVERY
+    assert not d.wipe_box.isChecked() and not d.wipe_box.isVisibleTo(d)  # the recovery zip never wipes
+    text = d.preview.toPlainText()
+    assert "Copy it to the phone's internal storage" in text and "Restart into AERA" in text
+    d.route_pc.setChecked(True)
+    assert d.route == fdm.ROUTE_PC and d.wipe_box.isVisibleTo(d)
+    # the phone only in fastboot: the zip is copied while Android runs
+    device.source = "fastboot"
+    assert "Start the phone in Android" in fdm.recovery_route_blocker(device, pn.build_report(rom, device))
+
+
 def test_phone_hardware_is_set_once_and_used_by_the_flash_window(window, tmp_path):
     import romfactory as rf
 
@@ -1664,3 +1694,48 @@ def test_gui_resume_a_stopped_flash(adb_env, fb_state, monkeypatch, tmp_path):
         win.close()
         win.deleteLater()
         settle(app, 5)
+
+
+def test_gui_custom_recovery_from_the_owners_download(window, monkeypatch, tmp_path):
+    import hashlib
+    import zipfile
+
+    import romfactory as rf
+
+    from opx.gui import recovery_dialog as rd
+
+    app, win = window
+    rec = rf.build_boot_image(b"aera", header_version=4).ljust(2 * 1024 * 1024, b"\0")
+    z = tmp_path / "AERA-R1.0.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("recovery.img", rec)
+    dlg = rd.RecoveryDialog(win, [("OnePlus 13", {"name": "AERA", "url": "https://aera-recovery.com/devices/dodge"})],
+                            tmp_path / "w")
+    dlg.load(z)
+    assert dlg.loaded and "recovery.img" in dlg.info.text()
+    assert dlg.use_btn.isEnabled() and "Not compared" in dlg.verdict.text()
+    dlg.sha_edit.setText("f" * 64)
+    assert not dlg.use_btn.isEnabled() and "NOT match" in dlg.verdict.text()
+    dlg.sha_edit.setText(hashlib.sha256(z.read_bytes()).hexdigest())
+    assert dlg.use_btn.isEnabled() and "Matches" in dlg.verdict.text()
+    bad = tmp_path / "x.zip"
+    with zipfile.ZipFile(bad, "w") as zf:
+        zf.writestr("readme.txt", "nothing")
+    dlg.load(bad)
+    assert dlg.loaded is None and not dlg.use_btn.isEnabled()
+
+    # from the Image tab: the dialog's image lands in recovery, both slots
+    class Fake:
+        def __init__(self, parent, entries, work):
+            Fake.entries = entries
+            self.loaded = type("L", (), {"image": tmp_path / "w" / "custom-recovery.img"})()
+
+        def exec(self):
+            return rd.QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(rd, "RecoveryDialog", Fake)
+    tab = win.image_tab
+    tab.rec_btn.click()
+    assert any(e["name"] == "AERA" for _, e in Fake.entries)
+    assert tab.part_combo.currentText() == "recovery" and tab.slot_combo.currentData() == "both"
+    assert tab.image_edit.text().endswith("custom-recovery.img")

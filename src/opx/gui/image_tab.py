@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -42,6 +43,15 @@ class ImageTab(QWidget):
         intro.setWordWrap(True)
         intro.setStyleSheet("color:#9aa3b5")
         layout.addWidget(intro)
+
+        row = QHBoxLayout()
+        self.rec_btn = QPushButton(tr("Install a custom recovery (AERA)..."))
+        self.rec_btn.setToolTip(tr("Load the AERA (or other custom recovery) zip you downloaded from its official "
+                                   "page, check its SHA-256, and flash it to recovery on both slots"))
+        self.rec_btn.clicked.connect(self.custom_recovery)
+        row.addWidget(self.rec_btn)
+        row.addStretch(1)
+        layout.addLayout(row)
 
         box = QGroupBox(tr("Image"))
         form = QVBoxLayout(box)
@@ -146,6 +156,29 @@ class ImageTab(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Choose image", "", "Images (*.img *.bin);;All files (*)")
         if path:
             self.image_edit.setText(path)
+
+    def custom_recovery(self) -> None:
+        from opx import customrec as cr
+        from opx.gui.recovery_dialog import RecoveryDialog
+
+        device = self._device()
+        profile = device.profile if device is not None else (self.win.session.profile if self.win.session else None)
+        entries = [(profile.name, e) for e in cr.pages(profile)] if profile is not None else []
+        if not entries:
+            entries = cr.all_pages()
+        backup = self.backup_edit.text().strip()
+        work = (Path(backup).parent if backup else Path.home() / "OPxFlasher-backups") / "opx-flash-image"
+        dlg = RecoveryDialog(self, entries, work)
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.loaded is None:
+            return
+        self.use_recovery(dlg.loaded.image)
+
+    def use_recovery(self, image: Path) -> None:
+        self.part_combo.setCurrentText("recovery")
+        self.slot_combo.setCurrentIndex(self.slot_combo.findData("both"))
+        self.image_edit.setText(str(image))
+        self.summary.setStyleSheet("")
+        self.summary.setText(tr("Recovery image loaded for both slots. Press Check."))
 
     def _pick_backup(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose a backup of this phone")

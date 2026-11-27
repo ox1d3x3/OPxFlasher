@@ -32,11 +32,16 @@ LPTOOLS=${OPX_LPTOOLS:-lptools}
 METADATA=${OPX_METADATA:-/metadata}
 TMP=${OPX_TMP:-/tmp}/opx-rom
 LOG=${OPX_LOG:-${OPX_TMP:-/tmp}/opx-install.log}
+# One line OPxFlasher reads over adb when it waits for the install (in recovery: adb shell cat):
+# running | ok | ok format-data | fail nothing-written: ... | fail half-written: ...
+RESULT=${OPX_RESULT:-${OPX_TMP:-/tmp}/opx-install.result}
 MB=1048576
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 { true > "$LOG"; } 2>/dev/null
 
 note() { echo "$*" >> "$LOG" 2>/dev/null; }
+result() { echo "$1" > "$RESULT" 2>/dev/null; }
+result running
 
 ui() {
   note "$1"
@@ -54,6 +59,7 @@ abort() {
   ui " "
   ui "! $1"
   ui "! Nothing was written."
+  result "fail nothing-written: $1"
   cleanup
   exit 1
 }
@@ -64,6 +70,7 @@ fail_written() {
   ui "! The phone is half flashed. Do NOT reboot: flash this zip again,"
   ui "! or flash the ROM from the PC with OPxFlasher."
   ui "! Details for support: $LOG (adb pull $LOG)"
+  result "fail half-written: $1"
   cleanup
   exit 1
 }
@@ -520,6 +527,7 @@ if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ] && [ -z "$on_data" ]; then
   ui " "
   ui "! Formatting data didn't work. BEFORE rebooting: Wipe > Format data > type yes."
   ui "! Without it the phone won't start in the new region."
+  result "fail format-data: formatting data didn't work. Before rebooting: Wipe > Format data > type yes."
   cleanup
   exit 1
 fi
@@ -539,7 +547,9 @@ if [ -n "$REGION_CHANGE" ] && [ -z "$formatted" ]; then
   ui "! (This zip was read from internal storage, which is part of data, so it"
   ui "! couldn't format data itself.) Without it the phone won't start in the new region."
   ui "! Then reboot to system. The first boot can take a few minutes."
+  result "ok format-data"
   exit 0
 fi
 ui "Reboot to system. The first boot can take a few minutes."
+result ok
 exit 0

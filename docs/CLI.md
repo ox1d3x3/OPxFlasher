@@ -57,9 +57,12 @@ opx plan ROM.zip [--backup backups/<folder>] [--json]   # check a ROM, flash not
 ```sh
 opx flash ROM.zip [--backup backups/<folder> | --no-backup] [--allow-fastbootd] [--wipe] [--dry-run]
 opx flash --resume opx-flash-<time>/journal.json        # continue an interrupted flash
+opx install-in-recovery ROM.zip [--hardware cn|global] [--no-reboot] [--keep-zip]
+                # route B: copy a recovery zip to the phone, install it in AERA (same variant)
 
 opx flash-image <partition> <file.img> --backup backups/<folder> [--slot current|other|both]
-                [--disable-verity] [--dry-run]
+                [--disable-verity] [--dry-run] [--expect-sha256 HASH]
+opx flash-image recovery AERA.zip --slot both --expect-sha256 HASH    # a custom recovery's own zip
 
 opx restore-rom backups/<full-backup> [--wipe] [--not-updated] [--dry-run]
 opx restore-zip backups/<full-backup> --out <folder> [--recovery aera|orangefox] [--compress]
