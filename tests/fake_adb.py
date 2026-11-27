@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(os.environ["FAKE_DEVICE_DIR"])
@@ -32,9 +33,25 @@ ACCESS = os.environ.get("FAKE_ACCESS", "su")
 
 def log(cmd: str) -> None:
     path = os.environ.get("FAKE_LOG")
-    if path:
+    if not path:
+        return
+    # several fake adb processes can run at once (a copy and the size polls beside it); on Windows two
+    # appends from different processes can land on the same offset and one line is lost, so take a lock
+    lock = path + ".lock"
+    for _ in range(2000):
+        try:
+            os.mkdir(lock)
+            break
+        except FileExistsError:
+            time.sleep(0.005)
+    try:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(cmd + "\n")
+    finally:
+        try:
+            os.rmdir(lock)
+        except OSError:
+            pass
 
 
 def local(path: str) -> Path | None:
