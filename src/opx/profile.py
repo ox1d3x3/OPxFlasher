@@ -327,6 +327,14 @@ def detect(props: dict[str, str]) -> Profile:
         prof = load(pid)
         if prof.match and all(props.get(k, "") in v for k, v in prof.match.items()):
             return prof
+    # a custom recovery (AERA reports the model "OnePlus 13" and the product "ossi") still names the board
+    for key in ("ro.product.vendor.device", "ro.build.product", "ro.product.device", "ro.product.odm.device",
+                "ro.product.board"):
+        board = props.get(key, "")
+        if board and board.lower() not in ("ossi", "qssi", "mssi"):
+            prof = for_board(board)
+            if prof.id != GENERIC:
+                return prof
     return load("oplus-generic")
 
 
