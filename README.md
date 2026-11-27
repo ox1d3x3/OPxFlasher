@@ -42,7 +42,7 @@
 Flashing a OnePlus or OPPO phone usually means a folder of scripts, a ROM you hope is the
 right one, and no way back if it isn't. OPxFlasher puts every step in one app, from backup
 and ROM checks to flashing and recovery. Before anything is written, it checks that the
-firmware fits **your** phone and that you have a verified backup to return to.
+firmware fits **your** phone, and it recommends a verified backup to return to.
 
 - **Fail closed.** If a check can't confirm something is safe, OPxFlasher stops and tells you why.
 - **Your data stays yours.** `userdata`, its encryption metadata and the Google account lock are
@@ -57,8 +57,9 @@ firmware fits **your** phone and that you have a verified backup to return to.
 |---|---|
 | **Backup** | Network essentials, Critical (identity and calibration) or the whole OS. Hash-verified, with empty space stored as holes so Full backups stay small. |
 | **ROMs** / **Flash ROM** | Get, verify and convert ROMs; then a dry run of any full OTA, `payload.bin` or image folder against the phone: device, variant, known-bad firmware, AVB and Qualcomm anti-rollback, partition sizes. |
-| **Guarded flashing** | Flashes only when every check passes, with a verified backup selected. Resumable journal; `super.img` from the bootloader where fastbootd is unsafe. |
-| **Anti-rollback fuse guard** | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501+: never flashes a build older than the one installed, because that blows a hardware fuse. |
+| **Guarded flashing** | Flashes only when every check passes. A verified backup is recommended, not forced (tick *I agree with the risk* without one). Each image goes where the phone takes it (OnePlus 13: boot images from the bootloader, firmware and system from fastbootd, both slots), a phone that doesn't answer is never guessed about, and a resumable journal survives interruptions. If the USB link drops (common on Windows in fastbootd), a banner asks you to replug the cable and the flash carries on. |
+| **China hardware on Android 17** | ColorOS / OxygenOS 17 breaks fastboot on Chinese OnePlus 13 hardware (PJZ110, also when converted to Global). OPxFlasher asks which hardware the phone is and, for China hardware, keeps its Android 16 `abl` and `engineering_cdt`, runs fastbootd from the phone's own recovery and writes the boot images last. Recovery zips do the same (`-cnhw.zip`). |
+| **Anti-rollback fuse guard** | OnePlus 13 / 13T / 15 on ColorOS 16.0.3.501+: never flashes a build older than the one installed, because that blows a hardware fuse. When it can't read the numbers (no root, phone in fastboot), you decide behind a serious warning, and **Validate ROM / ARB** compares the ROM with the installed build. |
 | **ROM detection & conversion** | Recognises full / incremental OTAs, payload.bin, image folders, flasher-kit zips, sparse and split images. Converts any full ROM into a **recovery zip** for OrangeFox / TWRP / AERA (checks phone, variant and downgrade before writing; keeps your data) or an image folder. |
 | **Verify ROM** | Checks any ROM byte by byte against its own hashes (payload, full-ROM SHA-256 list, zip CRCs, vbmeta digests), that it's complete and the files are what their names say, and whether OPxFlasher or OrangeFox / AERA can install it, offering to convert when needed. |
 | **Bootloader unlock** | Guided unlock with the maker's own command: warnings, a 30-second read, a sum and your agreement first; checks OEM unlocking and never reboots via fastbootd. Erases the phone. |
@@ -113,12 +114,14 @@ changed since. Alternatively, compare its SHA-256 with `SHA256SUMS.txt` in the r
 1. **Start the app and prepare the phone.** On first start OPxFlasher checks for adb and
    fastboot and offers to download them. Turn on *USB debugging* (Developer options) and connect
    the phone. Backups and partition reads need root (Magisk, KernelSU or APatch) or a custom recovery.
-2. **Back up first.** Open the app, choose **Critical** (or **Full firmware** for an offline
-   copy of the whole OS) and press **Start backup**. Every image is verified.
+2. **Back up first (recommended).** Open the app, choose **Critical** (or **Full firmware** for an
+   offline copy of the whole OS) and press **Start backup**. Every image is verified. No root? You
+   can still flash: tick *I agree with the risk*.
 3. **Check the ROM.** On the **Flash ROM** tab, pick an OTA zip (or **ROMs → Official ROMs...** to
    download one). Nothing is flashed; you see exactly what would be written where.
-4. **Flash.** If every check passes, **Flash...** asks for your backup and for you to type
-   `FLASH`. Each step is journaled, so an interrupted flash can resume.
+4. **Flash.** If every check passes, **Flash...** shows every step it will take and asks you to
+   type `FLASH`. Each step is journaled: **Resume** carries on where an interrupted flash stopped.
+   Use a USB port on the PC itself (rear / motherboard), not a front-panel port or hub.
 5. **If something goes wrong,** press **Phone won't start?**. It tells you which state the
    phone is in and what to do next, including restoring from your backup.
 
@@ -144,11 +147,17 @@ fastboot. If the phone doesn't show up, press **Phone not showing up?**: it find
 links to the official driver and explains the Windows Update / Device Manager steps. Drivers aren't
 bundled, because they can't be redistributed.
 
-**Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU or APatch,
-or a custom recovery). Full ROM flashes need a backup of the phone, so root is needed at least once
-to make it. The first root itself, and single images such as a custom recovery, can be flashed
-without a backup when you tick *I agree with the risk* (CLI: `NO BACKUP`). Reboots, debloat, Android logs and ROM checks against an existing backup work without root;
-a ROM check against an unrooted phone compares what Android reports (model, build, hardware project).
+**Does the phone need root?** For backups and reading partitions, yes (Magisk, KernelSU / SukiSU or
+APatch, or a custom recovery). Flashing doesn't: a full ROM, the first root and single images such as
+a custom recovery can all be flashed without a backup when you tick *I agree with the risk*, even
+with the phone only in fastboot (Android broken). Reboots, debloat, Android logs and ROM checks work
+without root; a ROM check against an unrooted phone compares what Android reports (model, build,
+hardware project).
+
+**The phone drops off USB in the middle of a flash.** Almost always the port or cable: use a port
+on the PC itself (rear / motherboard), not the case's front panel or a hub. On Windows, fastbootd is
+often lost until the cable is plugged in again; OPxFlasher shows a banner asking for that, waits,
+and carries on.
 
 **Will it touch my photos and apps?** No. Personal data is never backed up and never flashed. Only
 an explicit factory reset, which you choose and confirm, erases it.
@@ -157,7 +166,7 @@ an explicit factory reset, which you choose and confirm, erases it.
 
 | Phone | Models | Status |
 |---|---|---|
-| **OnePlus 13** | PJZ110 (China), CPH2653 (Global; product CPH2653EEA = EU), CPH2655 (NA), CPH2649 (India) | Full profile: backup, ROM check, flashing, restore zips (AERA board `dodge`), fuse guard |
+| **OnePlus 13** | PJZ110 (China), CPH2653 (Global; product CPH2653EEA = EU), CPH2655 (NA), CPH2649 (India) | Full profile, **tested on a real phone**: China → Global conversion (recovery zip in AERA), full PC flashes of 16 EU and Global 17 (China-hardware mode), Global 17 recovery zip in AERA (board `dodge`), fuse guard |
 | **OnePlus 13T / 13s** | PKX110 (China), CPH2723 (India) | New profile: backup, ROM check, fuse guard |
 | **OnePlus 15** | PLK110 (China), CPH2747 (Global) | New profile: backup, ROM check, fuse guard |
 | Other OnePlus / OPPO | — | Generic profile: backup and ROM check |
@@ -170,9 +179,11 @@ small JSON profiles; to add yours, see **[Adding a device](docs/ADDING_A_DEVICE.
 
 OPxFlasher is in the **0.7.0 release-candidate** phase: every update is published as a
 pre-release (`v0.7.0-rc.N`) with signed builds, and the app's title shows the exact build.
-All features are covered by an automated test suite of nearly 300 tests, run on Windows,
-Linux and macOS against a simulated phone and synthetic firmware. Validation on real
-OnePlus 13 hardware comes before the final 0.7.0 release.
+All features are covered by an automated test suite of about 590 tests, run on Windows,
+Linux and macOS against a simulated phone and synthetic firmware that reproduces the real
+OnePlus 13's quirks. On a real OnePlus 13 (Nov 2026): region conversion, full PC flashes
+(Android 16, and Global 17 on China hardware) and recovery-zip installs in AERA are done;
+backup, root, signal restore and debloat on 17 come before the final 0.7.0.
 
 ## Documentation
 
