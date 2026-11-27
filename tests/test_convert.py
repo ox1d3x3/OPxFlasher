@@ -169,7 +169,7 @@ def test_damaged_fullrom_zip_is_caught(tmp_path):
         for info in src.infolist():
             data = src.read(info)
             if info.filename == "images/boot.img":
-                data = b"X" + data[1:]
+                data = bytes([data[0] ^ 0xFF]) + data[1:]  # always a change (b"X" wasn't, 1 in 256 times)
             dst.writestr(info, data)
     with pytest.raises(RomError, match="SHA-256"):
         materialize(open_rom(bad), "boot", tmp_path / "boot.img")
