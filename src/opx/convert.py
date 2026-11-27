@@ -317,7 +317,9 @@ def region_code(rom: RomInfo) -> str:
     return ""
 
 
-_SUFFIX = re.compile(r"-fullrom(?:-[A-Z]{2,3})?(?:-ready-[A-Za-z0-9]+)?(?:-keeprec)?$")
+# what convert() adds, plus a short tag someone typed after it ("-fullrom-GLO_17"): converting a converted
+# folder again (to make its recovery zip) must not give "...-fullrom-GLO_17-fullrom-GLO"
+_SUFFIX = re.compile(r"-fullrom(?:-[A-Z]{2,3})?(?:-ready-[A-Za-z0-9]+)?(?:-keeprec)?(?:-cnhw)?(?:[_ -][A-Za-z0-9]{1,12})?$")
 
 
 def output_name(rom: RomInfo) -> str:

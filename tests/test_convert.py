@@ -418,6 +418,9 @@ def test_output_names_carry_the_region(tmp_path, product, name, want):
     ("PJZ110_17.0.1.202(CN01).zip", {}, "PJZ110_17.0.1.202(CN01)-fullrom-CN"),  # already in the name
     ("PJZ110_11.F.07_2070_202610080010.zip", {}, "PJZ110_11.F.07_2070_202610080010-fullrom-CN"),  # unknown: none
     ("PJZ110_X-17-0-1-202-fullrom-CN.zip", {}, "PJZ110_X-17-0-1-202-fullrom-CN"),  # converted again
+    # a converted folder someone renamed (real one, 27 Nov 2026), and a China-hardware zip, converted again
+    ("PJZ110_X-17-0-1-202-fullrom-CN_17", {}, "PJZ110_X-17-0-1-202-fullrom-CN"),
+    ("PJZ110_X-17-0-1-202-fullrom-CN-keeprec-cnhw.zip", {}, "PJZ110_X-17-0-1-202-fullrom-CN"),
 ])
 def test_output_names_carry_the_os_version(tmp_path, name, meta, want):
     from opx.rom.ota import RomInfo
