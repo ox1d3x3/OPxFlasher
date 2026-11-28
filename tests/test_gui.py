@@ -94,6 +94,37 @@ def test_gui_rom_check_tab(window, adb_env, tmp_path):
 
 
 
+def test_gui_variant_change_is_confirmed_in_the_flash_window(window, adb_env, tmp_path, monkeypatch):
+    """A ROM for another region of the same phone: Variant says STOP until the owner confirms it, so the Flash
+    button must open the window that asks (it stayed grey up to rc.80, and the tick box was unreachable)."""
+    import romfactory as rf
+    from test_plan import put, rom_zip, sized
+
+    from opx import flash as fl
+    from opx.gui import flash_dialog as fdm
+
+    app, win = window
+    for slot in ("_a", "_b"):
+        put(adb_env, f"vbmeta{slot}", sized(rf.build_vbmeta(2)))
+    win.tabs.setCurrentIndex(1)
+    win.rom_edit.setText(str(rom_zip(tmp_path, product="CPH2653").path))  # the fake phone is a PJZ110
+    win.check_rom()
+    settle(app)
+    blocks = [c.name for c in win.report.checks if c.status == "block"]
+    assert "Variant" in blocks and not fl.hard_blocks(win.report, list(fl.CONFIRMABLE))
+    assert win.flash_btn.isEnabled()
+    assert "until you confirm" in win.verdict.text() and "Confirm in the flash window: " in win.reasons.text()
+    seen = {}
+
+    def fake_exec(dlg):
+        seen["variant_box"] = dlg.variant_box is not None
+        return 0
+
+    monkeypatch.setattr(fdm.FlashDialog, "exec", fake_exec)
+    win.start_flash()
+    assert seen["variant_box"]  # "Yes, I want to flash this other variant"
+
+
 def test_gui_rom_check_without_root(adb_env, monkeypatch, tmp_path):
     """Issue #45: an unrooted phone is compared with what Android reports, never offered a flash."""
     import json

@@ -43,6 +43,9 @@ OVERRIDE_UNKNOWN_BUILD = "installed-build-unknown"  # build unknown (phone or RO
 OVERRIDE_UNKNOWN_ROM = "rom-identity-unknown"  # loose images: the user confirms they're for this phone
 # confirmed together in the anti-rollback warning
 RISK_OVERRIDES = (OVERRIDE_QCOM_UNVALIDATED, OVERRIDE_UNKNOWN_BUILD, OVERRIDE_UNKNOWN_ROM)
+# everything the flash window asks the user to confirm (the ARB ones together, the others with their own
+# tick box): a STOP from these must open the window, not grey out the Flash button
+CONFIRMABLE = (*RISK_OVERRIDES, OVERRIDE_VARIANT, OVERRIDE_UNKNOWN_FIRMWARE)
 AVB_ORDER_LAST = ("vbmeta_system", "vbmeta_vendor", "vbmeta")
 
 Event = dict

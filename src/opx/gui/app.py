@@ -1627,11 +1627,16 @@ class MainWindow(QMainWindow):
             "OK": "OK - all safety checks passed (dry run)",
             "NOT COMPARED": "ROM checked - connect your phone or choose a backup to compare it with your phone",
         }[report.verdict]
+        blocks = [c for c in report.checks if c.status == "block"]
+        confirm_only = report.verdict == "BLOCKED" and not fl.hard_blocks(report, list(fl.CONFIRMABLE))
+        if confirm_only:  # only things the owner can confirm in the flash window (variant change, ARB)
+            text = "BLOCKED until you confirm - press Flash... and confirm it there (read every warning)"
+            colours["BLOCKED"] = "#6b3d12"
         self.verdict.setText(text)
         self.verdict.setStyleSheet(f"background:{colours[report.verdict]}")
-        blocks = [c for c in report.checks if c.status == "block"]
         # the table below has the details; the banner only names what to fix
-        self.reasons.setText("Fix first: " + ", ".join(c.name for c in blocks) if report.verdict == "BLOCKED" else "")
+        self.reasons.setText(("Confirm in the flash window: " if confirm_only else "Fix first: ")
+                             + ", ".join(c.name for c in blocks) if report.verdict == "BLOCKED" else "")
         self.reasons.setVisible(report.verdict == "BLOCKED")
         from opx.rom import detect
 
@@ -1717,7 +1722,7 @@ class MainWindow(QMainWindow):
         d = self.selected_device()
         if self.session is None and (d is None or d.serial != self.check_device.facts.get("serial", d.serial)):
             return False  # the phone that was checked must be the one connected
-        return not fl.hard_blocks(self.report, list(fl.RISK_OVERRIDES))
+        return not fl.hard_blocks(self.report, list(fl.CONFIRMABLE))
 
     def start_flash(self) -> None:
         if not self._can_offer_flash():
