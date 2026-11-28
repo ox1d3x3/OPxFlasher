@@ -12,6 +12,8 @@ folder as fake_adb.py plus a state file:
     drop_once         partition whose first flash loses the USB link; the phone stays where it is (a replug)
     drop_on_flash     partition name whose flash loses the USB link and the phone restarts to Android
     no_size           partition names whose partition-size isn't answered (real OnePlus 13 fastbootd: modem)
+    fetch_first       the fastboot client fetches super before a flash in the bootloader, which answers
+                      'unknown command' (seen with platform-tools 37.0.3 on a OnePlus 13): nothing is written
     log               every command that changed something
 """
 
@@ -121,6 +123,10 @@ def main(argv: list[str]) -> int:
     if args[:1] == ["flash"]:
         part, image = args[1], Path(args[2])
         data = image.read_bytes()
+        if state.get("fetch_first") and state.get("mode") == "bootloader":
+            err("Fetching super (offset=0, size=100000)             FAILED (fetch:super:0x00000000:0x00100000 "
+                "request failed: remote: 'unknown command')\nfastboot: error: Command failed")
+            return 1
         if state.get("drop_once") == part:
             state["drop_once"] = None
             save(state)

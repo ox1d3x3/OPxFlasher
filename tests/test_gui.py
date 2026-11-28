@@ -1776,3 +1776,13 @@ def test_gui_custom_recovery_from_the_owners_download(window, monkeypatch, tmp_p
     assert any(e["name"] == "AERA" for _, e in Fake.entries)
     assert tab.part_combo.currentText() == "recovery" and tab.slot_combo.currentData() == "both"
     assert tab.image_edit.text().endswith("custom-recovery.img")
+
+
+def test_replace_platform_tools_offers_the_tested_version(window, monkeypatch):
+    app, win = window
+    got = []
+    monkeypatch.setattr(win, "start_tools_download", lambda version=None: got.append(version))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: self.defaultButton())
+    win.replace_platform_tools()
+    assert got == ["35.0.2"]  # the default button: the release that flashed a OnePlus 13 end to end

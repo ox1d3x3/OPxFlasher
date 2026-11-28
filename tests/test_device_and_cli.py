@@ -1,3 +1,5 @@
+import pytest
+
 from opx import cli
 from opx import device as dev
 
@@ -92,6 +94,11 @@ def test_platform_tools_download_covers_macos(monkeypatch, tmp_path):
     from opx import tools
 
     assert tools.GOOGLE_PLATFORM_TOOLS["darwin"].endswith("platform-tools-latest-darwin.zip")
+    assert tools.platform_tools_url("win32", "35.0.2") == \
+        "https://dl.google.com/android/repository/platform-tools_r35.0.2-windows.zip"
+    assert tools.platform_tools_url("linux") == tools.GOOGLE_PLATFORM_TOOLS["linux"]
+    with pytest.raises(ValueError):
+        tools.platform_tools_url("linux", "../evil")
     monkeypatch.setattr(tools.sys, "platform", "darwin")
     monkeypatch.setattr(tools.os, "name", "posix")
     monkeypatch.setattr(tools.Path, "home", lambda: tmp_path)

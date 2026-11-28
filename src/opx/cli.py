@@ -279,7 +279,7 @@ def cmd_tools(args) -> int:
         if total:
             print(f"\r  {100 * done / total:5.1f}%", end="", flush=True)
 
-    dest = fetch_platform_tools(progress=progress)
+    dest = fetch_platform_tools(progress=progress, version=args.version)
     print(f"\nInstalled to {dest}")
     return 0
 
@@ -1291,6 +1291,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     t = sub.add_parser("tools", help="find or download adb/fastboot")
     t.add_argument("action", choices=("where", "fetch"))
+    t.add_argument("--version", help="a Google platform-tools release, e.g. 35.0.2 (tested on the OnePlus 13); "
+                                     "default: the latest")
     t.set_defaults(fn=cmd_tools)
 
     ota = sub.add_parser("ota", help="official ROMs (OTA catalog, with mirror fallback)")

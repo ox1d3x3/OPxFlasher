@@ -348,6 +348,30 @@ def test_no_backup_with_a_network_backup_for_own_network_files(adb, fastboot, ph
     assert any(st.partition == "oplusstanvbk" and st.source == "backup" for st in plan.steps)
 
 
+def test_a_fastboot_that_asks_for_fetch_stops_instead_of_deferring(adb, fastboot, phone, fb_state, tmp_path):
+    """platform-tools 37.0.3 seen on a OnePlus 13: before every write in the bootloader, the PC's fastboot asked
+    for `fetch:super` and the bootloader said 'unknown command'. That isn't the bootloader refusing an image:
+    deferring every image to fastbootd sent the whole flash down a dead end. Stop at the first one."""
+    fb_state(fetch_first=True)
+    plan, runner = setup(adb, fastboot, tmp_path, fl.FlashOptions(**ALLOW))
+    assert plan.ok, plan.problems
+    with pytest.raises(fl.FlashError, match="platform-tools 35.0.2") as e:
+        runner.run()
+    assert "Do not reboot" in str(e.value)
+    statuses = [st.status for st in plan.steps]
+    assert "deferred" not in statuses and statuses.count("failed") == 1
+    assert next(st for st in plan.steps if st.status == "failed").kind in ("flash", "flash-any")
+    assert not [c for c in fb_state.read()["log"] if c.startswith("flash ")]  # nothing written
+
+
+def test_fetch_error_detection():
+    assert fl.is_client_fetch_error(RuntimeError(
+        "Fetching super (offset=0, size=100000) FAILED (fetch:super:0x00000000:0x00100000 request failed: "
+        "remote: 'unknown command')"))
+    assert not fl.is_client_fetch_error(RuntimeError("Writing 'xbl_a' FAILED (remote: 'Flashing is not allowed')"))
+    assert not fl.is_client_fetch_error(RuntimeError("FAILED (remote: 'unknown command')"))
+
+
 def test_firmware_from_fastbootd_when_the_bootloader_refuses_it(adb, fastboot, phone, fb_state, tmp_path):
     # the real OnePlus 13: its bootloader writes boot, dtbo, modem, vbmeta ... (the profile's
     # bootloader_images, as Super Flasher does) and refuses the rest; its fastbootd refuses modem.

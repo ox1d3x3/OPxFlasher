@@ -699,6 +699,7 @@ class MainWindow(QMainWindow):
 
         tools = bar.addMenu(tr("&Tools"))
         act(tools, tr("Download adb and fastboot"), self.download_tools)
+        act(tools, tr("Replace platform-tools..."), self.replace_platform_tools)
         act(tools, tr("Read a logs zip..."), lambda: self.diag_tab.read_logs())
         tools.addSeparator()
         lang = tools.addMenu(tr("Language"))
@@ -1119,7 +1120,34 @@ class MainWindow(QMainWindow):
         if self.ask_download_tools(missing_tools()):
             self.start_tools_download()
 
-    def start_tools_download(self) -> None:
+    def replace_platform_tools(self) -> None:
+        """Swap OPxFlasher's own adb / fastboot for another Google release (a fastboot that misbehaves with a
+        phone's bootloader, say). Only the per-user copy OPxFlasher downloaded is replaced."""
+        from opx.tools import KNOWN_GOOD_PLATFORM_TOOLS, find_tool, user_tools_dir
+
+        try:
+            now = " ".join(find_tool("fastboot"))
+            ver = Tool("fastboot").run("--version", timeout=15).stdout.strip().splitlines()[:1]
+        except Exception:  # noqa: BLE001 (only shown)
+            now, ver = tr("not found"), []
+        box = QMessageBox(QMessageBox.Question, tr("Replace platform-tools"),
+                          tr("fastboot in use:") + f" {now}" + (f"\n{ver[0]}" if ver else ""), parent=self)
+        box.setInformativeText(
+            tr("Download Google's platform-tools again into") + f" {user_tools_dir()}. "
+            + tr("Version") + f" {KNOWN_GOOD_PLATFORM_TOOLS} " + tr(
+                "flashed the OnePlus 13 end to end; the latest may be newer than anything tested. A "
+                "platform-tools folder next to OPxFlasher, or OPX_FASTBOOT, still comes first."))
+        good = box.addButton(f"{KNOWN_GOOD_PLATFORM_TOOLS} " + tr("(tested)"), QMessageBox.AcceptRole)
+        latest = box.addButton(tr("Latest"), QMessageBox.AcceptRole)
+        box.addButton(tr("Cancel"), QMessageBox.RejectRole)
+        box.setDefaultButton(good)
+        box.exec()
+        if box.clickedButton() is good:
+            self.start_tools_download(KNOWN_GOOD_PLATFORM_TOOLS)
+        elif box.clickedButton() is latest:
+            self.start_tools_download()
+
+    def start_tools_download(self, version: str | None = None) -> None:
         if self.busy:
             return
         self._set_busy(True)
@@ -1133,6 +1161,8 @@ class MainWindow(QMainWindow):
         dlg.setValue(0)
         self.tools_progress = dlg
         job = Job(fetch_platform_tools)
+        if version:
+            job.kwargs["version"] = version
         job.kwargs["progress"] = lambda done, total: job.signals.event.emit((done, total))
         self.run_job(job, self._tools_downloaded, self._tools_failed, self._tools_progress)
 

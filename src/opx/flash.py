@@ -96,6 +96,24 @@ def hard_blocks(report: Report, overrides: list[str]) -> list:
     return [c for c in report.checks if c.status == BLOCK and (override_key(c) is None or override_key(c) not in overrides)]
 
 
+FASTBOOT_CLIENT_FETCH = (
+    "This PC's fastboot asked the bootloader for 'fetch' (to read super) before writing, and the bootloader "
+    "doesn't have that command, so nothing was written. It's the fastboot program on the PC, not the phone: "
+    "use Google's platform-tools 35.0.2 (Tools > Replace platform-tools..., or put that platform-tools folder "
+    "next to OPxFlasher), then put the phone in the bootloader and press Resume.")
+
+
+def is_client_fetch_error(exc: BaseException) -> bool:
+    """fastboot (the PC side) tried `fetch:` and the bootloader answered unknown command."""
+    text = str(exc).lower()
+    return "fetch:" in text and ("unknown command" in text or "unrecognized command" in text)
+
+
+def _short(exc: BaseException) -> str:
+    lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
+    return lines[0][:300] if lines else ""
+
+
 def overridable_blocks(report: Report, key: str | None = None) -> list:
     return [c for c in report.checks if override_key(c) is not None and (key is None or override_key(c) == key)]
 
@@ -945,6 +963,10 @@ class Runner:
                         continue
                     self._fail(step, index, exc, lost=True)
                 except FastbootError as exc:
+                    if is_client_fetch_error(exc):
+                        # the PC's fastboot asked the bootloader for something it doesn't have: nothing was
+                        # written, and deferring it would only send every image down the same dead end
+                        self._fail(step, index, FlashError(f"{FASTBOOT_CLIENT_FETCH}\n({_short(exc)})"))
                     try:
                         in_bootloader = self.fb is not None and self.fb.mode() == "bootloader"
                     except LostPhone as lost:

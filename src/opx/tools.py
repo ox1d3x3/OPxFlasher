@@ -13,6 +13,7 @@ Commands are always passed as argument lists, never through a local shell.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -30,6 +31,18 @@ GOOGLE_PLATFORM_TOOLS = {
     "linux": "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
     "darwin": "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
 }
+# Google keeps every release at platform-tools_r<version>-<os>.zip. 35.0.2 flashed the OnePlus 13 end to end;
+# a 37.0.3 fastboot was seen asking its bootloader for `fetch` before every write (refused, nothing written).
+KNOWN_GOOD_PLATFORM_TOOLS = "35.0.2"
+_OS_NAME = {"win32": "windows", "linux": "linux", "darwin": "darwin"}
+
+
+def platform_tools_url(key: str, version: str | None = None) -> str:
+    if not version:
+        return GOOGLE_PLATFORM_TOOLS[key]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError(f"Not a platform-tools version: {version}")
+    return f"https://dl.google.com/android/repository/platform-tools_r{version}-{_OS_NAME[key]}.zip"
 
 _EXE = ".exe" if os.name == "nt" else ""
 
@@ -183,7 +196,7 @@ def _no_window() -> dict:
     return {}
 
 
-def fetch_platform_tools(dest: Path | None = None, progress=None) -> Path:
+def fetch_platform_tools(dest: Path | None = None, progress=None, version: str | None = None) -> Path:
     """Download Google's official platform-tools into the per-user folder.
 
     The download is Google's Android SDK Platform-Tools and is covered by
@@ -197,7 +210,7 @@ def fetch_platform_tools(dest: Path | None = None, progress=None) -> Path:
         key = "linux"
     else:
         raise RuntimeError("Automatic download supports Windows, Linux and macOS only.")
-    url = GOOGLE_PLATFORM_TOOLS[key]
+    url = platform_tools_url(key, version)
     dest = dest or user_tools_dir()
     dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -218,7 +231,17 @@ def fetch_platform_tools(dest: Path | None = None, progress=None) -> Path:
                     raise RuntimeError(f"Unsafe path in archive: {member}")
             zf.extractall(tmp)
         src = Path(tmp) / "platform-tools"
+        if not (src / f"fastboot{_EXE}").is_file():
+            raise RuntimeError(f"The download from {url} has no fastboot in it.")
         if dest.exists():
+            # an adb server started from this folder keeps adb.exe locked on Windows: stop it first
+            old_adb = dest / f"adb{_EXE}"
+            if old_adb.is_file():
+                try:
+                    subprocess.run([str(old_adb), "kill-server"], capture_output=True, timeout=15,
+                                   **_no_window())
+                except (OSError, subprocess.SubprocessError):
+                    pass
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
 
